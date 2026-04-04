@@ -1,0 +1,79 @@
+using Microsoft.EntityFrameworkCore;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Entities;
+using MultiRoomChatWebApp.Server.Modules.User.Core.Entities;
+
+namespace MultiRoomChatWebApp.Server.Infrastructure.Database;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<User> Users => Set<User>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Room> Rooms => Set<Room>();
+    public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Username).IsUnique();
+            entity.HasIndex(e => e.Email).IsUnique();
+            
+            entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.DisplayName).HasMaxLength(100);
+            entity.Property(e => e.PasswordHash).IsRequired();
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Token).IsUnique();
+            
+            entity.HasOne(d => d.User)
+                  .WithMany(p => p.RefreshTokens)
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Room>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.GroupId);
+            entity.HasIndex(e => e.CreatedBy);
+            
+            entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Name).HasMaxLength(100);
+            
+            entity.HasOne(d => d.Creator)
+                  .WithMany(p => p.CreatedRooms)
+                  .HasForeignKey(d => d.CreatedBy)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<RoomMember>(entity =>
+        {
+            entity.HasKey(e => new { e.RoomId, e.UserId });
+            entity.HasIndex(e => new { e.UserId, e.RoomId });
+            
+            entity.Property(e => e.Role).HasConversion<string>().HasMaxLength(20);
+            
+            entity.HasOne(d => d.Room)
+                  .WithMany(p => p.Members)
+                  .HasForeignKey(d => d.RoomId)
+                  .OnDelete(DeleteBehavior.Cascade);
+                  
+            entity.HasOne(d => d.User)
+                  .WithMany(p => p.RoomMemberships)
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+}

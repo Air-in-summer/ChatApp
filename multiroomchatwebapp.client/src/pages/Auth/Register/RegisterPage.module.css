@@ -1,0 +1,64 @@
+.pageContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: var(--spacing-md);
+  width: 100%;
+}
+
+.registerCard {
+  animation: slideUp var(--transition-smooth);
+  width: 100%;
+  max-width: 500px; /* Hơi rộng hơn Login một xíu do có xếp hàng ngang */
+}
+
+.formContainer {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: 0;
+}
+
+.row > div {
+  flex: 1;
+}
+
+.submitBtn {
+  margin-top: var(--spacing-md);
+}
+
+.footerLink {
+  margin-top: var(--spacing-xl);
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.footerLink a {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-left: 4px;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .row {
+    flex-direction: column;
+    gap: 0;
+  }
+}

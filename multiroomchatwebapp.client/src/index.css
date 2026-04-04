@@ -1,0 +1,82 @@
+:root {
+  /* Soothing Dark & Pastel Colors */
+  --bg-dark-primary: #0f172a;    /* Slate 900 */
+  --bg-dark-secondary: #1e293b;  /* Slate 800 */
+  
+  /* Gradient Pastel backgrounds */
+  --gradient-pastel-1: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%); /* Deep indigo mix */
+  --gradient-pastel-2: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+  
+  /* Text Colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-danger: #ef4444;       /* Red 500 */
+  
+  /* Accent Colors (Buttons, Links) */
+  --accent-primary: #3b82f6;     /* Blue 500 */
+  --accent-hover: #2563eb;       /* Blue 600 */
+  --accent-glow: rgba(59, 130, 246, 0.4);
+
+  /* Glassmorphism Variables */
+  --glass-bg: rgba(30, 41, 59, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: blur(12px);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  
+  /* Dimensions & Spacing */
+  --border-radius-sm: 6px;
+  --border-radius-md: 12px;
+  --border-radius-lg: 20px;
+  
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Transitions */
+  --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--gradient-pastel-1);
+  background-size: 200% 200%;
+  animation: gradientShift 15s ease infinite;
+  color: var(--text-primary);
+  min-height: 100vh;
+  margin: 0;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Base Elements */
+a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: var(--transition-fast);
+}
+
+a:hover {
+  text-decoration: underline;
+  color: #60a5fa;
+}
+
+/* Form resets */
+input, button {
+  font-family: inherit;
+  font-size: inherit;
+}

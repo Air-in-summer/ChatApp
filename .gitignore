@@ -1,0 +1,39 @@
+# [Yêu cầu của User]
+.agent/
+.vs/
+docker/
+docker-compose.yml
+bin/
+obj/
+**/Properties/launchSettings.json
+appsettings.json
+appsettings.*.json
+*.http
+*.txt
+
+# Bỏ qua tất cả file .md NHƯNG giữ lại README.md
+*.md
+!README.md
+!readme.md
+
+# [Đề xuất bổ sung - Chuẩn .NET/React]
+# Node / React (multiroomchatwebapp.client)
+node_modules/
+dist/
+build/
+.env
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# .NET (MultiRoomChatWebApp.Server)
+*.user
+*.suo
+TestResults/
+Publish/
+Logs/
+*.userosscache
+*.sln.docstates
+
+# (Không cần ghi riêng .client/bin hay .server/bin vì bin/ và obj/ ở trên đã áp dụng cho MỌI thư mục con rồi)
