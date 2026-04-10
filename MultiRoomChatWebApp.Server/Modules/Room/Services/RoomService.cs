@@ -127,7 +127,8 @@ public class RoomService : IRoomService
                 if (otherMember != null)
                 {
                     var otherUser = await _userCacheService.GetUserAsync(otherMember.UserId);
-                    dto.OtherUserDisplayName = otherUser?.DisplayName ?? "Unknown User";
+                    dto.OtherUserDisplayName = otherUser?.DisplayName ?? "Unknown";
+                    dto.OtherUserUsername = otherUser?.Username ?? "unknown";
                 }
             }
 

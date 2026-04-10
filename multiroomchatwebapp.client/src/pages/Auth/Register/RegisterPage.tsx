@@ -1,11 +1,25 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { apiClient } from '../../../api/apiClient';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
 import { Button } from '../../../components/ui/Button/Button';
 import styles from './RegisterPage.module.css';
 
+/**
+ * Trang đăng ký tài khoản mới.
+ *
+ * @remarks
+ * Luồng xử lý:
+ * 1. Validate form phía Frontend.
+ * 2. Gọi API /api/auth/register qua apiClient (withCredentials: true).
+ * 3. Backend tạo user, trả về AccessToken trong body + RefreshToken trong Cookie.
+ * 4. Sau khi đăng ký thành công → điều hướng về /login để user tự đăng nhập.
+ *    (Không tự login sau khi register để giữ luồng đơn giản)
+ *
+ * Lưu ý: KHÔNG còn lưu bất kỳ token nào vào localStorage nữa.
+ */
 export const RegisterPage = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -24,14 +38,14 @@ export const RegisterPage = () => {
   const validateForm = () => {
     const newErrors: typeof errors = {};
     if (!formData.username) newErrors.username = 'Username là bắt buộc';
-    else if (!/^[a-zA-Z0-9._]+$/.test(formData.username)) 
+    else if (!/^[a-zA-Z0-9._]+$/.test(formData.username))
       newErrors.username = 'Username chỉ được dùng chữ, số, dấu chấm/gạch dưới';
-    
+
     if (!formData.displayName) newErrors.displayName = 'Tên hiển thị là bắt buộc';
-    
+
     if (!formData.email) newErrors.email = 'Email là bắt buộc';
     else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email không hợp lệ';
-    
+
     if (!formData.password) newErrors.password = 'Mật khẩu là bắt buộc';
     else if (formData.password.length < 8) newErrors.password = 'Tối thiểu 8 ký tự';
 
@@ -45,22 +59,16 @@ export const RegisterPage = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5202/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Server error');
-      }
+      // Gọi qua apiClient (withCredentials: true → Cookie sẽ được set)
+      await apiClient.post('/api/auth/register', formData);
 
       toast.success('Đăng ký thành công! Hãy đăng nhập.');
       navigate('/login');
-    } catch (err: any) {
-      toast.error(err.message || 'Lỗi đăng ký');
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || 'Lỗi đăng ký, vui lòng thử lại';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -82,7 +90,7 @@ export const RegisterPage = () => {
             <InputText
               label="Tên hiển thị"
               name="displayName"
-              placeholder="Thái Nguyễn 🇻🇳"
+              placeholder="Thái Nguyễn"
               value={formData.displayName}
               onChange={handleChange}
               error={errors.displayName}
@@ -98,7 +106,7 @@ export const RegisterPage = () => {
             onChange={handleChange}
             error={errors.email}
           />
-          
+
           <InputText
             label="Mật khẩu"
             name="password"

@@ -20,12 +20,26 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Kích hoạt extension pg_trgm của PostgreSQL để hỗ trợ ILIKE '%...%'
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Username).IsUnique();
             entity.HasIndex(e => e.Email).IsUnique();
             
+            // Tách riêng GIN Index cho tìm kiếm (Không dùng làm Unique vì GIN không hỗ trợ)
+            entity.HasIndex(e => e.Username)
+                  .HasDatabaseName("IX_Users_Username_Trgm")
+                  .HasMethod("gin")
+                  .HasOperators("gin_trgm_ops");
+                  
+            entity.HasIndex(e => e.DisplayName)
+                  .HasDatabaseName("IX_Users_DisplayName_Trgm")
+                  .HasMethod("gin")
+                  .HasOperators("gin_trgm_ops");
+
             entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
             entity.Property(e => e.DisplayName).HasMaxLength(100);

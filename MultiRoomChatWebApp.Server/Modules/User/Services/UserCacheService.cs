@@ -55,4 +55,14 @@ public class UserCacheService : IUserCacheService
 
         return dto;
     }
+
+    /// <summary>
+    /// Gọi hàm này NGAY SAU KHI thực hiện thành công các thao tác cập nhật (Update Profile)
+    /// dưới Database, để xoá Cache và ép hệ thống nạp lại thông tin mới nhất vào lần tới.
+    /// </summary>
+    public async Task InvalidateUserAsync(Guid userId)
+    {
+        string cacheKey = $"user:{userId}";
+        await _cache.RemoveAsync(cacheKey);
+    }
 }

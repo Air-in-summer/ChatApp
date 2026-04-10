@@ -11,4 +11,6 @@ public class RoomDto
     public string? Name { get; set; }
     
     public string? OtherUserDisplayName { get; set; }
+    
+    public string? OtherUserUsername { get; set; }
 }

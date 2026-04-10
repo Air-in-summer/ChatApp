@@ -56,10 +56,16 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IJwtService, MultiRoomChatWebApp.Server.Modules.Auth.Services.JwtService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IAuthService, MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserCacheService, MultiRoomChatWebApp.Server.Modules.User.Services.UserCacheService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserService, MultiRoomChatWebApp.Server.Modules.User.Services.UserService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.TokenCleanupService>();
 
     // Register Room Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomService, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomService>();
+
+    // Register Chat / SignalR Services
+    builder.Services.AddSignalR();
+    // Tracker đếm số lượng người online/offline (Dùng Singleton để chia sẻ bộ nhớ cho toàn HTTP pipeline)
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.InMemoryPresenceTracker>();
 
     // Configure JWT Authentication
     builder.Services.AddAuthentication(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
@@ -75,6 +81,23 @@ try
                 ValidAudience = builder.Configuration["Jwt:Audience"],
                 IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
                     System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+            };
+
+            // Hook Event để Bắt Token từ SignalR Websocket Query String (?access_token=...)
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    
+                    // Nếu là đường dẫn của Hub thì mình mới bắt token kiểu ảo này
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hub/chat"))
+                    {
+                        context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                }
             };
         });
 
@@ -117,7 +140,10 @@ try
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            policy.WithOrigins("https://localhost:5173", "http://localhost:5173")
+            policy.WithOrigins(
+                      "https://localhost:5173",   // Vite standalone (npm run dev)
+                      "http://localhost:5173"
+                  )
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
@@ -168,6 +194,8 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    app.MapHub<MultiRoomChatWebApp.Server.Modules.Chat.Hubs.ChatHub>("/hub/chat");
+
     app.MapFallbackToFile("/index.html");
 
     app.Run();
