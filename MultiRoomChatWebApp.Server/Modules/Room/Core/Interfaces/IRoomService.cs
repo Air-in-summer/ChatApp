@@ -14,4 +14,9 @@ public interface IRoomService
     /// Lấy danh sách các Room người dùng tham gia kèm theo bù dữ liệu từ Redis.
     /// </summary>
     Task<IEnumerable<DTOs.RoomDto>> GetMyRoomsAsync(Guid userId);
+
+    /// <summary>
+    /// Tạo một Room (Channel) mới bên trong một Group/Server.
+    /// </summary>
+    Task<Entities.Room> CreateGroupRoomAsync(string name, Core.Enums.RoomType type, bool isPrivate, Guid createdBy, Guid groupId);
 }

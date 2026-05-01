@@ -50,7 +50,7 @@ public class RoomService : IRoomService
             .Where(rm => rm.UserId == targetUserId)
             .Select(rm => rm.RoomId);
 
-        // Phép Giao (INTERSECT) siêu nhanh ở tầng Database
+        // Phép Giao (INTERSECT) 
         var commonRoomIds = currentUserRooms.Intersect(targetUserRooms);
 
         // Lọc bảng Rooms dựa trên tập hợp cực nhỏ các commonRoomIds
@@ -98,42 +98,105 @@ public class RoomService : IRoomService
     }
 
     /// <summary>
+    /// Tạo một Room (Channel) mới bên trong một Group/Server.
+    /// </summary>
+    /// <remarks>
+    /// Luồng xử lý:
+    /// 1. Khởi tạo Entity Room gắn với GroupId.
+    /// 2. Thêm người tạo vào danh sách Members của Room với quyền Admin.
+    /// 3. Lưu vào Database (Sử dụng Navigation Property để EF tự xử lý quan hệ).
+    /// </remarks>
+    public async Task<Core.Entities.Room> CreateGroupRoomAsync(string name, RoomType type, bool isPrivate, Guid createdBy, Guid groupId)
+    {
+        var newRoom = new Core.Entities.Room
+        {
+            Name = name,
+            Type = type,
+            IsPrivate = isPrivate,
+            CreatedBy = createdBy,
+            GroupId = groupId
+        };
+
+        // Gán người tạo làm Admin của phòng này (Dùng pattern Members.Add tương tự DM)
+        newRoom.Members.Add(new RoomMember
+        {
+            UserId = createdBy,
+            Role = RoomRole.Admin,
+            JoinedAt = DateTime.UtcNow
+        });
+
+        _dbContext.Rooms.Add(newRoom);
+        await _dbContext.SaveChangesAsync();
+
+        return newRoom;
+    }
+
+    /// <summary>
     /// Lấy tất cả phòng của User. Kết hợp nạp UserMetadata từ Redis để đạt hiệu năng tối đa.
     /// </summary>
     public async Task<IEnumerable<Core.DTOs.RoomDto>> GetMyRoomsAsync(Guid userId)
     {
-        var rawRooms = await _dbContext.RoomMembers
+        // [BƯỚC 1: TRUY VẤN DATABASE BẰNG PROJECTION]
+        // Thay vì dùng .Include() kéo toàn bộ Entity Room và hàng ngàn RoomMember vào RAM,
+        // ta dùng .Select() để chỉ định chính xác những cột cần lấy.
+        // EF Core sẽ dịch đoạn này thành 1 câu SQL cực kỳ tối ưu.
+        var roomProjections = await _dbContext.RoomMembers
             .AsNoTracking()
             .Where(rm => rm.UserId == userId)
-            .Include(rm => rm.Room)
-                .ThenInclude(r => r.Members)
-            .Select(rm => rm.Room)
+            .Select(rm => new
+            {
+                // Lấy thông tin cơ bản của phòng
+                RoomId = rm.Room.Id,
+                Type = rm.Room.Type,
+                Name = rm.Room.Name,
+                
+                // Mấu chốt tối ưu: Nếu là phòng DM, ta chỉ SELECT ra đúng 1 cái UserId của người đối diện.
+                // Không cần tải toàn bộ danh sách Members của phòng đó.
+                OtherUserId = rm.Room.Type == RoomType.DirectMessage
+                    ? rm.Room.Members
+                        .Where(m => m.UserId != userId)
+                        .Select(m => (Guid?)m.UserId)
+                        .FirstOrDefault()
+                    : null
+            })
             .ToListAsync();
 
-        var result = new List<Core.DTOs.RoomDto>();
+        // [BƯỚC 2: TẠO DANH SÁCH CÁC TASK GỌI REDIS SONG SONG]
+        // Chuẩn bị một danh sách chứa các Task (chưa chạy await ngay lập tức)
+        var hydrationTasks = new List<Task<Core.DTOs.RoomDto>>();
 
-        foreach (var room in rawRooms)
+        foreach (var projection in roomProjections)
         {
-            var dto = new Core.DTOs.RoomDto
+            // Tạo một Func (closure) để xử lý từng phòng độc lập
+            hydrationTasks.Add(Task.Run(async () =>
             {
-                Id = room.Id,
-                Type = room.Type,
-                Name = room.Name
-            };
-
-            if (room.Type == RoomType.DirectMessage)
-            {
-                var otherMember = room.Members.FirstOrDefault(m => m.UserId != userId);
-                if (otherMember != null)
+                // Khởi tạo DTO cơ bản
+                var dto = new Core.DTOs.RoomDto
                 {
-                    var otherUser = await _userCacheService.GetUserAsync(otherMember.UserId);
+                    Id = projection.RoomId,
+                    Type = projection.Type,
+                    Name = projection.Name
+                };
+
+                // Nếu là phòng DM và có ID người đối diện, tiến hành gọi Redis
+                if (projection.Type == RoomType.DirectMessage && projection.OtherUserId.HasValue)
+                {
+                    // Gọi Cache Service (Lúc này Task mới bắt đầu chạy thực sự)
+                    var otherUser = await _userCacheService.GetUserAsync(projection.OtherUserId.Value);
+                    
+                    // Đắp thông tin vào DTO
                     dto.OtherUserDisplayName = otherUser?.DisplayName ?? "Unknown";
                     dto.OtherUserUsername = otherUser?.Username ?? "unknown";
                 }
-            }
 
-            result.Add(dto);
+                return dto;
+            }));
         }
+
+        // [BƯỚC 3: THỰC THI TẤT CẢ TASK CÙNG LÚC]
+        // Task.WhenAll sẽ bắn toàn bộ 50 request lên Redis cùng một thời điểm.
+        // Tổng thời gian chờ chỉ bằng thời gian của request chậm nhất (VD: 2ms thay vì 100ms).
+        var result = await Task.WhenAll(hydrationTasks);
 
         return result;
     }

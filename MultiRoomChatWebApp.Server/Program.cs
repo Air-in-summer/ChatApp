@@ -33,11 +33,27 @@ try
     // 2. SERVICES REGISTRATION
     // ──────────────────────────────────────────────────────────
 
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(options =>
+        {
+            // Serialize Enum thành chuỗi thay vì số nguyên
+            // Ví dụ: RoomType.DirectMessage → "DirectMessage" (thay vì 2)
+            // Frontend cần chuỗi để filter/so sánh chính xác
+            options.JsonSerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
     
     // Register Entity Framework Core DbContext
     builder.Services.AddDbContext<MultiRoomChatWebApp.Server.Infrastructure.Database.AppDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("PostgreSQL")));
+
+    // Config MongoDB Conventions (camelCase & Enum as String)
+    var pack = new MongoDB.Bson.Serialization.Conventions.ConventionPack
+    {
+        new MongoDB.Bson.Serialization.Conventions.CamelCaseElementNameConvention(),
+        new MongoDB.Bson.Serialization.Conventions.EnumRepresentationConvention(MongoDB.Bson.BsonType.String)
+    };
+    MongoDB.Bson.Serialization.Conventions.ConventionRegistry.Register("MongoConventions", pack, t => true);
 
     // Register MongoDB
     var mongoClient = new MongoDB.Driver.MongoClient(builder.Configuration.GetConnectionString("MongoDB"));
@@ -45,12 +61,19 @@ try
     builder.Services.AddScoped<MongoDB.Driver.IMongoDatabase>(sp => 
         sp.GetRequiredService<MongoDB.Driver.IMongoClient>().GetDatabase("ChatAppDB_Mongo"));
 
-    // Configure Redis Distributed Cache
+    // Configure Redis Distributed Cache & Multiplexer
+    var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("Missing Redis config");
+
+    // Đăng ký DistributedCache (chuẩn .NET)
     builder.Services.AddStackExchangeRedisCache(options =>
     {
-        options.Configuration = builder.Configuration.GetConnectionString("Redis");
+        options.Configuration = redisConnectionString;
         options.InstanceName = "ChatApp_";
     });
+
+    // Đăng ký ConnectionMultiplexer (để xài lệnh thuần SADD, SISMEMBER)
+    var redisMultiplexer = StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString);
+    builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(redisMultiplexer);
 
     // Register Auth Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IJwtService, MultiRoomChatWebApp.Server.Modules.Auth.Services.JwtService>();
@@ -59,11 +82,25 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserService, MultiRoomChatWebApp.Server.Modules.User.Services.UserService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.TokenCleanupService>();
 
+    // Register MediatR
+    builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+
     // Register Room Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomService, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomPermissionsCache, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomPermissionsCache>();
+
+    // Register Group Services
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupService, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupService>();
 
     // Register Chat / SignalR Services
-    builder.Services.AddSignalR();
+    builder.Services.AddSignalR()
+        .AddJsonProtocol(options => {
+            options.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService, MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatService>();
+    // Đăng ký Worker nhồi dữ liệu từ Redis vào MongoDB chạy ngầm vô thời hạn
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessagePersistenceWorker>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.ReadReceiptWorker>();
     // Tracker đếm số lượng người online/offline (Dùng Singleton để chia sẻ bộ nhớ cho toàn HTTP pipeline)
     builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.InMemoryPresenceTracker>();
 

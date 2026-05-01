@@ -15,6 +15,7 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
             .EmailAddress().WithMessage("Email không đúng định dạng");
 
         RuleFor(x => x.Password)
-            .NotEmpty().WithMessage("Mật khẩu không được để trống");
+            .NotEmpty().WithMessage("Mật khẩu không được để trống")
+            .MaximumLength(100).WithMessage("Mật khẩu không được vượt quá 100 ký tự");
     }
 }

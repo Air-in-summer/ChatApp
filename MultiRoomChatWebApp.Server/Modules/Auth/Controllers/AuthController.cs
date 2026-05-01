@@ -30,17 +30,21 @@ public class AuthController : ControllerBase
     ///                     Cho phép gửi khi người dùng click link navigation → UX tốt hơn.
     /// - MaxAge = 7 ngày : Khớp với thời hạn RefreshToken trong DB.
     /// </remarks>
-    private void SetRefreshTokenCookie(string refreshToken)
+    private CookieOptions GetBaseCookieOptions()
     {
-        var cookieOptions = new CookieOptions
+        return new CookieOptions
         {
             HttpOnly = true,
             Secure   = true,
-            SameSite = SameSiteMode.Lax,
-            MaxAge   = TimeSpan.FromDays(7)
+            SameSite = SameSiteMode.Lax
         };
+    }
 
-        Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
+    private void SetRefreshTokenCookie(string refreshToken)
+    {
+        var options = GetBaseCookieOptions();
+        options.MaxAge = TimeSpan.FromDays(7);
+        Response.Cookies.Append("refreshToken", refreshToken, options);
     }
 
     /// <summary>
@@ -177,7 +181,7 @@ public class AuthController : ControllerBase
             await _authService.LogoutAsync(refreshTokenFromCookie);
 
         // Xóa Cookie khỏi trình duyệt dù token có tồn tại hay không (idempotent)
-        Response.Cookies.Delete("refreshToken");
+        Response.Cookies.Delete("refreshToken", GetBaseCookieOptions());
 
         return Ok();
     }

@@ -105,17 +105,31 @@
   gap: 2px;
 }
 
+.roomNameRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
 .roomName {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 15px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.msgTime {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
 .roomSub {
-  font-size: 0.75rem;
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -141,4 +155,27 @@
   opacity: 0.6;
   padding: var(--spacing-xl);
   text-align: center;
+}
+
+/* Unread Status Styles */
+.unreadBold {
+  font-weight: 700;
+  color: #fff;
+}
+
+.unreadBadge {
+  background-color: #ef4444;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  margin-left: var(--spacing-xs);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }

@@ -30,14 +30,18 @@ public class UserService : IUserService
     /// </remarks>
     public async Task<IEnumerable<UserSearchDto>> SearchByKeywordAsync(string keyword, Guid currentUserId)
     {
-        var kw = keyword.Trim();
+        var kw = keyword.Trim()
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
 
         if (string.IsNullOrEmpty(kw))
             return Enumerable.Empty<UserSearchDto>();
 
         var users = await _dbContext.Users
             .AsNoTracking()
-            .Where(u => u.Id != currentUserId &&
+            .Where(u => u.IsActive && 
+                        u.Id != currentUserId &&
                         (EF.Functions.ILike(u.Username, $"%{kw}%") ||
                          EF.Functions.ILike(u.DisplayName, $"%{kw}%")))
             .OrderBy(u => u.DisplayName)

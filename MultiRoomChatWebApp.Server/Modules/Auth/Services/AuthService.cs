@@ -34,7 +34,9 @@ public class AuthService : IAuthService
     /// </remarks>
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
-        if (await _dbContext.Users.AnyAsync(u => u.Email == request.Email))
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+
+        if (await _dbContext.Users.AnyAsync(u => u.Email == normalizedEmail))
             throw new ArgumentException("Email already in use");
 
         if (await _dbContext.Users.AnyAsync(u => u.Username == request.Username))
@@ -44,7 +46,7 @@ public class AuthService : IAuthService
         {
             Username = request.Username,
             DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? request.Username : request.DisplayName,
-            Email = request.Email,
+            Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password)
         };
 
@@ -81,7 +83,8 @@ public class AuthService : IAuthService
     /// </remarks>
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
         
         if (user == null || !user.IsActive || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid credentials");

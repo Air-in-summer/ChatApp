@@ -11,6 +11,10 @@ export interface RoomDto {
   name: string | null;
   otherUserDisplayName?: string;
   otherUserUsername?: string;
+  lastMessageContent?: string;
+  lastMessageTimestamp?: string;
+  unreadCount?: number;
+  lastReadMessageId?: string;
 }
 
 /**
@@ -39,3 +43,26 @@ export interface VirtualRoom {
 export type ActiveChat =
   | { type: 'real'; room: RoomDto }
   | { type: 'virtual'; targetUser: UserSearchResult };
+
+/**
+ * Trạng thái của một tin nhắn để xử lý Optimistic UI
+ */
+export type MessageStatus = 'Sending' | 'Sent' | 'Delivered' | 'Read' | 'Failed';
+
+/**
+ * Dữ liệu tin nhắn trả về từ Backend hoặc tạo tạm ở Frontend
+ */
+export interface MessageDto {
+  id: string; // ObjectId của MongoDB, hoặc ID tạm (ví dụ: temp-123) khi Sending
+  roomId: string;
+  senderId: string;
+  type: string;
+  content: string;
+  status: MessageStatus;
+  createdAt: string; // ISO String
+}
+
+export interface GetMessagesResponse {
+  data: MessageDto[];
+  hasMore: boolean;
+}

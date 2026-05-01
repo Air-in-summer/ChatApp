@@ -22,4 +22,5 @@ public class User
     
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room> CreatedRooms { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room>();
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember> RoomMemberships { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember>();
+    public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.GroupMember> GroupMemberships { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.GroupMember>();
 }

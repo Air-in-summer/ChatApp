@@ -13,4 +13,12 @@ public class RoomDto
     public string? OtherUserDisplayName { get; set; }
     
     public string? OtherUserUsername { get; set; }
+
+    public string? LastMessageContent { get; set; }
+
+    public DateTime? LastMessageTimestamp { get; set; }
+
+    public int UnreadCount { get; set; }
+
+    public string? LastReadMessageId { get; set; }
 }

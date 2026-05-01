@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260425025301_AddReadReceipts")]
+    partial class AddReadReceipts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,74 +78,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.HasIndex("RoomId");
 
                     b.ToTable("ReadReceipts");
-                });
-
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("IconUrl")
-                        .HasColumnType("text");
-
-                    b.Property<string>("InviteCode")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("OwnerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InviteCode")
-                        .IsUnique();
-
-                    b.HasIndex("OwnerId");
-
-                    b.ToTable("Groups");
-                });
-
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.GroupMember", b =>
-                {
-                    b.Property<Guid>("GroupId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("JoinedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.HasKey("GroupId", "UserId");
-
-                    b.HasIndex("UserId", "GroupId");
-
-                    b.ToTable("GroupMembers");
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", b =>
@@ -295,36 +230,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", b =>
-                {
-                    b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "Owner")
-                        .WithMany()
-                        .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Owner");
-                });
-
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.GroupMember", b =>
-                {
-                    b.HasOne("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", "Group")
-                        .WithMany("Members")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "User")
-                        .WithMany("GroupMemberships")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Group");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", b =>
                 {
                     b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "Creator")
@@ -332,11 +237,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                         .HasForeignKey("CreatedBy")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", null)
-                        .WithMany("Rooms")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Creator");
                 });
@@ -360,13 +260,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", b =>
-                {
-                    b.Navigation("Members");
-
-                    b.Navigation("Rooms");
-                });
-
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", b =>
                 {
                     b.Navigation("Members");
@@ -375,8 +268,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", b =>
                 {
                     b.Navigation("CreatedRooms");
-
-                    b.Navigation("GroupMemberships");
 
                     b.Navigation("RefreshTokens");
 
