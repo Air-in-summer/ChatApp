@@ -45,10 +45,13 @@ public class UserCacheService : IUserCacheService
             DisplayName = dbUser.DisplayName
         };
 
-        // Cache trong 24h
+        // Tối ưu hóa Cache (Rule #6):
+        // - SlidingExpiration: Nếu trong 1 tiếng không ai "sờ" tới User này, Redis sẽ tự dọn dẹp để tiết kiệm RAM.
+        // - AbsoluteExpiration: Ngay cả khi có người xem liên tục, sau 12 tiếng vẫn bắt buộc nạp lại từ DB để tránh dữ liệu quá cũ.
         var options = new DistributedCacheEntryOptions
         {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24)
+            SlidingExpiration = TimeSpan.FromHours(1),
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12)
         };
 
         await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(dto), options);
@@ -57,9 +60,16 @@ public class UserCacheService : IUserCacheService
     }
 
     /// <summary>
-    /// Gọi hàm này NGAY SAU KHI thực hiện thành công các thao tác cập nhật (Update Profile)
-    /// dưới Database, để xoá Cache và ép hệ thống nạp lại thông tin mới nhất vào lần tới.
+    /// Xóa bộ nhớ đệm của User. 
     /// </summary>
+    /// <remarks>
+    /// BẮT BUỘC gọi hàm này ngay sau khi thực hiện thành công các thao tác:
+    /// 1. Cập nhật DisplayName.
+    /// 2. Cập nhật Username.
+    /// 3. Cập nhật AvatarUrl (nếu có).
+    /// 4. Thay đổi quyền hạn hoặc trạng thái tài khoản.
+    /// 5. Xóa tài khoản (Soft Delete).
+    /// </remarks>
     public async Task InvalidateUserAsync(Guid userId)
     {
         string cacheKey = $"user:{userId}";

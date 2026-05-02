@@ -51,69 +51,118 @@ public class MessagePersistenceWorker : BackgroundService
         var db = _mongoClient.GetDatabase("ChatAppDB_Mongo");
         var messagesCollection = db.GetCollection<Message>("messages");
 
-        var subscriber = _redis.GetSubscriber();
-        var channel = RedisChannel.Literal("chat_messages_queue");
+        var dbRedis = _redis.GetDatabase();
+        var streamName = "chat_messages_stream";
+        var groupName = "persistence_worker_group";
+        var consumerName = "worker_1"; // Có thể sinh ID ngẫu nhiên nếu có nhiều instance
 
-        _logger.LogInformation("🚀 MessagePersistenceWorker đã khởi động. Lắng nghe kênh Redis: {Channel}", channel);
+        // 1. Khởi tạo Consumer Group (nếu chưa có)
+        try
+        {
+            // "0-0" nghĩa là group này sẽ tiêu thụ toàn bộ tin nhắn tồn đọng (nếu có) từ đầu stream
+            await dbRedis.StreamCreateConsumerGroupAsync(streamName, groupName, "0-0", createStream: true);
+        }
+        catch (RedisServerException ex) when (ex.Message.Contains("BUSYGROUP"))
+        {
+            // Consumer Group đã tồn tại, không sao cả
+        }
 
-        // ---- LUỒNG 1: Lắng nghe Redis Pub/Sub → Lưu Mongo → Bắn SignalR ----
-        await subscriber.SubscribeAsync(channel, async (ch, messagePayload) =>
+        _logger.LogInformation("🚀 MessagePersistenceWorker đã khởi động. Lắng nghe Redis Stream: {Stream}", streamName);
+
+        // 2. Vòng lặp tiêu thụ tin nhắn
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var command = JsonSerializer.Deserialize<SendMessageCommand>(messagePayload!);
-                if (command == null) return;
+                // [CHIẾN LƯỢC PHỤC HỒI]: 
+                // Ưu tiên đọc các tin nhắn đang "Pending" (ID: "0") của chính consumer này 
+                // (Đây là những tin đã lấy ra nhưng chưa kịp ACK do Worker bị sập/restart).
+                var messages = await dbRedis.StreamReadGroupAsync(streamName, groupName, consumerName, "0", count: 10);
 
-                // 1. Dựng lại thực thể Message để nhét vô DB
-                var newMessage = new Message
+                // Nếu không còn tin Pending, mới đọc tiếp tin mới tinh (ID: ">")
+                if (messages.Length == 0)
                 {
-                    RoomId = command.RoomId,
-                    SenderId = command.SenderId,
-                    Content = command.Content,
-                    Attachments = command.Attachments,
-                    CreatedAt = DateTime.UtcNow,
-                    Status = Core.Enums.MessageStatus.Sent,
-                    Type = Core.Enums.MessageType.Text
-                };
-
-                // 2. Insert siêu tốc vào MongoDB
-                await messagesCollection.InsertOneAsync(newMessage, cancellationToken: stoppingToken);
-
-                // 3. Query danh sách thành viên phòng từ PostgreSQL
-                // Tạo scope mới vì BackgroundService là Singleton, không thể inject Scoped DbContext
-                using var scope = _scopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                var memberIds = await dbContext.RoomMembers
-                    .AsNoTracking()
-                    .Where(rm => rm.RoomId == command.RoomId)
-                    .Select(rm => rm.UserId.ToString())
-                    .ToListAsync(stoppingToken);
-
-                // 4. Phân phát tin nhắn qua Websocket tới TẤT CẢ thành viên (không phụ thuộc Group)
-                await _hubContext.Clients.Users(memberIds).ReceiveMessage(newMessage);
-
-                // 5. Gọi lại người GỬI để cập nhật trạng thái tin tạm → Sent
-                // Chỉ gọi nếu TempId có giá trị (tức là gửi từ FE, không phải API test)
-                if (!string.IsNullOrEmpty(command.TempId))
-                {
-                    await _hubContext.Clients.User(command.SenderId.ToString())
-                        .MessageStatusUpdated(command.TempId, newMessage.Id, "Sent");
+                    messages = await dbRedis.StreamReadGroupAsync(streamName, groupName, consumerName, ">", count: 10);
                 }
 
-                _logger.LogInformation("✅ Worker: Đã lưu MongoDB và Broadcast tin nhắn {MessageId} tới {MemberCount} thành viên",
-                    newMessage.Id, memberIds.Count);
+                if (messages.Length == 0)
+                {
+                    // Tránh nghẽn CPU nếu không có tin nhắn
+                    await Task.Delay(50, stoppingToken);
+                    continue;
+                }
+
+                foreach (var message in messages)
+                {
+                    var payload = message.Values.FirstOrDefault(v => v.Name == "payload").Value;
+                    if (payload.IsNullOrEmpty) continue;
+
+                    var command = JsonSerializer.Deserialize<SendMessageCommand>(payload.ToString());
+                    if (command == null) continue;
+
+                    // 1. Dựng lại thực thể Message và TỰ TẠO ID TRƯỚC để lấy ID đi Broadcast ngay
+                    var newMessage = new Message
+                    {
+                        Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+                        RoomId = command.RoomId,
+                        SenderId = command.SenderId,
+                        Content = command.Content,
+                        Attachments = command.Attachments,
+                        CreatedAt = DateTime.UtcNow,
+                        Status = Core.Enums.MessageStatus.Sent,
+                        Type = Core.Enums.MessageType.Text
+                    };
+
+                    // Hàm cục bộ phụ trách việc Query Postgres và Bắn SignalR
+                    async Task BroadcastToMembersAsync()
+                    {
+                        using var scope = _scopeFactory.CreateScope();
+                        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                        var memberIds = await dbContext.RoomMembers
+                            .AsNoTracking()
+                            .Where(rm => rm.RoomId == command.RoomId)
+                            .Select(rm => rm.UserId.ToString())
+                            .ToListAsync(stoppingToken);
+
+                        // Phân phát tin nhắn qua Websocket tới TẤT CẢ thành viên
+                        await _hubContext.Clients.Users(memberIds).ReceiveMessage(newMessage);
+
+                        // Gọi lại người GỬI để cập nhật trạng thái
+                        if (!string.IsNullOrEmpty(command.TempId))
+                        {
+                            await _hubContext.Clients.User(command.SenderId.ToString())
+                                .MessageStatusUpdated(command.TempId, newMessage.Id, "Sent");
+                        }
+
+                        _logger.LogInformation("✅ Worker: Đã Broadcast tin nhắn {MessageId} tới {MemberCount} thành viên",
+                            newMessage.Id, memberIds.Count);
+                    }
+
+                    // 2. ÉP CHẠY SONG SONG (PARALLEL): MongoDB Insert và SignalR Broadcast chạy đua cùng lúc!
+                    var insertMongoTask = messagesCollection.InsertOneAsync(newMessage, cancellationToken: stoppingToken);
+                    var broadcastTask = BroadcastToMembersAsync();
+                    
+                    await Task.WhenAll(insertMongoTask, broadcastTask);
+
+                    // 3. XÁC NHẬN (ACK) VÀ XÓA KHỎI STREAM
+                    // Chỉ chạy đến đây khi CẢ 2 việc trên đều đã báo thành công
+                    await dbRedis.StreamAcknowledgeAsync(streamName, groupName, message.Id);
+                    await dbRedis.StreamDeleteAsync(streamName, new[] { message.Id });
+
+                    //_logger.LogInformation("✅ Worker: Đã xử lý, ACK và XÓA tin nhắn {MessageId} tới {MemberCount} thành viên",
+                    //    newMessage.Id, memberIds.Count);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi nghiêm trọng khi xử lý Background Message từ Redis.");
+                _logger.LogError(ex, "Lỗi nghiêm trọng khi xử lý Stream Message. Thử lại sau 5s.");
+                await Task.Delay(5000, stoppingToken);
             }
-        });
-
-        // Vòng lặp vô tận giữ cho Worker sống sót cùng Kestrel
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await Task.Delay(5000, stoppingToken);
         }
     }
 }

@@ -38,7 +38,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
     /// </remarks>
     public async Task<bool> Handle(SendMessageCommand request, CancellationToken cancellationToken)
     {
-        // 1. Kiểm tra Quyền Hạn O(1)
+        // 1. Kiểm tra Quyền Hạn
         bool isMember = await _permissionsCache.IsUserInRoomAsync(request.RoomId, request.SenderId);
         
         if (!isMember)
@@ -51,10 +51,9 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
         // Lưu ý: Không tự cấp ID MongoDB ở đây. Việc đó giành cho BackgroundWorker để phân tải.
         var messagePayload = JsonSerializer.Serialize(request);
 
-        // 3. Ném vào Redis Pub/Sub (Fire and Forget)
+        // 3. Ném vào Redis Streams (Lưu trữ an toàn, chờ Worker xử lý và ACK)
         var db = _redis.GetDatabase();
-        var channel = RedisChannel.Literal("chat_messages_queue");
-        await db.PublishAsync(channel, messagePayload);
+        await db.StreamAddAsync("chat_messages_stream", "payload", messagePayload);
 
         return true;
     }

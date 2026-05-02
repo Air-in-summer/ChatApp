@@ -19,4 +19,10 @@ public interface IRoomPermissionsCache
     /// (Sử dụng khi có người mới join/leave phòng).
     /// </summary>
     Task InvalidateRoomCacheAsync(Guid roomId);
+
+    /// <summary>
+    /// Xóa Cache Metadata của phòng (GroupId, IsPrivate).
+    /// Gọi khi phòng bị xóa hoặc thay đổi thuộc tính.
+    /// </summary>
+    Task InvalidateRoomInfoAsync(Guid roomId);
 }

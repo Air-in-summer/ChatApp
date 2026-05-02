@@ -36,16 +36,16 @@ public class ReadReceiptWorker : BackgroundService
     {
         _logger.LogInformation("🚀 ReadReceiptWorker đã khởi động. Chu kỳ Flush: {Interval}s.", FlushInterval.TotalSeconds);
 
-        while (!stoppingToken.IsCancellationRequested)
+        using var timer = new PeriodicTimer(FlushInterval);
+
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
             {
-                await Task.Delay(FlushInterval, stoppingToken);
                 await FlushReadReceiptsAsync(stoppingToken);
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
-                // App đang tắt, thoát vòng lặp an toàn
                 break;
             }
             catch (Exception ex)
@@ -56,39 +56,22 @@ public class ReadReceiptWorker : BackgroundService
     }
 
     /// <summary>
-    /// Thực hiện một lần Flush: Quét Redis → Upsert bulk (Xóa cũ + Thêm mới) → Xóa key Redis.
+    /// Thực hiện một lần Flush: Quét Redis bằng SCAN và xử lý cuốn chiếu (Streaming) để bảo vệ RAM.
     /// </summary>
-    /// <remarks>
-    /// Luồng xử lý:
-    /// 1. SCAN tất cả key khớp "Room:*:ReadReceipts" trong Redis (an toàn hơn KEYS *).
-    /// 2. Với mỗi key, parse RoomId và lấy toàn bộ Hash (userId → lastReadMessageId).
-    /// 3. Xóa sạch các bản ghi cũ theo (UserId, RoomId) bằng ExecuteDeleteAsync (Bulk, không qua Change Tracker).
-    /// 4. Insert toàn bộ bản ghi mới bằng AddRangeAsync (1 batch duy nhất).
-    /// 5. Xóa key Redis sau khi Flush thành công để giải phóng RAM.
-    ///
-    /// Lưu ý:
-    /// - Không dùng First/Update riêng từng dòng (N+1 SELECT) → Không hiệu quả khi nhiều phòng.
-    /// - Key Redis chỉ bị xóa SAU KHI SaveChangesAsync thành công → Không mất data nếu DB lỗi.
-    /// </remarks>
     private async Task FlushReadReceiptsAsync(CancellationToken stoppingToken)
     {
         var redisDb = _redis.GetDatabase();
         var server = _redis.GetServer(_redis.GetEndPoints()[0]);
 
-        // 1. Scan tất cả key theo pattern
-        var keys = server.Keys(pattern: "Room:*:ReadReceipts").ToList();
-        if (keys.Count == 0) return;
+        var receiptsBuffer = new List<ReadReceipt>();
+        var redisKeysBuffer = new List<RedisKey>();
 
-        _logger.LogInformation("📦 ReadReceiptWorker: Tìm thấy {Count} key cần xử lý.", keys.Count);
+        // Giới hạn Buffer để Flush xuống DB (Tránh OOM RAM)
+        const int flushThreshold = 1000; 
 
-        var receiptsToInsert = new List<ReadReceipt>();
-        var receiptKeys = new List<(Guid UserId, Guid RoomId)>();
-        var processedRedisKeys = new List<RedisKey>();
-
-        // 2. Với mỗi key, giải mã RoomId và lấy toàn bộ Hash
-        foreach (var key in keys)
+        // 1. Quét Redis cuốn chiếu
+        await foreach (var key in server.KeysAsync(pattern: "Room:*:ReadReceipts"))
         {
-            // Key format: "Room:{roomId}:ReadReceipts"
             var parts = ((string)key!).Split(':');
             if (parts.Length < 3 || !Guid.TryParse(parts[1], out var roomId)) continue;
 
@@ -99,48 +82,90 @@ public class ReadReceiptWorker : BackgroundService
             {
                 if (!Guid.TryParse(entry.Name, out var userId)) continue;
 
-                receiptsToInsert.Add(new ReadReceipt
+                receiptsBuffer.Add(new ReadReceipt
                 {
                     UserId = userId,
                     RoomId = roomId,
                     LastReadMessageId = entry.Value.ToString(),
                     UpdatedAt = DateTime.UtcNow
                 });
-
-                // Ghi nhớ cặp (UserId, RoomId) để xóa bản ghi cũ
-                receiptKeys.Add((userId, roomId));
             }
 
-            processedRedisKeys.Add(key);
+            redisKeysBuffer.Add(key);
+
+            // [BƯỚC QUAN TRỌNG]: Nếu buffer đủ lớn, thực hiện Flush ngay để giải phóng RAM
+            if (receiptsBuffer.Count >= flushThreshold)
+            {
+                await ProcessBufferAsync(receiptsBuffer, redisKeysBuffer, stoppingToken);
+                // Sau khi Flush xong, Buffer sẽ trống để nhận đợt tiếp theo
+            }
         }
 
-        if (receiptsToInsert.Count == 0) return;
+        // 2. Flush nốt những bản ghi cuối cùng còn sót lại trong buffer
+        if (receiptsBuffer.Any())
+        {
+            await ProcessBufferAsync(receiptsBuffer, redisKeysBuffer, stoppingToken);
+        }
+    }
 
-        // 3. Upsert bulk trong 1 scope DB mới
+    /// <summary>
+    /// Lưu dữ liệu xuống DB và xóa key Redis cho một cụm dữ liệu (Batch).
+    /// </summary>
+    private async Task ProcessBufferAsync(List<ReadReceipt> receipts, List<RedisKey> redisKeys, CancellationToken ct)
+    {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var redisDb = _redis.GetDatabase();
 
-        // Bước 3a: Xóa sạch các bản ghi cũ theo từng cặp (UserId, RoomId)
-        // Dùng ExecuteDeleteAsync để tránh load Entity vào RAM (không qua Change Tracker)
-        foreach (var (userId, roomId) in receiptKeys)
+        _logger.LogInformation("🚀 ReadReceiptWorker: Đang Flush {Count} bản ghi cuốn chiếu...", receipts.Count);
+
+        // Bước 1: Upsert vào DB (Dùng lại hàm ExecuteUpsertBatchAsync đã viết)
+        // Lưu ý: Nếu batch này lớn hơn 500, ta vẫn chia nhỏ tiếp để an toàn cho SQL Parameters
+        const int sqlBatchSize = 500;
+        for (int i = 0; i < receipts.Count; i += sqlBatchSize)
         {
-            await dbContext.ReadReceipts
-                .Where(r => r.UserId == userId && r.RoomId == roomId)
-                .ExecuteDeleteAsync(stoppingToken);
+            var batch = receipts.Skip(i).Take(sqlBatchSize).ToList();
+            await ExecuteUpsertBatchAsync(dbContext, batch, ct);
         }
 
-        // Bước 3b: Insert tất cả bản ghi mới trong 1 batch duy nhất
-        await dbContext.ReadReceipts.AddRangeAsync(receiptsToInsert, stoppingToken);
-        await dbContext.SaveChangesAsync(stoppingToken);
-
-        // 4. Chỉ xóa key Redis SAU KHI lưu DB thành công
-        foreach (var redisKey in processedRedisKeys)
+        // Bước 2: Xóa key Redis tương ứng
+        foreach (var key in redisKeys)
         {
-            await redisDb.KeyDeleteAsync(redisKey);
+            await redisDb.KeyDeleteAsync(key);
         }
 
-        _logger.LogInformation(
-            "🧹 ReadReceiptWorker: Đã Flush thành công {Count} ReadReceipt xuống PostgreSQL và xóa {KeyCount} key Redis.",
-            receiptsToInsert.Count, processedRedisKeys.Count);
+        // Bước 3: Dọn dẹp buffer để nhận đợt mới
+        receipts.Clear();
+        redisKeys.Clear();
+    }
+
+    /// <summary>
+    /// Thực thi lệnh SQL UPSERT (INSERT ... ON CONFLICT DO UPDATE) cho một Batch.
+    /// </summary>
+    private async Task ExecuteUpsertBatchAsync(AppDbContext dbContext, List<ReadReceipt> batch, CancellationToken ct)
+    {
+        var sql = new System.Text.StringBuilder();
+        sql.Append("INSERT INTO \"ReadReceipts\" (\"UserId\", \"RoomId\", \"LastReadMessageId\", \"UpdatedAt\") VALUES ");
+        
+        var parameters = new List<object>();
+        for (int j = 0; j < batch.Count; j++)
+        {
+            var r = batch[j];
+            int pIdx = j * 4;
+            sql.Append($"(@p{pIdx}, @p{pIdx + 1}, @p{pIdx + 2}, @p{pIdx + 3})");
+            
+            if (j < batch.Count - 1) sql.Append(", ");
+            
+            parameters.Add(r.UserId);
+            parameters.Add(r.RoomId);
+            parameters.Add(r.LastReadMessageId);
+            parameters.Add(r.UpdatedAt);
+        }
+        
+        sql.Append(" ON CONFLICT (\"UserId\", \"RoomId\") DO UPDATE SET ");
+        sql.Append("\"LastReadMessageId\" = EXCLUDED.\"LastReadMessageId\", ");
+        sql.Append("\"UpdatedAt\" = EXCLUDED.\"UpdatedAt\";");
+
+        await dbContext.Database.ExecuteSqlRawAsync(sql.ToString(), parameters, ct);
     }
 }

@@ -43,6 +43,9 @@ public class RoomPermissionsCache : IRoomPermissionsCache
 
         if (keyExists)
         {
+            // Gia hạn thời gian sống (Sliding Expiration): Giúp các phòng đang chat sôi nổi luôn được giữ trên RAM.
+            await db.KeyExpireAsync(cacheKey, TimeSpan.FromHours(1));
+
             // 2. Cache Hit: Kiểm tra trực tiếp trên Redis Set với O(1) delay
             return await db.SetContainsAsync(cacheKey, userId.ToString());
         }
