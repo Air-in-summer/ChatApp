@@ -1,9 +1,19 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
+import { getGroupMembers } from '../../api/groupApi';
 import { useChatStore } from '../../store/useChatStore';
+import { useVoiceStore } from '../../store/useVoiceStore';
 import type { ActiveChat, RoomDto, MessageDto, GetMessagesResponse } from '../../types/chat';
+import type { GroupRole } from '../../types/group';
+import { DirectCallButton } from '../call/DirectCallButton';
+import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
 import styles from './ChatColumn.module.css';
+
+const VoiceRoomPanel = lazy(() =>
+  import('./VoiceRoomPanel').then((module) => ({ default: module.VoiceRoomPanel }))
+);
 
 interface ChatColumnProps {
   activeChat: ActiveChat | null;
@@ -15,6 +25,8 @@ interface ChatColumnProps {
   stopTyping: (roomId: string) => Promise<void>;
   markAsRead: (roomId: string, messageId: string) => Promise<void>;
   joinRoom: (roomId: string) => Promise<void>;
+  /** Class CSS từ cha (Layout) để định hình cột */
+  className?: string;
 }
 
 export const ChatColumn = ({
@@ -24,10 +36,13 @@ export const ChatColumn = ({
   sendTyping,
   stopTyping,
   markAsRead,
-  joinRoom
+  joinRoom,
+  className
 }: ChatColumnProps) => {
   const { accessToken, user } = useAuth();
   const userId = user?.userId;
+  const activeSession = useVoiceStore((state) => state.activeSession);
+  const voiceConnectionStatus = useVoiceStore((state) => state.connectionStatus);
 
   const roomId = activeChat?.type === 'real' ? activeChat.room.id : null;
   const storeMessages = useChatStore(state => roomId ? state.messages[roomId] : undefined);
@@ -43,7 +58,6 @@ export const ChatColumn = ({
   const prependMessages = useChatStore(state => state.prependMessages);
   const setHasMore = useChatStore(state => state.setHasMore);
   const updateMessageStatus = useChatStore(state => state.updateMessageStatus);
-  const myLastReadMessageId = useChatStore(state => roomId ? state.myLastReadMessageIds[roomId] : undefined);
   const trimRoom = useChatStore(state => state.trimRoom);
 
   // Lấy readReceipts của phòng hiện tại để biết người kia đã đọc đến tin nào
@@ -56,6 +70,10 @@ export const ChatColumn = ({
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
+
+  // States cho tính năng Add Member
+  const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
 
   // [CHỐT MỐC UNREAD] Dùng Ref để "chụp ảnh" mốc đọc ngay khi click vào phòng.
   // Ref này sẽ KHÔNG thay đổi trong suốt lần ghé thăm này, giúp vạch Divider không bị mất khi markAsRead chạy.
@@ -81,6 +99,24 @@ export const ChatColumn = ({
       joinRoom(roomId).catch(e => console.error('Lỗi JoinRoom:', e));
     }
   }, [roomId, joinRoom]);
+
+  // Hook: Lấy quyền GroupRole nếu phòng này là Private trong Group
+  useEffect(() => {
+    if (activeChat?.type === 'real' && activeChat.room.groupId && activeChat.room.isPrivate && accessToken && userId) {
+      const fetchRole = async () => {
+        try {
+          const members = await getGroupMembers(accessToken, activeChat.room.groupId!);
+          const me = members.find(m => m.profile.id === userId);
+          if (me) setCurrentUserRole(me.role);
+        } catch (error) {
+          console.error('Failed to fetch role for private room:', error);
+        }
+      };
+      fetchRole();
+    } else {
+      setCurrentUserRole(null);
+    }
+  }, [activeChat, accessToken, userId]);
 
   // Ref giữ roomId trước đó để gọi trimRoom khi user chuyển phòng
   const prevRoomIdRef = useRef<string | null>(null);
@@ -372,20 +408,74 @@ export const ChatColumn = ({
   const isVirtual = activeChat.type === 'virtual';
   const headerName = isVirtual
     ? activeChat.targetUser.displayName
-    : activeChat.room.otherUserDisplayName ?? "Unknown";
+    : (activeChat.room.name || activeChat.room.otherUserDisplayName || "Unknown");
+  const inlineDirectCallSession =
+    activeChat.type === 'real' &&
+    activeChat.room.type === 'DirectMessage' &&
+    activeSession?.kind === 'direct-call' &&
+    activeSession.sourceRoomId === activeChat.room.id &&
+    voiceConnectionStatus !== 'idle'
+      ? activeSession
+      : null;
+  const canStartDirectCall =
+    activeChat.type === 'real' &&
+    activeChat.room.type === 'DirectMessage' &&
+    !inlineDirectCallSession;
 
   return (
-    <div className={styles.chatColumn}>
+    <div className={`${styles.chatColumn} ${className || ''}`}>
       {/* Header Room Info */}
       <div className={styles.header}>
         <div className={styles.avatar}>
           {headerName[0]?.toUpperCase()}
         </div>
         <div className={styles.userInfo}>
-          <h2>{headerName}</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {headerName}
+            {activeChat?.type === 'real' && activeChat.room.isPrivate && (
+              <span style={{ fontSize: '0.7rem', backgroundColor: '#f04747', padding: '2px 6px', borderRadius: '4px', color: 'white', fontWeight: 600 }}>PRIVATE</span>
+            )}
+          </h2>
           {isVirtual && <span className={styles.badge}>Chưa có cuộc hội thoại nào</span>}
         </div>
+
+        {canStartDirectCall && (
+          <DirectCallButton
+            dmRoomId={activeChat.room.id}
+            displayName={headerName}
+          />
+        )}
+
+        {/* Nút thêm thành viên (Chỉ hiện cho Owner/Admin trong phòng Private) */}
+        {activeChat?.type === 'real' && activeChat.room.isPrivate && activeChat.room.groupId && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+          <button 
+            className={styles.addMemberBtn}
+            onClick={() => setIsAddMemberModalOpen(true)}
+            title="Thêm thành viên vào phòng"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="8.5" cy="7" r="4"></circle>
+              <line x1="20" y1="8" x2="20" y2="14"></line>
+              <line x1="23" y1="11" x2="17" y2="11"></line>
+            </svg>
+          </button>
+        )}
       </div>
+
+      {inlineDirectCallSession && (
+        <section className={styles.inlineCallDock} aria-label="Cuộc gọi trực tiếp đang diễn ra">
+          <Suspense fallback={<div className={styles.inlineCallLoading}>Đang tải cuộc gọi...</div>}>
+            <VoiceRoomPanel
+              mode="direct-call"
+              roomId={inlineDirectCallSession.sourceRoomId}
+              sessionId={inlineDirectCallSession.sessionId}
+              roomName={inlineDirectCallSession.displayName}
+              className={styles.inlineCallPanel}
+            />
+          </Suspense>
+        </section>
+      )}
 
       {/* Main Message List */}
       <div className={styles.messageList} ref={messageListRef} onScroll={handleScroll}>
@@ -507,6 +597,20 @@ export const ChatColumn = ({
           </svg>
         </button>
       </form>
+
+      {/* Modal Add Member */}
+      {isAddMemberModalOpen && activeChat?.type === 'real' && activeChat.room.groupId && (
+        <AddMemberToRoomModal
+          groupId={activeChat.room.groupId}
+          roomId={activeChat.room.id}
+          roomName={activeChat.room.name || headerName}
+          onClose={() => setIsAddMemberModalOpen(false)}
+          onSuccess={(count) => {
+            setIsAddMemberModalOpen(false);
+            toast.success(`Đã thêm ${count} thành viên vào phòng.`);
+          }}
+        />
+      )}
     </div>
   );
 };

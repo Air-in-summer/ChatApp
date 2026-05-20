@@ -1,3 +1,5 @@
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
+
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 
 // DTO cho request đăng ký tài khoản mới
@@ -26,7 +28,8 @@ public record AuthResponse(
     string RefreshToken,
     Guid UserId,
     string Username,
-    string DisplayName);
+    string DisplayName,
+    string? AvatarUrl);
 
 /// <summary>
 /// DTO trả về cho Client (Frontend React).
@@ -37,4 +40,13 @@ public record AuthClientResponse(
     string AccessToken,
     Guid UserId,
     string Username,
-    string DisplayName);
+    string DisplayName,
+    string? AvatarUrl);
+
+/// <summary>
+/// DTO nội bộ: kết quả tạo Refresh Token.
+/// PlainTextToken chỉ dùng một lần để set HttpOnly Cookie, Entity chỉ lưu TokenHash xuống DB.
+/// </summary>
+public record RefreshTokenGenerationResult(
+    string PlainTextToken,
+    RefreshToken Entity);

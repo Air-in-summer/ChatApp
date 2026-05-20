@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
     public DbSet<ReadReceipt> ReadReceipts => Set<ReadReceipt>();
@@ -66,16 +67,33 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
             entity.Property(e => e.DisplayName).HasMaxLength(100);
-            entity.Property(e => e.PasswordHash).IsRequired();
+            entity.Property(e => e.PasswordHash);
+            entity.Property(e => e.AvatarUrl).HasMaxLength(2048);
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => e.TokenHash).IsUnique();
             
             entity.HasOne(d => d.User)
                   .WithMany(p => p.RefreshTokens)
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalLogin>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Provider, e.ProviderUserId }).IsUnique();
+            entity.HasIndex(e => e.UserId);
+
+            entity.Property(e => e.Provider).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.ProviderUserId).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.ProviderEmail).IsRequired().HasMaxLength(255);
+
+            entity.HasOne(d => d.User)
+                  .WithMany(p => p.ExternalLogins)
                   .HasForeignKey(d => d.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });

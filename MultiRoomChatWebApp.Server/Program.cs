@@ -73,6 +73,7 @@ try
 
     // Đăng ký ConnectionMultiplexer (để xài lệnh thuần SADD, SISMEMBER)
     var redisMultiplexer = StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString);
+    
     builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(redisMultiplexer);
 
     // Register Auth Services
@@ -88,9 +89,12 @@ try
     // Register Room Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomService, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomPermissionsCache, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomPermissionsCache>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces.IRoomMetadataCache, MultiRoomChatWebApp.Server.Modules.Room.Services.RoomMetadataCache>();
 
     // Register Group Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupService, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupPermissionsCache, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupPermissionsCache>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupMetadataCache, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupMetadataCache>();
 
     // Register Chat / SignalR Services
     builder.Services.AddSignalR()
@@ -104,6 +108,11 @@ try
     // Tracker đếm số lượng người online/offline (Dùng Singleton để chia sẻ bộ nhớ cho toàn HTTP pipeline)
     builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.InMemoryPresenceTracker>();
 
+    // Register Voice Services (LiveKit Token)
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces.IVoiceTokenService, MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceTokenService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces.IVoiceSessionService, MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceSessionService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceMissedCallWorker>();
+
     // Configure JWT Authentication
     builder.Services.AddAuthentication(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
@@ -116,6 +125,7 @@ try
                 ValidateIssuerSigningKey = true,
                 ValidIssuer = builder.Configuration["Jwt:Issuer"],
                 ValidAudience = builder.Configuration["Jwt:Audience"],
+                ClockSkew = TimeSpan.Zero,
                 IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
                     System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
             };
@@ -177,10 +187,20 @@ try
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            policy.WithOrigins(
-                      "https://localhost:5173",   // Vite standalone (npm run dev)
-                      "http://localhost:5173"
-                  )
+            var allowedOrigins = builder.Configuration
+                .GetSection("Cors:AllowedOrigins")
+                .Get<string[]>();
+
+            if (allowedOrigins == null || allowedOrigins.Length == 0)
+            {
+                allowedOrigins = new[]
+                {
+                    "https://localhost:5173",
+                    "http://localhost:5173"
+                };
+            }
+
+            policy.WithOrigins(allowedOrigins)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
@@ -223,7 +243,17 @@ try
     app.UseDefaultFiles();
     app.UseStaticFiles();
 
-    app.UseHttpsRedirection();
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseWhen(
+            context => !context.Request.Path.StartsWithSegments("/api/v1/voice/livekit/webhook"),
+            branch => branch.UseHttpsRedirection());
+    }
+    else
+    {
+        app.UseHttpsRedirection();
+    }
+
     app.UseCors("AllowFrontend");
     app.UseRateLimiter();
 

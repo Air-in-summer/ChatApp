@@ -9,8 +9,18 @@ export default defineConfig({
     basicSsl()
   ],
   server: {
-    https: true,
+    https: {},
     port: 5173
+  },
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/livekit-client') || id.includes('node_modules/@livekit')) {
+            return 'vendor-livekit'
+          }
+        }
+      }
+    }
   }
 })
-

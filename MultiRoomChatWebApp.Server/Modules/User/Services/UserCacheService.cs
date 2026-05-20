@@ -42,7 +42,8 @@ public class UserCacheService : IUserCacheService
         {
             Id = dbUser.Id,
             Username = dbUser.Username,
-            DisplayName = dbUser.DisplayName
+            DisplayName = dbUser.DisplayName,
+            AvatarUrl = dbUser.AvatarUrl
         };
 
         // Tối ưu hóa Cache (Rule #6):

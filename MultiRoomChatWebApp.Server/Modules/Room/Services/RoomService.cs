@@ -3,8 +3,9 @@ using MultiRoomChatWebApp.Server.Infrastructure.Database;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
-
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Events;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
+using MediatR;
 
 namespace MultiRoomChatWebApp.Server.Modules.Room.Services;
 
@@ -12,12 +13,24 @@ public class RoomService : IRoomService
 {
     private readonly AppDbContext _dbContext;
     private readonly IUserCacheService _userCacheService;
+    private readonly IRoomMetadataCache _metadataCache;
+    private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IMediator _mediator;
 
-    public RoomService(AppDbContext dbContext, IUserCacheService userCacheService)
+    public RoomService(
+        AppDbContext dbContext,
+        IUserCacheService userCacheService,
+        IRoomMetadataCache metadataCache,
+        IRoomPermissionsCache roomPermissionsCache,
+        IMediator mediator)
     {
         _dbContext = dbContext;
         _userCacheService = userCacheService;
+        _metadataCache = metadataCache;
+        _roomPermissionsCache = roomPermissionsCache;
+        _mediator = mediator;
     }
+
 
     /// <summary>
     /// Tìm DM Room hiện có hoặc tạo mới nếu chưa tồn tại.
@@ -97,6 +110,8 @@ public class RoomService : IRoomService
         return newRoom;
     }
 
+
+
     /// <summary>
     /// Tạo một Room (Channel) mới bên trong một Group/Server.
     /// </summary>
@@ -108,6 +123,14 @@ public class RoomService : IRoomService
     /// </remarks>
     public async Task<Core.Entities.Room> CreateGroupRoomAsync(string name, RoomType type, bool isPrivate, Guid createdBy, Guid groupId)
     {
+        // 1. Tối ưu: Chỉ truy vấn 1 lần bảng GroupMembers để lấy toàn bộ Roles và UserIds
+        var groupMembers = await _dbContext.GroupMembers
+            .AsNoTracking()
+            .Where(gm => gm.GroupId == groupId)
+            .ToListAsync();
+
+        if (!groupMembers.Any()) throw new KeyNotFoundException("Không tìm thấy thông tin thành viên Server.");
+
         var newRoom = new Core.Entities.Room
         {
             Name = name,
@@ -117,19 +140,59 @@ public class RoomService : IRoomService
             GroupId = groupId
         };
 
-        // Gán người tạo làm Admin của phòng này (Dùng pattern Members.Add tương tự DM)
-        newRoom.Members.Add(new RoomMember
+        // 2. Áp dụng quy tắc membership dựa trên list vừa lấy
+        var membersToAdd = new List<RoomMember>();
+        
+        // Tìm Owner từ list (để đảm bảo Owner luôn có mặt kể cả phòng Private)
+        var owner = groupMembers.FirstOrDefault(m => m.Role == MultiRoomChatWebApp.Server.Modules.Group.Core.Enums.GroupRole.Owner);
+
+        if (isPrivate)
         {
-            UserId = createdBy,
-            Role = RoomRole.Admin,
-            JoinedAt = DateTime.UtcNow
-        });
+            // [PHÒNG PRIVATE]: Chỉ người tạo + Owner
+            var filteredIds = new HashSet<Guid> { createdBy };
+            if (owner != null) filteredIds.Add(owner.UserId);
+
+            foreach (var uid in filteredIds)
+            {
+                // Người tạo hoặc Owner đều gán quyền Admin trong phòng này
+                membersToAdd.Add(new RoomMember
+                {
+                    UserId = uid,
+                    Role = RoomRole.Admin,
+                    JoinedAt = DateTime.UtcNow
+                });
+            }
+        }
+        else
+        {
+            // [PHÒNG PUBLIC]: Thêm tất cả thành viên trong nhóm
+            foreach (var gm in groupMembers)
+            {
+                // Gán Role: Người tạo là Admin, Owner là Admin, còn lại là Member
+                var role = (gm.UserId == createdBy || gm.Role == MultiRoomChatWebApp.Server.Modules.Group.Core.Enums.GroupRole.Owner) 
+                    ? RoomRole.Admin 
+                    : RoomRole.Member;
+
+                membersToAdd.Add(new RoomMember
+                {
+                    UserId = gm.UserId,
+                    Role = role,
+                    JoinedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        newRoom.Members = membersToAdd;
 
         _dbContext.Rooms.Add(newRoom);
         await _dbContext.SaveChangesAsync();
 
+        // [PROACTIVE CACHE WARM-UP] Nạp Metadata phòng lên Redis ngay lập tức
+        await _metadataCache.SetRoomMetadataAsync(newRoom.Id, newRoom.GroupId, newRoom.IsPrivate, newRoom.Type);
+
         return newRoom;
     }
+
 
     /// <summary>
     /// Lấy tất cả phòng của User. Kết hợp nạp UserMetadata từ Redis để đạt hiệu năng tối đa.
@@ -149,6 +212,8 @@ public class RoomService : IRoomService
                 RoomId = rm.Room.Id,
                 Type = rm.Room.Type,
                 Name = rm.Room.Name,
+                IsPrivate = rm.Room.IsPrivate,
+                GroupId = rm.Room.GroupId,
                 
                 // Mấu chốt tối ưu: Nếu là phòng DM, ta chỉ SELECT ra đúng 1 cái UserId của người đối diện.
                 // Không cần tải toàn bộ danh sách Members của phòng đó.
@@ -175,7 +240,9 @@ public class RoomService : IRoomService
                 {
                     Id = projection.RoomId,
                     Type = projection.Type,
-                    Name = projection.Name
+                    Name = projection.Name,
+                    IsPrivate = projection.IsPrivate,
+                    GroupId = projection.GroupId
                 };
 
                 // Nếu là phòng DM và có ID người đối diện, tiến hành gọi Redis
@@ -199,5 +266,110 @@ public class RoomService : IRoomService
         var result = await Task.WhenAll(hydrationTasks);
 
         return result;
+    }
+
+    /// <summary>
+    /// Thêm User vào bảng RoomMembers của tất cả các phòng Public trong một Group.
+    /// Được gọi bởi GroupService ngay sau khi User join Group thành công.
+    /// </summary>
+    /// <param name="groupId">ID của Group vừa tham gia</param>
+    /// <param name="userId">ID của User mới tham gia</param>
+    /// <remarks>
+    /// Luồng xử lý:
+    /// 1. Query tất cả các phòng Public (IsPrivate = false) thuộc Group.
+    /// 2. Lọc ra những phòng User chưa là thành viên (tránh duplicate key).
+    /// 3. Bulk insert các bản ghi RoomMember mới.
+    ///
+    /// Lưu ý:
+    /// - Không cập nhật Room Cache (chủ đích: phòng Public không dùng Room Cache).
+    /// - Caller (GroupService) chịu trách nhiệm gọi hàm này sau khi đã lưu GroupMember.
+    /// </remarks>
+    public async Task AddUserToPublicRoomsAsync(Guid groupId, Guid userId)
+    {
+        // 1. Lấy ID các phòng Public trong Group
+        var publicRoomIds = await _dbContext.Rooms
+            .AsNoTracking()
+            .Where(r => r.GroupId == groupId && !r.IsPrivate)
+            .Select(r => r.Id)
+            .ToListAsync();
+
+        if (!publicRoomIds.Any()) return;
+
+        // 2. Tạo bản ghi RoomMember cho tất cả các phòng Public tìm thấy
+        // (Giả định dữ liệu cũ đã được dọn sạch khi User rời/bị kick khỏi Group)
+        var newMembers = publicRoomIds.Select(roomId => new RoomMember
+        {
+            RoomId = roomId,
+            UserId = userId,
+            Role = RoomRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+
+        _dbContext.RoomMembers.AddRange(newMembers);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Thêm danh sách thành viên vào một phòng Private.
+    /// Caller (GroupController) đã check quyền Owner/Admin và validate userIds thuộc Group.
+    /// </summary>
+    /// <remarks>
+    /// Luồng xử lý:
+    /// 1. Validate phòng: Lấy metadata từ IRoomMetadataCache → xác nhận IsPrivate == true và có GroupId.
+    /// 2. Lọc trùng SQL: Loại bỏ userId đã có trong RoomMembers (tránh duplicate key).
+    /// 3. Bulk Insert vào bảng RoomMembers (Role = Member).
+    /// 4. Cập nhật Cache: Gọi IRoomPermissionsCache.AddUsersToRoomCacheAsync (SADD batch).
+    /// 5. Publish Domain Event để Notification Module bắn SignalR.
+    /// </remarks>
+    public async Task AddMembersToPrivateRoomAsync(Guid roomId, IEnumerable<Guid> userIds)
+    {
+        if (userIds == null || !userIds.Any()) return;
+
+        // 1. Validate phòng: Phải là Private và thuộc một Group
+        var metadata = await _metadataCache.GetRoomMetadataAsync(roomId);
+        if (metadata == null || !metadata.Value.IsPrivate || metadata.Value.GroupId == null)
+        {
+            throw new KeyNotFoundException("Phòng không tồn tại hoặc không phải là phòng Private trong Group.");
+        }
+
+        var groupId = metadata.Value.GroupId.Value;
+
+        // 2. Lọc trùng: Loại bỏ những người đã ở trong phòng (Tận dụng Cache - O(1))
+        var currentMemberIds = await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId);
+        var existingSet = new HashSet<Guid>(currentMemberIds);
+
+        var newUserIds = userIds
+            .Distinct()
+            .Where(uid => !existingSet.Contains(uid))
+            .ToList();
+
+        if (!newUserIds.Any()) return;
+
+        // 3. Bulk Insert vào bảng RoomMembers
+        var newMembers = newUserIds.Select(uid => new RoomMember
+        {
+            RoomId = roomId,
+            UserId = uid,
+            Role = RoomRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+
+        _dbContext.RoomMembers.AddRange(newMembers);
+        await _dbContext.SaveChangesAsync();
+
+        // 4. Cập nhật Cache (Proactive SADD — chỉ thêm nếu cache đang ấm)
+        await _roomPermissionsCache.AddUsersToRoomCacheAsync(roomId, newUserIds);
+
+        // 5. Bắn Domain Event để Notification Handler gửi SignalR tới những người vừa được add
+        await _mediator.Publish(new Core.Events.UsersAddedToPrivateRoomEvent(roomId, groupId, newUserIds));
+    }
+
+    /// <summary>
+    /// Lấy danh sách ID thành viên hiện tại của phòng.
+    /// Tận dụng trực tiếp Cache (Redis SMEMBERS) để đạt hiệu năng O(1).
+    /// </summary>
+    public async Task<IEnumerable<Guid>> GetRoomMemberIdsAsync(Guid roomId)
+    {
+        return await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId);
     }
 }

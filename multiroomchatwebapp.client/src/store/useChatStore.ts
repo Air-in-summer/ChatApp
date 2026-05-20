@@ -16,6 +16,13 @@ interface ChatState {
   activeRoomId: string | null;
 
   /**
+   * Mốc tin nhắn cuối cùng CHÍNH USER NÀY đã đọc trong mỗi phòng.
+   * Dùng để xác định vị trí vạch "Tin nhắn mới" (Unread Divider).
+   * Cấu trúc: Record<roomId, messageId>
+   */
+  myLastReadMessageIds: Record<string, string>;
+
+  /**
    * Lưu trạng thái "Đã xem" của người khác trong mỗi phòng.
    * Cấu trúc: Record<roomId, Record<userId, lastReadMessageId>>
    * Ví dụ: { "room-abc": { "user-xyz": "mongo-msg-id-999" } }
@@ -170,6 +177,15 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       // Chỉ gán giá trị khởi tạo nếu trong store chưa có (để không ghi đè số đếm real-time)
       const merged = { ...counts, ...state.unreadCount };
+
+      // [FIX] So sánh shallow: nếu data merge giống hệt state cũ → trả về state cũ
+      // để Zustand KHÔNG trigger re-render thừa (tránh vòng lặp vô hạn)
+      const oldKeys = Object.keys(state.unreadCount);
+      const newKeys = Object.keys(merged);
+      if (oldKeys.length === newKeys.length && oldKeys.every(k => state.unreadCount[k] === merged[k])) {
+        return state; // Không thay đổi gì → Zustand bỏ qua
+      }
+
       return { unreadCount: merged };
     }),
 

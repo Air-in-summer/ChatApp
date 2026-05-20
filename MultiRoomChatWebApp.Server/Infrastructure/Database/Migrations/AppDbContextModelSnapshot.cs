@@ -17,11 +17,51 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.25")
+                .HasAnnotation("ProductVersion", "8.0.27")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProviderEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ProviderUserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("Provider", "ProviderUserId")
+                        .IsUnique();
+
+                    b.ToTable("ExternalLogins");
+                });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken", b =>
                 {
@@ -38,7 +78,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Property<bool>("IsRevoked")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("Token")
+                    b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -47,7 +87,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Token")
+                    b.HasIndex("TokenHash")
                         .IsUnique();
 
                     b.HasIndex("UserId");
@@ -216,6 +256,10 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -233,7 +277,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("PasswordHash")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -263,6 +306,17 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Username"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin", b =>
+                {
+                    b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "User")
+                        .WithMany("ExternalLogins")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken", b =>
@@ -375,6 +429,8 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", b =>
                 {
                     b.Navigation("CreatedRooms");
+
+                    b.Navigation("ExternalLogins");
 
                     b.Navigation("GroupMemberships");
 

@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../../../api/apiClient';
 import { useAuth } from '../../../context/AuthContext';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
 import { Button } from '../../../components/ui/Button/Button';
+import { sanitizeInternalReturnUrl } from '../../../utils/returnUrl';
 import styles from './LoginPage.module.css';
 
 /**
@@ -22,10 +24,17 @@ import styles from './LoginPage.module.css';
  */
 export const LoginPage = () => {
   const navigate = useNavigate();
-  const { login } = useAuth(); // Lấy hàm login từ AuthContext
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const { login, isAuthenticated } = useAuth(); // Lấy thêm isAuthenticated
+
+  // Đọc returnUrl từ state (do ProtectedRoute truyền) HOẶC từ query string (?returnUrl=...)
+  const rawReturnUrl = (location.state as { returnUrl?: string } | null)?.returnUrl || searchParams.get('returnUrl');
+  const returnUrl = sanitizeInternalReturnUrl(rawReturnUrl);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   const validateForm = () => {
@@ -38,6 +47,13 @@ export const LoginPage = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Tự động chuyển hướng nếu đã đăng nhập
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(returnUrl, { replace: true });
+    }
+  }, [isAuthenticated, navigate, returnUrl]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -47,7 +63,9 @@ export const LoginPage = () => {
       // Gọi qua AuthContext → tự xử lý API + lưu RAM
       await login(email, password);
       toast.success('Đăng nhập thành công!');
-      navigate('/'); // Dashboard
+      // Redirect về returnUrl (nếu có và hợp lệ), không thì về Dashboard
+      // Guard: chỉ chấp nhận returnUrl bắt đầu bằng '/' để chống Open Redirect attack
+      navigate(returnUrl, { replace: true });
     } catch (err: unknown) {
       // Axios bọc lỗi server vào err.response.data
       const message =
@@ -57,6 +75,15 @@ export const LoginPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    setGoogleLoading(true);
+
+    const googleLoginUrl = new URL('/api/auth/google/login', API_BASE_URL);
+    googleLoginUrl.searchParams.set('returnUrl', returnUrl);
+
+    window.location.assign(googleLoginUrl.toString());
   };
 
   return (
@@ -88,6 +115,20 @@ export const LoginPage = () => {
           <Button type="submit" isLoading={loading}>
             Đăng Nhập
           </Button>
+
+          <div className={styles.divider}>
+            <span>hoac</span>
+          </div>
+
+          <button
+            type="button"
+            className={styles.googleButton}
+            onClick={handleGoogleLogin}
+            disabled={loading || googleLoading}
+          >
+            <span className={styles.googleMark}>G</span>
+            <span>{googleLoading ? 'Dang chuyen huong...' : 'Dang nhap bang Google'}</span>
+          </button>
         </form>
 
         <div className={styles.footerLink}>

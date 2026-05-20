@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.21",
     "@microsoft/signalr": "^10.0.0",
     "axios": "^1.14.0",
+    "livekit-client": "^2.18.9",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hot-toast": "^2.6.0",

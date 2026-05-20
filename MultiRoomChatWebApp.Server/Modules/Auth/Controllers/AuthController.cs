@@ -11,11 +11,17 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Controllers;
 [EnableRateLimiting("AuthLimit")]
 public class AuthController : ControllerBase
 {
-    private readonly IAuthService _authService;
+    private const string DefaultRefreshTokenCookieName = "refreshToken";
+    private const string DefaultRefreshTokenCookiePath = "/api/auth";
+    private const int DefaultRefreshTokenMinutes = 10080;
 
-    public AuthController(IAuthService authService)
+    private readonly IAuthService _authService;
+    private readonly IConfiguration _configuration;
+
+    public AuthController(IAuthService authService, IConfiguration configuration)
     {
         _authService = authService;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -32,19 +38,61 @@ public class AuthController : ControllerBase
     /// </remarks>
     private CookieOptions GetBaseCookieOptions()
     {
-        return new CookieOptions
+        var cookieOptions = new CookieOptions
         {
-            HttpOnly = true,
-            Secure   = true,
-            SameSite = SameSiteMode.Lax
+            HttpOnly = _configuration.GetValue("Auth:RefreshTokenCookie:HttpOnly", true),
+            Secure = _configuration.GetValue("Auth:RefreshTokenCookie:Secure", true),
+            SameSite = GetRefreshCookieSameSite(),
+            Path = GetRefreshCookiePath()
         };
+
+        var domain = _configuration["Auth:RefreshTokenCookie:Domain"];
+        if (!string.IsNullOrWhiteSpace(domain))
+            cookieOptions.Domain = domain;
+
+        return cookieOptions;
     }
 
     private void SetRefreshTokenCookie(string refreshToken)
     {
         var options = GetBaseCookieOptions();
-        options.MaxAge = TimeSpan.FromDays(7);
-        Response.Cookies.Append("refreshToken", refreshToken, options);
+        options.MaxAge = TimeSpan.FromMinutes(GetRefreshTokenMinutes());
+        Response.Cookies.Append(GetRefreshCookieName(), refreshToken, options);
+    }
+
+    /// <summary>
+    /// Lay ten cookie refresh token tu cau hinh de cac thao tac set/read/delete dong bo.
+    /// </summary>
+    private string GetRefreshCookieName()
+    {
+        return _configuration["Auth:RefreshTokenCookie:Name"] ?? DefaultRefreshTokenCookieName;
+    }
+
+    /// <summary>
+    /// Lay Path cookie refresh token, mac dinh chi gui cookie den auth endpoints.
+    /// </summary>
+    private string GetRefreshCookiePath()
+    {
+        return _configuration["Auth:RefreshTokenCookie:Path"] ?? DefaultRefreshTokenCookiePath;
+    }
+
+    /// <summary>
+    /// Lay SameSite tu cau hinh, fallback Lax de giam rui ro CSRF cho request dung cookie.
+    /// </summary>
+    private SameSiteMode GetRefreshCookieSameSite()
+    {
+        var sameSite = _configuration["Auth:RefreshTokenCookie:SameSite"];
+        return Enum.TryParse<SameSiteMode>(sameSite, ignoreCase: true, out var parsed)
+            ? parsed
+            : SameSiteMode.Lax;
+    }
+
+    /// <summary>
+    /// Lay thoi han refresh token tu cau hinh de cookie MaxAge khop voi DB token lifetime.
+    /// </summary>
+    private int GetRefreshTokenMinutes()
+    {
+        return _configuration.GetValue("Auth:TokenLifetime:RefreshTokenMinutes", DefaultRefreshTokenMinutes);
     }
 
     /// <summary>
@@ -84,7 +132,8 @@ public class AuthController : ControllerBase
             result.AccessToken,
             result.UserId,
             result.Username,
-            result.DisplayName));
+            result.DisplayName,
+            result.AvatarUrl));
     }
 
     /// <summary>
@@ -115,7 +164,8 @@ public class AuthController : ControllerBase
             result.AccessToken,
             result.UserId,
             result.Username,
-            result.DisplayName));
+            result.DisplayName,
+            result.AvatarUrl));
     }
 
     /// <summary>
@@ -140,7 +190,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Refresh()
     {
         // Đọc RefreshToken từ Cookie thay vì từ body JSON
-        var refreshTokenFromCookie = Request.Cookies["refreshToken"];
+        var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
         if (string.IsNullOrEmpty(refreshTokenFromCookie))
             return Unauthorized("Refresh token cookie không tồn tại.");
 
@@ -153,7 +203,8 @@ public class AuthController : ControllerBase
             result.AccessToken,
             result.UserId,
             result.Username,
-            result.DisplayName));
+            result.DisplayName,
+            result.AvatarUrl));
     }
 
     /// <summary>
@@ -174,14 +225,14 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
-        var refreshTokenFromCookie = Request.Cookies["refreshToken"];
+        var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
 
         // Nếu có token trong Cookie thì thu hồi trong DB
         if (!string.IsNullOrEmpty(refreshTokenFromCookie))
             await _authService.LogoutAsync(refreshTokenFromCookie);
 
         // Xóa Cookie khỏi trình duyệt dù token có tồn tại hay không (idempotent)
-        Response.Cookies.Delete("refreshToken", GetBaseCookieOptions());
+        Response.Cookies.Delete(GetRefreshCookieName(), GetBaseCookieOptions());
 
         return Ok();
     }

@@ -1,34 +1,68 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
+import { getGroupRooms, getGroupMembers, createGroupChannel } from '../../api/groupApi';
 import { UserSearchModal } from '../discovery/UserSearchModal';
+import { GroupSettingsModal } from '../group/GroupSettingsModal';
+import { CreateChannelModal } from '../group/CreateChannelModal';
 import { useChatStore } from '../../store/useChatStore';
+import { useNotificationStore } from '../../store/useNotificationStore';
+import { useVoiceConnection } from '../../hooks/useVoiceConnection';
+import { VoiceStatusBar } from './VoiceStatusBar';
 import type { ActiveChat, RoomDto, UserSearchResult } from '../../types/chat';
+import type { GroupDto, GroupRole, CreateGroupChannelRequest } from '../../types/group';
 import styles from './RoomListColumn.module.css';
 
 interface RoomListColumnProps {
+  /** Ngữ cảnh hiển thị: 'dm' (Tin nhắn cá nhân) hoặc 'group' (Kênh trong Server) */
   context: 'dm' | 'group';
+  /** Đối tượng Group hiện tại (Bắt buộc nếu context là 'group') */
+  group?: GroupDto;
+  /** Callback quay lại danh sách Server */
+  onBack?: () => void;
+  /** Phòng chat đang được chọn */
   activeChat: ActiveChat | null;
+  /** Callback khi chọn một phòng mới */
   onSelectChat: (chat: ActiveChat) => void;
+  /** Class CSS từ cha (Layout) để định hình cột */
+  className?: string;
 }
 
 /**
- * Cột 2: Danh sách phòng chat và ô tìm kiếm người dùng.
+ * Cột 2: Danh sách phòng chat hoặc danh sách Kênh (Channels).
+ * Quản lý việc hiển thị danh sách, tìm kiếm người dùng (cho DM) và cập nhật số tin nhắn chưa đọc.
+ * 
+ * @remarks
+ * Luồng xử lý:
+ * 1. Tải danh sách phòng từ API dựa trên context (DM hoặc Group).
+ * 2. Đồng bộ số tin nhắn chưa đọc (unreadCount) vào global store.
+ * 3. Sử dụng Ref để theo dõi snapshot danh sách phòng nhằm tránh re-render/re-fetch vô hạn.
+ * 4. Tự động tải lại danh sách khi có phòng mới được tạo hoặc có tin nhắn chưa đọc từ phòng lạ.
+ * 5. Render giao diện khác nhau tùy thuộc vào ngữ cảnh DM (phong cách Messenger) hay Group (phong cách Discord).
  */
-export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListColumnProps) => {
-  const { accessToken } = useAuth();
+export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectChat, className }: RoomListColumnProps) => {
+  const { accessToken, user } = useAuth();
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<GroupRole>('Member');
+  const {
+    joinVoiceRoom,
+    shouldSwitchVoiceSession,
+    leaveCurrentVoiceSessionForSwitch,
+  } = useVoiceConnection();
 
-  // Hook lấy dữ liệu unread và metadata sort phòng
+  // Hook lấy dữ liệu unread và metadata từ global store (Zustand)
   const unreadCount = useChatStore(state => state.unreadCount);
   const clearUnread = useChatStore(state => state.clearUnread);
   const setInitialUnreadCounts = useChatStore(state => state.setInitialUnreadCounts);
   const setInitialLastReadIds = useChatStore(state => state.setInitialLastReadIds);
-  // roomMetadata: lưu lastMessage real-time để sort danh sách phòng mà không re-fetch API
+  // roomMetadata: chứa lastMessage cập nhật real-time qua SignalR
   const roomMetadata = useChatStore(state => state.roomMetadata);
 
-  // Format thời gian hiển thị (VD: 14:30 hoặc Hôm qua)
+  /** Format thời gian hiển thị (VD: 14:30 hoặc 05/05) */
   const formatTime = (isoString?: string) => {
     if (!isoString) return '';
     const date = new Date(isoString);
@@ -39,54 +73,33 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
     return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
   };
 
-  // Lấy danh sách phòng khi component mount
-  useEffect(() => {
-    if (!accessToken) return;
-
-    const fetchRooms = async () => {
-      try {
-        const authClient = createAuthClient(accessToken);
-        const response = await authClient.get<RoomDto[]>('/api/v1/rooms/my-rooms');
-        setRooms(response.data);
-        
-        // Khởi tạo unread count VÀ last read ids vào store
-        const unreadMap: Record<string, number> = {};
-        const lastReadMap: Record<string, string> = {};
-        response.data.forEach(r => {
-          if (r.unreadCount !== undefined && r.unreadCount > 0) {
-            unreadMap[r.id] = r.unreadCount;
-          }
-          if (r.lastReadMessageId) {
-            lastReadMap[r.id] = r.lastReadMessageId;
-          }
-        });
-        setInitialUnreadCounts(unreadMap);
-        setInitialLastReadIds(lastReadMap);
-      } catch (err) {
-        console.error('Không thể lấy danh sách phòng:', err);
-      }
-    };
-
-    fetchRooms();
-  }, [accessToken, setInitialUnreadCounts]);
-
-  // Ref giữ snapshot rooms mới nhất để đọc trong effect mà không tạo dependency gây loop
-  const roomsRef = useRef<RoomDto[]>([]);
-  useEffect(() => {
-    roomsRef.current = rooms;
-  }, [rooms]);
-
-  // Hàm refresh danh sách phòng (tách ra để dùng lại ở 2 effect bên dưới)
-  const refreshRooms = useCallback(async () => {
+  /**
+   * [Luồng: Tải dữ liệu phòng]
+   * Logic lấy dữ liệu tập trung, hỗ trợ cả 2 ngữ cảnh DM và Group.
+   */
+  const fetchRoomsLogic = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const authClient = createAuthClient(accessToken);
-      const response = await authClient.get<RoomDto[]>('/api/v1/rooms/my-rooms');
-      setRooms(response.data);
-      // Sync unread VÀ last read từ API (chỉ làm giá trị khởi tạo, không ghi đè real-time)
+      let fetchedRooms: RoomDto[] = [];
+
+      // Nhánh 1: Nếu là Group, lấy danh sách Channel qua GroupId
+      if (context === 'group' && group) {
+        fetchedRooms = await getGroupRooms(accessToken, group.id);
+      }
+      // Nhánh 2: Nếu là DM, lấy toàn bộ phòng của User và lọc DirectMessage
+      else if (context === 'dm') {
+        const authClient = createAuthClient(accessToken);
+        const response = await authClient.get<RoomDto[]>('/api/v1/rooms/my-rooms');
+        fetchedRooms = response.data.filter(r => r.type === 'DirectMessage');
+      }
+
+      setRooms(fetchedRooms);
+
+      // [Luồng: Đồng bộ trạng thái đọc]
+      // Khởi tạo unread count VÀ last read ids từ API vào store để đồng bộ UI
       const unreadMap: Record<string, number> = {};
       const lastReadMap: Record<string, string> = {};
-      response.data.forEach(r => {
+      fetchedRooms.forEach(r => {
         if (r.unreadCount !== undefined && r.unreadCount > 0) {
           unreadMap[r.id] = r.unreadCount;
         }
@@ -97,21 +110,62 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
       setInitialUnreadCounts(unreadMap);
       setInitialLastReadIds(lastReadMap);
     } catch (err) {
-      console.error('Không thể re-fetch danh sách phòng:', err);
+      console.error('Không thể lấy danh sách phòng:', err);
     }
-  }, [accessToken, setInitialUnreadCounts]);
+  }, [accessToken, context, group?.id, setInitialUnreadCounts, setInitialLastReadIds]);
 
-  // Effect 1: Re-fetch khi activeChat chuyển sang real room chưa có trong danh sách (vừa tạo phòng)
-  // rooms KHÔNG nằm trong dependency → đọc qua roomsRef tránh infinite loop
+  // Tự động tải lại khi đổi context hoặc GroupID
+  useEffect(() => {
+    fetchRoomsLogic();
+
+    // [Bước 15.2]: Lấy vai trò của user hiện tại trong group
+    if (context === 'group' && group && accessToken && user) {
+      const fetchRole = async () => {
+        try {
+          const members = await getGroupMembers(accessToken, group.id);
+          const me = members.find(m => m.profile.id === user?.userId);
+          if (me) {
+            setCurrentUserRole(me.role);
+          } else {
+            // Fallback: nếu chưa fetch được member nhưng mình là owner dựa trên group metadata
+            if (group.ownerId === user?.userId) {
+              setCurrentUserRole('Owner');
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch group role:', err);
+          // Fallback check ownerId
+          if (group.ownerId === user?.userId) {
+            setCurrentUserRole('Owner');
+          }
+        }
+      };
+      fetchRole();
+    } else {
+      setCurrentUserRole('Member');
+    }
+  }, [fetchRoomsLogic, context, group, accessToken, user?.userId]);
+
+  // Snapshot Ref để đọc data "mới nhất" trong các useEffect mà không gây loop phụ thuộc
+  const roomsRef = useRef<RoomDto[]>([]);
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
+  // Alias để tái sử dụng logic tải lại
+  const refreshRooms = fetchRoomsLogic;
+
+  // [Luồng: Tự động cập nhật danh sách]
+  // Hiệu ứng 1: Re-fetch khi một phòng "Ảo" vừa được "Thật hóa" (có tin nhắn đầu tiên)
   useEffect(() => {
     if (!accessToken) return;
     if (activeChat?.type !== 'real') return;
+    // Nếu phòng real này chưa có trong list hiện tại -> mới được tạo -> refresh
     if (roomsRef.current.some(r => r.id === activeChat.room.id)) return;
     refreshRooms();
   }, [activeChat, accessToken, refreshRooms]);
 
-  // Effect 2: Re-fetch khi xuất hiện roomId hoàn toàn mới trong unreadCount (phòng chưa có trong list)
-  // rooms KHÔNG nằm trong dependency → đọc qua roomsRef tránh infinite loop
+  // Hiệu ứng 2: Re-fetch khi SignalR báo có tin nhắn từ một RoomId chưa từng thấy trong list
   useEffect(() => {
     if (!accessToken) return;
     const hasUnknownRoom = Object.keys(unreadCount).some(
@@ -120,58 +174,257 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
     if (hasUnknownRoom) refreshRooms();
   }, [unreadCount, accessToken, refreshRooms]);
 
-  // Khi user chọn một phòng trong danh sách (đã có phòng thật)
-  const handleSelectRoom = (room: RoomDto) => {
+  // Hiệu ứng 3 (Notification): Re-fetch khi Backend báo có phòng mới được tạo trong Group đang mở
+  const roomRefetchGroupId = useNotificationStore(s => s.roomRefetchGroupId);
+  const clearRoomRefetch = useNotificationStore(s => s.clearRoomRefetch);
+
+  useEffect(() => {
+    if (context !== 'group' || !group) return;
+    if (roomRefetchGroupId && roomRefetchGroupId === group.id) {
+      refreshRooms();
+      clearRoomRefetch();
+    }
+  }, [roomRefetchGroupId, context, group, refreshRooms, clearRoomRefetch]);
+
+  /** Xử lý chọn phòng chat */
+  const handleSelectRoom = async (room: RoomDto) => {
+    if (room.type === 'Voice') {
+      if (!accessToken) return;
+
+      if (!shouldSwitchVoiceSession()) {
+        return;
+      }
+
+      clearUnread(room.id);
+      onSelectChat({ type: 'real', room });
+
+      try {
+        await leaveCurrentVoiceSessionForSwitch();
+        await joinVoiceRoom(room.id, room.name || 'Voice Channel');
+      } catch (error) {
+        console.error('Không thể tham gia Voice room:', error);
+        toast.error('Không thể tham gia Voice room.');
+      }
+      return;
+    }
+
+    // Xóa badge đỏ ở local UI ngay lập tức để tăng UX cảm giác nhanh
     clearUnread(room.id);
     onSelectChat({ type: 'real', room });
   };
 
-  // Khi user chọn một người từ UserSearchModal
+  /** Xử lý chọn từ ô tìm kiếm (Chỉ dành cho DM) */
   const handleSelectFromSearch = (targetUser: UserSearchResult) => {
-    // Kiểm tra xem đã có phòng thật với người này chưa
+    // Nếu đã từng chat rồi -> dùng phòng cũ
     const existingRoom = rooms.find(
       r => r.type === 'DirectMessage' && r.otherUserUsername === targetUser.username
     );
 
     if (existingRoom) {
-      // Có phòng thật → dùng luôn
       onSelectChat({ type: 'real', room: existingRoom });
     } else {
-      // Chưa có → tạo phòng ảo (Virtual Room)
+      // Nếu chưa chat bao giờ -> tạo Virtual Room (Chờ tin nhắn đầu tiên mới tạo DB)
       onSelectChat({ type: 'virtual', targetUser });
     }
-
     setIsSearchOpen(false);
   };
 
-  // Filter chỉ hiện phòng DM (context = dm)
-  const dmRooms = rooms.filter(r => r.type === 'DirectMessage');
+  /**
+   * [Bước 15.4]: Xử lý tạo Kênh mới qua API.
+   * Cập nhật danh sách và nhảy vào kênh mới ngay lập tức.
+   */
+  const handleCreateChannelSubmit = async (request: CreateGroupChannelRequest) => {
+    if (!accessToken || !group) return;
 
-  // Sort real-time: ưu tiên timestamp từ roomMetadata (real-time), fallback về lastMessageTimestamp từ API
-  const sortedDmRooms = [...dmRooms].sort((a, b) => {
+    try {
+      const { roomId } = await createGroupChannel(accessToken, group.id, request);
+      
+      toast.success(`Đã tạo kênh #${request.name} thành công!`);
+      setIsCreateChannelOpen(false);
+
+      // Tải lại danh sách phòng để lấy data RoomDto đầy đủ cho activeChat
+      const updatedRooms = await getGroupRooms(accessToken, group.id);
+      setRooms(updatedRooms);
+
+      // Tìm phòng vừa tạo trong list mới để lấy object RoomDto hoàn chỉnh
+      const newRoom = updatedRooms.find(r => r.id === roomId);
+      if (newRoom) {
+        onSelectChat({ type: 'real', room: newRoom });
+      }
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Không thể tạo kênh. Vui lòng thử lại sau.';
+      toast.error(errorMsg);
+      throw error; // Để Modal biết và tắt Loading
+    }
+  };
+
+  // [Nhánh Render: Ngữ cảnh Group]
+  // Hiển thị danh sách kênh của một Server (Discord style)
+  // Phân tách kênh Text và Voice ra 2 section riêng biệt
+  if (context === 'group') {
+    // Tách danh sách rooms thành Text channels và Voice channels
+    const textRooms = rooms.filter(r => r.type !== 'Voice');
+    const voiceRooms = rooms.filter(r => r.type === 'Voice');
+
+    return (
+      <>
+        <div className={`${styles.column} ${className || ''}`}>
+        {/* Header kênh: Có nút back quay lại danh sách Server */}
+        <div className={styles.header}>
+          <button className={styles.backBtn} onClick={onBack} title="Quay lại danh sách nhóm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <h2 className={styles.title}>{group?.name || 'Kênh'}</h2>
+
+          {/* Nút Settings/Dropdown cho Group (Bước 14.2) */}
+          <button
+            className={styles.settingsBtn}
+            onClick={() => setIsSettingsOpen(true)}
+            title="Tùy chỉnh Server"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* === Section: Kênh văn bản (Text Channels) === */}
+        <div className={styles.sectionHeader}>
+          <span className={styles.sectionTitle}>Kênh văn bản</span>
+          {/* [Bước 15.2]: Nút tạo kênh mới - Chỉ hiện cho Owner/Admin */}
+          {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+            <button 
+              className={styles.addChannelBtn} 
+              onClick={() => setIsCreateChannelOpen(true)}
+              title="Tạo kênh"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className={styles.roomList}>
+          {textRooms.length === 0 && voiceRooms.length === 0 ? (
+            <div className={styles.emptyList}>
+              <p>Chưa có kênh nào.</p>
+            </div>
+          ) : (
+            <>
+              {/* Danh sách Text Channels */}
+              {textRooms.map(room => (
+                <button
+                  key={room.id}
+                  className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
+                    ? styles.active
+                    : ''
+                    }`}
+                  onClick={() => {
+                    void handleSelectRoom(room);
+                  }}
+                >
+                  {/* Prefix # cho kênh văn bản */}
+                  <div className={styles.avatar}>#</div>
+                  <div className={styles.roomInfo}>
+                    <span className={`${styles.roomName} ${unreadCount[room.id] > 0 ? styles.unreadBold : ''}`}>
+                      {room.name || 'Unknown Channel'}
+                    </span>
+                  </div>
+                  {unreadCount[room.id] > 0 && (
+                    <div className={styles.unreadBadge}>
+                      {unreadCount[room.id]}
+                    </div>
+                  )}
+                </button>
+              ))}
+
+              {/* === Section: Kênh thoại (Voice Channels) === */}
+              {voiceRooms.length > 0 && (
+                <>
+                  <div className={styles.sectionHeader}>
+                    <span className={styles.sectionTitle}>Kênh thoại</span>
+                  </div>
+                  {voiceRooms.map(room => (
+                    <button
+                      key={room.id}
+                      className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
+                        ? styles.active
+                        : ''
+                        }`}
+                      onClick={() => {
+                        void handleSelectRoom(room);
+                      }}
+                    >
+                      {/* Icon loa cho kênh thoại (phân biệt trực quan với #) */}
+                      <div className={styles.avatarVoice}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                          stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                        </svg>
+                      </div>
+                      <div className={styles.roomInfo}>
+                        <span className={styles.roomName}>
+                          {room.name || 'Unknown Voice Channel'}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* VoiceStatusBar: Thanh nhỏ cuối sidebar khi đang trong phòng Voice */}
+        <VoiceStatusBar />
+      </div>
+
+        {/* Modal cài đặt Server (Bước 14.3) */}
+        {isSettingsOpen && group && (
+          <GroupSettingsModal
+            group={group}
+            onClose={() => setIsSettingsOpen(false)}
+            onLeaveSuccess={onBack}
+          />
+        )}
+
+        {/* Modal tạo Kênh mới (Bước 15.3, 15.4) */}
+        {isCreateChannelOpen && group && (
+          <CreateChannelModal
+            groupId={group.id}
+            groupName={group.name}
+            onClose={() => setIsCreateChannelOpen(false)}
+            onSubmit={handleCreateChannelSubmit}
+          />
+        )}
+      </>
+    );
+  }
+
+  // [Nhánh Render: Ngữ cảnh DM]
+  // Hiển thị danh sách tin nhắn cá nhân (Messenger style)
+
+  // Sắp xếp danh sách DM theo thời gian tin nhắn mới nhất (Real-time sort)
+  const sortedDmRooms = [...rooms].sort((a, b) => {
     const tA = roomMetadata[a.id]?.lastMessageTimestamp ?? a.lastMessageTimestamp ?? '';
     const tB = roomMetadata[b.id]?.lastMessageTimestamp ?? b.lastMessageTimestamp ?? '';
     return new Date(tB).getTime() - new Date(tA).getTime();
   });
 
-  if (context === 'group') {
-    return (
-      <div className={styles.column}>
-        <div className={styles.placeholder}>
-          <p>Tính năng Nhóm đang được phát triển</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.column}>
-      {/* Header với nút Search */}
+    <>
+      <div className={`${styles.column} ${className || ''}`}>
       <div className={styles.header}>
         <h2 className={styles.title}>Tin nhắn</h2>
       </div>
 
-      {/* Ô Search - click để mở Modal */}
+      {/* Thanh tìm kiếm người dùng mới */}
       <button className={styles.searchBar} onClick={() => setIsSearchOpen(true)}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2">
@@ -181,7 +434,6 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
         <span>Tìm kiếm hoặc bắt đầu trò chuyện mới</span>
       </button>
 
-      {/* Danh sách phòng */}
       <div className={styles.roomList}>
         {sortedDmRooms.length === 0 ? (
           <div className={styles.emptyList}>
@@ -192,14 +444,14 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
           sortedDmRooms.map(room => (
             <button
               key={room.id}
-              className={`${styles.roomItem} ${
-                activeChat?.type === 'real' && activeChat.room.id === room.id
-                  ? styles.active
-                  : ''
-              }`}
-              onClick={() => handleSelectRoom(room)}
+              className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
+                ? styles.active
+                : ''
+                }`}
+              onClick={() => {
+                void handleSelectRoom(room);
+              }}
             >
-              {/* Avatar chữ cái đầu */}
               <div className={styles.avatar}>
                 {(room.otherUserDisplayName || '?')[0]?.toUpperCase() || '?'}
               </div>
@@ -214,7 +466,8 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
                     </span>
                   )}
                 </div>
-                
+
+                {/* Hiển thị nội dung tin nhắn cuối cùng (Ưu tiên bản cập nhật real-time qua store) */}
                 {(roomMetadata[room.id]?.lastMessageContent ?? room.lastMessageContent) ? (
                   <span className={`${styles.roomSub} ${unreadCount[room.id] > 0 ? styles.unreadBoldSub : ''}`}>
                     {roomMetadata[room.id]?.lastMessageContent ?? room.lastMessageContent}
@@ -223,8 +476,7 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
                   <span className={styles.roomSub}>@{room.otherUserUsername}</span>
                 )}
               </div>
-              
-              {/* Dấu chấm đỏ tin nhắn chưa đọc */}
+
               {unreadCount[room.id] > 0 && (
                 <div className={styles.unreadBadge}>
                   {unreadCount[room.id]}
@@ -234,14 +486,15 @@ export const RoomListColumn = ({ context, activeChat, onSelectChat }: RoomListCo
           ))
         )}
       </div>
+    </div>
 
-      {/* Modal tìm kiếm người dùng */}
+      {/* Modal tìm kiếm người dùng để bắt đầu DM mới */}
       {isSearchOpen && (
         <UserSearchModal
           onClose={() => setIsSearchOpen(false)}
           onSelectUser={handleSelectFromSearch}
         />
       )}
-    </div>
+    </>
   );
 };

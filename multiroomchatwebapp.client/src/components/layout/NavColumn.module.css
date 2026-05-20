@@ -27,6 +27,10 @@
   margin: var(--spacing-xs) 0;
 }
 
+.spacer {
+  flex: 1;
+}
+
 .navBtn {
   position: relative;
   width: 46px;

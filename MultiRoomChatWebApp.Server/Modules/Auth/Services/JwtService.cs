@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using AppUser = MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User;
@@ -11,6 +12,9 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
 
 public class JwtService : IJwtService
 {
+    private const int DefaultAccessTokenMinutes = 15;
+    private const int DefaultRefreshTokenMinutes = 10080;
+
     private readonly IConfiguration _config;
     
     public JwtService(IConfiguration config)
@@ -44,13 +48,15 @@ public class JwtService : IJwtService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.Name, user.Username),
+            new Claim("displayName", user.DisplayName),
+            new Claim("avatarUrl", user.AvatarUrl ?? string.Empty),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddMinutes(15), // Access token expires in 15 minutes
+            Expires = DateTime.UtcNow.AddMinutes(GetAccessTokenMinutes()),
             Issuer = issuer,
             Audience = audience,
             SigningCredentials = credentials
@@ -71,20 +77,57 @@ public class JwtService : IJwtService
     /// Dùng trình tạo số giả ngẫu nhiên mã hóa (RandomNumberGenerator) 
     /// trích xuất 32 byte để tạo thành Token String siêu bảo mật, chống phỏng đoán.
     /// </remarks>
-    public RefreshToken GenerateRefreshToken(Guid userId)
+    public RefreshTokenGenerationResult GenerateRefreshToken(Guid userId)
     {
         var randomBytes = new byte[32];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
         var tokenString = Convert.ToBase64String(randomBytes);
 
-        return new RefreshToken
+        var entity = new RefreshToken
         {
             UserId = userId,
-            Token = tokenString,
-            ExpiresAt = DateTime.UtcNow.AddDays(7), // Refresh token expires in 7 days
+            TokenHash = HashRefreshToken(tokenString),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(GetRefreshTokenMinutes()),
             IsRevoked = false,
             CreatedAt = DateTime.UtcNow
         };
+
+        return new RefreshTokenGenerationResult(tokenString, entity);
+    }
+
+    /// <summary>
+    /// Bam Refresh Token raw bang SHA-256 truoc khi luu hoac truy van database.
+    /// </summary>
+    /// <param name="refreshToken">Refresh Token raw lay tu cookie HttpOnly.</param>
+    /// <returns>Chuoi hash Base64 dung de so khop voi TokenHash trong DB.</returns>
+    /// <remarks>
+    /// Refresh Token co entropy cao va chi raw token moi duoc gui ve browser.
+    /// Database chi giu hash de giam rui ro neu du lieu bi lo.
+    /// </remarks>
+    public string HashRefreshToken(string refreshToken)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            throw new ArgumentException("Refresh token is required", nameof(refreshToken));
+
+        var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
+        var hashBytes = SHA256.HashData(tokenBytes);
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    /// <summary>
+    /// Lay thoi han Access Token tu cau hinh, fallback ve gia tri production-safe.
+    /// </summary>
+    private int GetAccessTokenMinutes()
+    {
+        return _config.GetValue("Auth:TokenLifetime:AccessTokenMinutes", DefaultAccessTokenMinutes);
+    }
+
+    /// <summary>
+    /// Lay thoi han Refresh Token tu cau hinh de dong bo voi cookie MaxAge.
+    /// </summary>
+    private int GetRefreshTokenMinutes()
+    {
+        return _config.GetValue("Auth:TokenLifetime:RefreshTokenMinutes", DefaultRefreshTokenMinutes);
     }
 }

@@ -7,7 +7,7 @@
  */
 export interface RoomDto {
   id: string;
-  type: 'DirectMessage' | 'Group';
+  type: 'DirectMessage' | 'Group' | 'Text' | 'Voice';
   name: string | null;
   otherUserDisplayName?: string;
   otherUserUsername?: string;
@@ -15,6 +15,8 @@ export interface RoomDto {
   lastMessageTimestamp?: string;
   unreadCount?: number;
   lastReadMessageId?: string;
+  isPrivate?: boolean;
+  groupId?: string;
 }
 
 /**
@@ -25,6 +27,7 @@ export interface UserSearchResult {
   id: string;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
 }
 
 /**

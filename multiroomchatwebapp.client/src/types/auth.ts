@@ -11,6 +11,7 @@ export interface AuthUser {
   userId: string;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
 }
 
 /**
@@ -22,4 +23,5 @@ export interface AuthClientResponse {
   userId: string;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
 }

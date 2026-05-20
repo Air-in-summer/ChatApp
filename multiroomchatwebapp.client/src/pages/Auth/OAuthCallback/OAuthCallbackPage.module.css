@@ -1,0 +1,22 @@
+.pageContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  padding: var(--spacing-md);
+}
+
+.callbackCard {
+  max-width: 420px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  min-height: 72px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}

@@ -19,6 +19,58 @@ public class UserController : ControllerBase
     }
 
     /// <summary>
+    /// [GET] /api/v1/users/me - Lay profile cua user dang dang nhap.
+    /// </summary>
+    /// <returns>UserProfileDto cua user hien tai.</returns>
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetMyProfile()
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+            return Unauthorized("User context is missing");
+
+        var profile = await _userService.GetProfileAsync(currentUserId);
+        return Ok(profile);
+    }
+
+    /// <summary>
+    /// [PUT] /api/v1/users/me/profile - Cap nhat displayName/avatarUrl cua user dang dang nhap.
+    /// </summary>
+    /// <param name="request">DisplayName va AvatarUrl moi.</param>
+    /// <returns>UserProfileDto sau khi cap nhat.</returns>
+    [HttpPut("me/profile")]
+    [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateUserProfileRequest request)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+            return Unauthorized("User context is missing");
+
+        var profile = await _userService.UpdateProfileAsync(currentUserId, request);
+        return Ok(profile);
+    }
+
+    /// <summary>
+    /// [PUT] /api/v1/users/me/password - Doi mat khau tai khoan local.
+    /// </summary>
+    /// <param name="request">Mat khau hien tai va mat khau moi.</param>
+    /// <returns>200 OK neu doi mat khau thanh cong.</returns>
+    [HttpPut("me/password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ChangeMyPassword([FromBody] ChangePasswordRequest request)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+            return Unauthorized("User context is missing");
+
+        await _userService.ChangePasswordAsync(currentUserId, request);
+        return Ok();
+    }
+
+    /// <summary>
     /// [GET] /api/v1/users/search?keyword=... - Tìm kiếm người dùng theo Username hoặc DisplayName
     /// </summary>
     /// <param name="keyword">Từ khóa tìm kiếm (tối thiểu 1 ký tự)</param>
@@ -40,8 +92,7 @@ public class UserController : ControllerBase
     public async Task<IActionResult> SearchUsers([FromQuery] string keyword)
     {
         // Parse userId từ JWT claim
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out Guid currentUserId))
+        if (!TryGetCurrentUserId(out var currentUserId))
             return Unauthorized("User context is missing");
 
         // Validate keyword tối thiểu 1 ký tự
@@ -50,5 +101,11 @@ public class UserController : ControllerBase
 
         var results = await _userService.SearchByKeywordAsync(keyword, currentUserId);
         return Ok(results);
+    }
+
+    private bool TryGetCurrentUserId(out Guid currentUserId)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(userIdString, out currentUserId);
     }
 }

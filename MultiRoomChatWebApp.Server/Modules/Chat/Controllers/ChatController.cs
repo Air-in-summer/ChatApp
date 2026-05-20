@@ -14,11 +14,19 @@ public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IRoomMetadataCache _roomMetadataCache;
+    private readonly Modules.Group.Core.Interfaces.IGroupPermissionsCache _groupPermissionsCache;
 
-    public ChatController(IChatService chatService, IRoomPermissionsCache roomPermissionsCache)
+    public ChatController(
+        IChatService chatService, 
+        IRoomPermissionsCache roomPermissionsCache,
+        IRoomMetadataCache roomMetadataCache,
+        Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache)
     {
         _chatService = chatService;
         _roomPermissionsCache = roomPermissionsCache;
+        _roomMetadataCache = roomMetadataCache;
+        _groupPermissionsCache = groupPermissionsCache;
     }
 
     /// <summary>
@@ -44,8 +52,22 @@ public class ChatController : ControllerBase
             return Unauthorized("User context is missing");
         }
 
-        // Kiểm tra quyền: Chỉ thành viên phòng mới được xem tin nhắn
-        bool isMember = await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
+        // Kiểm tra quyền theo cơ chế Phân tầng (Dispatcher)
+        var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
+        if (roomMeta == null) return NotFound("Room not found");
+
+        bool isMember = false;
+        if (roomMeta.Value.GroupId.HasValue && !roomMeta.Value.IsPrivate)
+        {
+            // TẦNG 1: Public Channel -> Hỏi Group Cache
+            isMember = await _groupPermissionsCache.IsUserInGroupAsync(roomMeta.Value.GroupId.Value, userId);
+        }
+        else
+        {
+            // TẦNG 2: Private/DM -> Hỏi Room Cache
+            isMember = await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
+        }
+
         if (!isMember)
         {
             return Forbid();

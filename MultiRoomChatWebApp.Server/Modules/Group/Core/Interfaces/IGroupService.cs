@@ -29,4 +29,52 @@ public interface IGroupService
     /// <param name="inviteCode">Mã mời của Server</param>
     /// <returns>Thông tin Server vừa tham gia</returns>
     Task<GroupDto> JoinGroupByInviteCodeAsync(Guid userId, string inviteCode);
+
+    /// <summary>
+    /// Lấy danh sách các Server (Group) mà người dùng đang tham gia.
+    /// </summary>
+    Task<IEnumerable<GroupDto>> GetMyGroupsAsync(Guid userId);
+
+    /// <summary>
+    /// Lấy danh sách các Room (Channel) trong một Group dựa trên quyền truy cập của User.
+    /// </summary>
+    Task<IEnumerable<MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs.RoomDto>> GetGroupRoomsAsync(Guid groupId, Guid userId);
+
+    /// <summary>
+    /// Lấy danh sách thành viên trong một Group.
+    /// </summary>
+    Task<IEnumerable<GroupMemberDto>> GetGroupMembersAsync(Guid groupId);
+
+
+    /// <summary>
+    /// Cập nhật thông tin Server (Name, Description, Icon).
+    /// </summary>
+    Task<GroupDto> UpdateGroupAsync(Guid userId, Guid groupId, UpdateGroupRequest request);
+
+    /// <summary>
+    /// Bổ nhiệm hoặc bãi miễn vai trò Admin cho một thành viên.
+    /// </summary>
+    Task UpdateMemberRoleAsync(Guid ownerId, Guid groupId, Guid targetUserId, MultiRoomChatWebApp.Server.Modules.Group.Core.Enums.GroupRole newRole);
+
+    /// <summary>
+    /// Chuyển nhượng quyền sở hữu tối cao (Owner) cho thành viên khác.
+    /// </summary>
+    Task TransferOwnershipAsync(Guid currentOwnerId, Guid groupId, Guid newOwnerId);
+
+    /// <summary>
+    /// Rời khỏi Server. Owner không thể rời nếu chưa chuyển nhượng quyền.
+    /// </summary>
+    Task LeaveGroupAsync(Guid userId, Guid groupId);
+
+    /// <summary>
+    /// Trục xuất thành viên khỏi Server.
+    /// </summary>
+    Task KickMemberAsync(Guid adminId, Guid groupId, Guid targetUserId);
+
+    /// <summary>
+    /// Giải tán (Soft Delete) Server. Chỉ Owner mới có quyền.
+    /// </summary>
+    Task SoftDeleteGroupAsync(Guid ownerId, Guid groupId);
 }
+
+

@@ -17,6 +17,48 @@
   gap: var(--spacing-sm);
 }
 
+.inlineCallDock {
+  flex: 0 0 60%;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.inlineCallPanel {
+  height: 100%;
+  min-height: 0;
+}
+
+.inlineCallLoading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.addMemberBtn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0.7;
+}
+
+.addMemberBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
 .avatar {
   width: 44px;
   height: 44px;

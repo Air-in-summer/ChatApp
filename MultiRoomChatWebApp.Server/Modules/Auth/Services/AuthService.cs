@@ -55,18 +55,19 @@ public class AuthService : IAuthService
 
         // Tạo 2 token (ngắn hạn và dài hạn) cung cấp cho client
         var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshTokenEntity = _jwtService.GenerateRefreshToken(user.Id);
+        var refreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
 
-        _dbContext.RefreshTokens.Add(refreshTokenEntity);
+        _dbContext.RefreshTokens.Add(refreshTokenResult.Entity);
         // Lưu refresh token để kiểm soát phiên đăng nhập
         await _dbContext.SaveChangesAsync();
 
         return new AuthResponse(
             accessToken, 
-            refreshTokenEntity.Token, 
+            refreshTokenResult.PlainTextToken, 
             user.Id, 
             user.Username, 
-            user.DisplayName);
+            user.DisplayName,
+            user.AvatarUrl);
     }
 
     /// <summary>
@@ -86,21 +87,22 @@ public class AuthService : IAuthService
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
         
-        if (user == null || !user.IsActive || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        if (user == null || !user.IsActive || string.IsNullOrWhiteSpace(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid credentials");
 
         var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshTokenEntity = _jwtService.GenerateRefreshToken(user.Id);
+        var refreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
 
-        _dbContext.RefreshTokens.Add(refreshTokenEntity);
+        _dbContext.RefreshTokens.Add(refreshTokenResult.Entity);
         await _dbContext.SaveChangesAsync();
 
         return new AuthResponse(
             accessToken, 
-            refreshTokenEntity.Token, 
+            refreshTokenResult.PlainTextToken, 
             user.Id, 
             user.Username, 
-            user.DisplayName);
+            user.DisplayName,
+            user.AvatarUrl);
     }
 
     /// <summary>
@@ -118,9 +120,11 @@ public class AuthService : IAuthService
     /// </remarks>
     public async Task<AuthResponse> RefreshAsync(string refreshToken)
     {
+        var refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
+
         var storedToken = await _dbContext.RefreshTokens
             .Include(t => t.User)
-            .FirstOrDefaultAsync(t => t.Token == refreshToken);
+            .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
 
         if (storedToken == null || !storedToken.IsActive || !storedToken.User.IsActive)
             throw new UnauthorizedAccessException("Invalid or expired refresh token");
@@ -142,17 +146,18 @@ public class AuthService : IAuthService
 
         var user = storedToken.User;
         var newAccessToken = _jwtService.GenerateAccessToken(user);
-        var newRefreshTokenEntity = _jwtService.GenerateRefreshToken(user.Id);
+        var newRefreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
 
-        _dbContext.RefreshTokens.Add(newRefreshTokenEntity);
+        _dbContext.RefreshTokens.Add(newRefreshTokenResult.Entity);
         await _dbContext.SaveChangesAsync();
 
         return new AuthResponse(
             newAccessToken, 
-            newRefreshTokenEntity.Token, 
+            newRefreshTokenResult.PlainTextToken, 
             user.Id, 
             user.Username, 
-            user.DisplayName);
+            user.DisplayName,
+            user.AvatarUrl);
     }
 
     /// <summary>
@@ -166,8 +171,13 @@ public class AuthService : IAuthService
     /// </remarks>
     public async Task LogoutAsync(string refreshToken)
     {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            return;
+
+        var refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
+
         var storedToken = await _dbContext.RefreshTokens
-            .FirstOrDefaultAsync(t => t.Token == refreshToken);
+            .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
 
         if (storedToken != null)
         {

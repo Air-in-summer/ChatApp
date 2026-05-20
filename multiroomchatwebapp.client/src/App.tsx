@@ -5,7 +5,9 @@ import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { MainLayout } from './components/layout/MainLayout';
 import { LoginPage } from './pages/Auth/Login/LoginPage';
+import { OAuthCallbackPage } from './pages/Auth/OAuthCallback/OAuthCallbackPage';
 import { RegisterPage } from './pages/Auth/Register/RegisterPage';
+import { JoinGroupPage } from './pages/JoinGroup/JoinGroupPage';
 
 import './App.css';
 
@@ -45,8 +47,17 @@ function App() {
           {/* Public routes - không cần đăng nhập */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
 
           {/* Protected routes - phải đăng nhập */}
+          <Route
+            path="/join/:inviteCode"
+            element={
+              <ProtectedRoute>
+                <JoinGroupPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/"
             element={

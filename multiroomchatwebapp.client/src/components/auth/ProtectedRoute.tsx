@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -18,6 +18,7 @@ interface ProtectedRouteProps {
  */
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
   // Đang kiểm tra phiên làm việc (F5 → refresh token) → hiện loading
   if (isLoading) {
@@ -34,9 +35,9 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     );
   }
 
-  // Chưa đăng nhập → redirect về /login
+  // Chưa đăng nhập → redirect về /login, truyền kèm returnUrl để quay lại đúng trang sau login
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ returnUrl: `${location.pathname}${location.search}${location.hash}` }} />;
   }
 
   return <>{children}</>;

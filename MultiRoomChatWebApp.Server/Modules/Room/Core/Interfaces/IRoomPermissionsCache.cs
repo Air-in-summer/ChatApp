@@ -21,8 +21,20 @@ public interface IRoomPermissionsCache
     Task InvalidateRoomCacheAsync(Guid roomId);
 
     /// <summary>
-    /// Xóa Cache Metadata của phòng (GroupId, IsPrivate).
-    /// Gọi khi phòng bị xóa hoặc thay đổi thuộc tính.
+    /// Xóa một người dùng cụ thể khỏi Cache của phòng (dùng lệnh SREM của Redis).
+    /// Giúp dọn dẹp cache bảo mật ngay lập tức mà không cần nạp lại toàn bộ member list.
     /// </summary>
-    Task InvalidateRoomInfoAsync(Guid roomId);
+    Task RemoveUserFromRoomAsync(Guid roomId, Guid userId);
+
+    /// <summary>
+    /// Thêm danh sách người dùng vào Cache của phòng (dùng lệnh SADD của Redis).
+    /// Chỉ thực hiện nếu Cache đang tồn tại để tránh nạp dữ liệu thiếu.
+    /// </summary>
+    Task AddUsersToRoomCacheAsync(Guid roomId, IEnumerable<Guid> userIds);
+
+    /// <summary>
+    /// Lấy toàn bộ danh sách thành viên của phòng từ Cache (Redis Set).
+    /// Nếu Cache Miss, tự động nạp từ SQL lên Redis rồi trả về kết quả.
+    /// </summary>
+    Task<IEnumerable<Guid>> GetRoomMemberIdsAsync(Guid roomId);
 }

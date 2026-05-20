@@ -1,4 +1,24 @@
-import axios from 'axios';
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+
+export const API_BASE_URL = 'https://localhost:7222';
+
+type AuthRetryConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+};
+
+let getAccessTokenForRetry: (() => string | null) | null = null;
+let refreshAccessTokenForRetry: (() => Promise<string | null>) | null = null;
+
+/**
+ * Dang ky bridge tu AuthContext vao api layer de interceptor co the refresh token.
+ */
+export const configureAuthInterceptors = (handlers: {
+  getAccessToken: () => string | null;
+  refreshAccessToken: () => Promise<string | null>;
+}) => {
+  getAccessTokenForRetry = handlers.getAccessToken;
+  refreshAccessTokenForRetry = handlers.refreshAccessToken;
+};
 
 /**
  * Axios instance được cấu hình làm nền tảng cho toàn bộ API calls.
@@ -14,7 +34,7 @@ import axios from 'axios';
  * mỗi lần gọi. Điều này được xử lý ở authApiClient bên dưới.
  */
 export const apiClient = axios.create({
-  baseURL: 'https://localhost:7222',
+  baseURL: API_BASE_URL,
   withCredentials: true, // Bắt buộc để Cookie tự đi kèm mỗi request
   headers: {
     'Content-Type': 'application/json',
@@ -34,13 +54,47 @@ export const apiClient = axios.create({
  */
 export const createAuthClient = (token: string) => {
   const instance = axios.create({
-    baseURL: 'https://localhost:7222',
+    baseURL: API_BASE_URL,
     withCredentials: true,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
   });
+
+  instance.interceptors.request.use((config) => {
+    const latestToken = getAccessTokenForRetry?.();
+    if (latestToken) {
+      config.headers.Authorization = `Bearer ${latestToken}`;
+    }
+
+    return config;
+  });
+
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error: AxiosError) => {
+      const originalRequest = error.config as AuthRetryConfig | undefined;
+
+      if (
+        error.response?.status !== 401 ||
+        !originalRequest ||
+        originalRequest._retry ||
+        !refreshAccessTokenForRetry
+      ) {
+        return Promise.reject(error);
+      }
+
+      originalRequest._retry = true;
+      const newAccessToken = await refreshAccessTokenForRetry();
+      if (!newAccessToken) {
+        return Promise.reject(error);
+      }
+
+      originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+      return instance(originalRequest);
+    }
+  );
 
   return instance;
 };

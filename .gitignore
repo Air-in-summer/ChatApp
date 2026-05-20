@@ -1,10 +1,13 @@
 # [Yêu cầu của User]
 .agent/
+.codex/
 .vs/
 docker/
 docker-compose.yml
+livekit.yaml
 bin/
 obj/
+docs/
 **/Properties/launchSettings.json
 appsettings.json
 appsettings.*.json

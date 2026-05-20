@@ -12,46 +12,64 @@ namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Handlers;
 /// </summary>
 public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, bool>
 {
-    private readonly IRoomPermissionsCache _permissionsCache;
+    private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IRoomMetadataCache _roomMetadataCache;
+    private readonly Modules.Group.Core.Interfaces.IGroupPermissionsCache _groupPermissionsCache;
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<SendMessageCommandHandler> _logger;
 
     public SendMessageCommandHandler(
-        IRoomPermissionsCache permissionsCache, 
+        IRoomPermissionsCache roomPermissionsCache, 
+        IRoomMetadataCache roomMetadataCache,
+        Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache,
         IConnectionMultiplexer redis,
         ILogger<SendMessageCommandHandler> logger)
     {
-        _permissionsCache = permissionsCache;
+        _roomPermissionsCache = roomPermissionsCache;
+        _roomMetadataCache = roomMetadataCache;
+        _groupPermissionsCache = groupPermissionsCache;
         _redis = redis;
         _logger = logger;
     }
 
     /// <summary>
-    /// Xử lý gửi tin nhắn cực nhanh, nhả luồng Websocket ngay lập tức.
+    /// Xử lý gửi tin nhắn với cơ chế Phân tầng Bảo mật (Hierarchical Auth).
     /// </summary>
-    /// <remarks>
-    /// Luồng xử lý:
-    /// 1. Gọi bộ đệm _permissionsCache để check quyền SISMEMBER siêu tốc.
-    /// 2. Nếu User nằm trong Room -> Đóng gói payload.
-    /// 3. Publish vào kênh "chat_messages_queue" của Redis.
-    /// 4. Hết nhiệm vụ, kết thúc chu kỳ.
-    /// </remarks>
     public async Task<bool> Handle(SendMessageCommand request, CancellationToken cancellationToken)
     {
-        // 1. Kiểm tra Quyền Hạn
-        bool isMember = await _permissionsCache.IsUserInRoomAsync(request.RoomId, request.SenderId);
+        // 1. Lấy Metadata của Phòng
+        var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(request.RoomId);
         
-        if (!isMember)
+        if (roomMeta == null)
+        {
+            _logger.LogWarning("Phòng {RoomId} không tồn tại hoặc đã bị xóa.", request.RoomId);
+            return false;
+        }
+
+        // 2. DISPATCHER: Quyết định cách check quyền
+        bool isAuthorized = false;
+
+        if (roomMeta.Value.GroupId.HasValue && !roomMeta.Value.IsPrivate)
+        {
+            // TẦNG 1: PHÒNG PUBLIC TRONG GROUP -> Check Group Cache (Tránh nhồi 500 member vào Room Cache)
+            isAuthorized = await _groupPermissionsCache.IsUserInGroupAsync(roomMeta.Value.GroupId.Value, request.SenderId);
+        }
+        else
+        {
+            // TẦNG 2: PHÒNG PRIVATE HOẶC DM -> Check Room Cache (Tối ưu cho phòng ít người)
+            isAuthorized = await _roomPermissionsCache.IsUserInRoomAsync(request.RoomId, request.SenderId);
+        }
+
+        if (!isAuthorized)
         {
             _logger.LogWarning("Bảo mật: User {UserId} cố gắng nhắn tin vào Room {RoomId} mà không có quyền.", request.SenderId, request.RoomId);
             return false; 
         }
 
-        // 2. Chuyển đổi thành JSON siêu nhẹ
-        // Lưu ý: Không tự cấp ID MongoDB ở đây. Việc đó giành cho BackgroundWorker để phân tải.
+        // 3. Đóng gói payload
         var messagePayload = JsonSerializer.Serialize(request);
 
-        // 3. Ném vào Redis Streams (Lưu trữ an toàn, chờ Worker xử lý và ACK)
+        // 4. Ném vào Redis Streams chờ Worker xử lý
         var db = _redis.GetDatabase();
         await db.StreamAddAsync("chat_messages_stream", "payload", messagePayload);
 

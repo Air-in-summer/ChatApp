@@ -10,7 +10,9 @@ public class User
     
     public string Email { get; set; } = string.Empty;
     
-    public string PasswordHash { get; set; } = string.Empty;
+    public string? PasswordHash { get; set; }
+
+    public string? AvatarUrl { get; set; }
     
     public bool IsActive { get; set; } = true;
     
@@ -19,6 +21,7 @@ public class User
     public DateTime? UpdatedAt { get; set; }
 
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken> RefreshTokens { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken>();
+    public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin> ExternalLogins { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin>();
     
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room> CreatedRooms { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room>();
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember> RoomMemberships { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember>();

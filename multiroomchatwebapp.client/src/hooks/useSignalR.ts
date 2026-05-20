@@ -1,9 +1,29 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { useAuth } from '../context/AuthContext';
-import { createAuthClient } from '../api/apiClient';
 import { useChatStore } from '../store/useChatStore';
+import { useNotificationStore } from '../store/useNotificationStore';
+import { useVoiceStore } from '../store/useVoiceStore';
+import type { VoiceCallIncomingDto, VoiceCallStatusChangedDto } from '../api/voiceApi';
 import type { MessageDto } from '../types/chat';
+
+const cleanupActiveDirectCallIfMatches = (
+  payload: VoiceCallStatusChangedDto,
+  reason: string
+) => {
+  const activeSession = useVoiceStore.getState().activeSession;
+
+  if (
+    activeSession?.kind === 'direct-call' &&
+    activeSession.sessionId === payload.session.sessionId
+  ) {
+    void import('../services/voiceConnectionService')
+      .then(({ leaveVoiceRoom }) => leaveVoiceRoom())
+      .catch((error) => {
+        console.error(`Khong the cleanup DM call sau ${reason}:`, error);
+      });
+  }
+};
 
 /**
  * Hook quản lý kết nối SignalR (Singleton lifecycle gắn với MainLayout).
@@ -150,6 +170,53 @@ export const useSignalR = () => {
     newConnection.on('ReceiveReadReceipt', (userId: string, roomId: string, lastReadMessageId: string) => {
       console.log(`👀 User ${userId} đã đọc đến ${lastReadMessageId} trong phòng ${roomId}`);
       setReadReceipt(roomId, userId, lastReadMessageId);
+    });
+
+    // === NOTIFICATION LISTENERS ===
+
+    newConnection.on('GroupRoomsUpdated', (groupId: string) => {
+      console.log('📢 Tín hiệu: Danh sách phòng trong Group thay đổi:', groupId);
+      useNotificationStore.getState().triggerRoomRefetch(groupId);
+    });
+
+    newConnection.on('YouWereKicked', (groupId: string, groupName: string) => {
+      console.log('⛔ Tín hiệu: Bạn đã bị kick khỏi:', groupName);
+      useNotificationStore.getState().handleKicked(groupId, groupName);
+    });
+
+    newConnection.on('GroupDeleted', (groupId: string, groupName: string) => {
+      console.log('⚠️ Tín hiệu: Server đã bị giải tán:', groupName);
+      useNotificationStore.getState().handleGroupDeleted(groupId, groupName);
+    });
+
+    newConnection.on('MemberRoleChanged', (_groupId: string, _userId: string, newRole: string) => {
+      console.log('🎖️ Tín hiệu: Vai trò của bạn đã thay đổi thành:', newRole);
+      // Có thể dùng để trigger refetch quyền hạn nếu cần
+    });
+
+    // === VOICE CALL LISTENERS ===
+
+    newConnection.on('VoiceCallIncoming', (payload: VoiceCallIncomingDto) => {
+      console.log('📞 VoiceCallIncoming:', payload);
+      useVoiceStore.getState().setIncomingCall(payload);
+    });
+
+    newConnection.on('VoiceCallAccepted', (payload: VoiceCallStatusChangedDto) => {
+      console.log('📞 VoiceCallAccepted:', payload);
+      useVoiceStore.getState().setCallAccepted(payload);
+    });
+
+    newConnection.on('VoiceCallDeclined', (payload: VoiceCallStatusChangedDto) => {
+      console.log('📞 VoiceCallDeclined:', payload);
+      useVoiceStore.getState().setCallDeclined(payload);
+      cleanupActiveDirectCallIfMatches(payload, 'VoiceCallDeclined');
+    });
+
+    newConnection.on('VoiceCallEnded', (payload: VoiceCallStatusChangedDto) => {
+      console.log('📞 VoiceCallEnded:', payload);
+      useVoiceStore.getState().setCallEnded(payload);
+
+      cleanupActiveDirectCallIfMatches(payload, 'VoiceCallEnded');
     });
 
     // 3. Khởi động kết nối

@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { apiClient } from '../api/apiClient';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { apiClient, configureAuthInterceptors } from '../api/apiClient';
 import type { AuthUser, AuthClientResponse } from '../types/auth';
 
 /**
@@ -47,6 +47,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const accessTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   const refreshToken = useCallback(async (): Promise<string | null> => {
     // Nếu có một tiến trình refresh đang chạy, return luôn tiến trình đó
@@ -62,6 +67,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           userId: data.userId,
           username: data.username,
           displayName: data.displayName,
+          avatarUrl: data.avatarUrl,
         });
 
         return data.accessToken;
@@ -93,6 +99,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [refreshToken]);
 
   /**
+   * Dang ky Axios interceptor bridge de request bi 401 co the refresh token va retry mot lan.
+   */
+  useEffect(() => {
+    configureAuthInterceptors({
+      getAccessToken: () => accessTokenRef.current,
+      refreshAccessToken: refreshToken,
+    });
+  }, [refreshToken]);
+
+  /**
    * Đăng nhập: Gọi API, nhận AccessToken về RAM.
    * Backend sẽ tự Set-Cookie HttpOnly cho RefreshToken.
    *
@@ -100,7 +116,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
    * @param password - Mật khẩu.
    * @throws Error nếu đăng nhập thất bại (sai mật khẩu, tài khoản bị khóa...).
    */
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = useCallback(async (email: string, password: string): Promise<void> => {
     const response = await apiClient.post<AuthClientResponse>('/api/auth/login', {
       email,
       password,
@@ -112,14 +128,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       userId: data.userId,
       username: data.username,
       displayName: data.displayName,
+      avatarUrl: data.avatarUrl,
     });
-  };
+  }, []);
 
   /**
    * Đăng xuất: Gọi API thu hồi RefreshToken trong DB + xóa Cookie.
    * Sau đó xóa trạng thái trong RAM.
    */
-  const logout = async (): Promise<void> => {
+  const logout = useCallback(async (): Promise<void> => {
     try {
       await apiClient.post('/api/auth/logout');
     } catch {
@@ -128,9 +145,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAccessToken(null);
       setUser(null);
     }
-  };
+  }, []);
 
-  const value: AuthContextType = {
+  // [FIX] Memoize context value để tránh tạo object mới mỗi render
+  // → ngăn toàn bộ consumer re-render khi AuthProvider re-render nhưng data không đổi
+  const value: AuthContextType = useMemo(() => ({
     accessToken,
     user,
     isLoading,
@@ -138,7 +157,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     login,
     logout,
     refreshToken,
-  };
+  }), [accessToken, user, isLoading, login, logout, refreshToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

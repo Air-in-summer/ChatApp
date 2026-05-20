@@ -77,12 +77,90 @@ public class RoomPermissionsCache : IRoomPermissionsCache
     }
 
     /// <summary>
-    /// Xóa bộ nhớ đệm
+    /// Xóa toàn bộ Cache của một phòng, bắt hệ thống phải query lại từ SQL trong lần kế tiếp.
     /// </summary>
     public async Task InvalidateRoomCacheAsync(Guid roomId)
     {
         var db = _redis.GetDatabase();
         string cacheKey = $"room_members:{roomId}";
         await db.KeyDeleteAsync(cacheKey);
+    }
+
+    /// <summary>
+    /// Xóa một người dùng cụ thể khỏi Cache của phòng (SREM)
+    /// </summary>
+    public async Task RemoveUserFromRoomAsync(Guid roomId, Guid userId)
+    {
+        var db = _redis.GetDatabase();
+        string cacheKey = $"room_members:{roomId}";
+        
+        // Chỉ thực hiện xóa nếu key đang tồn tại (tránh tạo key trống không cần thiết)
+        if (await db.KeyExistsAsync(cacheKey))
+        {
+            await db.SetRemoveAsync(cacheKey, userId.ToString());
+            _logger.LogInformation("Removed user {UserId} from room cache {RoomId}", userId, roomId);
+        }
+    }
+
+    /// <summary>
+    /// Thêm danh sách người dùng vào Cache của phòng (SADD batch)
+    /// </summary>
+    public async Task AddUsersToRoomCacheAsync(Guid roomId, IEnumerable<Guid> userIds)
+    {
+        if (userIds == null || !userIds.Any()) return;
+
+        var db = _redis.GetDatabase();
+        string cacheKey = $"room_members:{roomId}";
+
+        // QUAN TRỌNG: Chỉ thực hiện nếu Cache Key đang tồn tại để tránh nạp dữ liệu thiếu (Stale Data)
+        if (await db.KeyExistsAsync(cacheKey))
+        {
+            var redisValues = userIds.Select(id => (RedisValue)id.ToString()).ToArray();
+            
+            // SADD hỗ trợ mảng giá trị (Variadic) -> chỉ tốn 1 Round-trip tới Redis
+            await db.SetAddAsync(cacheKey, redisValues);
+            
+            // Gia hạn TTL cho toàn bộ "túi" dữ liệu
+            await db.KeyExpireAsync(cacheKey, TimeSpan.FromHours(1));
+            
+            _logger.LogInformation("Added {Count} users to room cache {RoomId} and reset TTL", userIds.Count(), roomId);
+        }
+    }
+
+    /// <summary>
+    /// Lấy toàn bộ danh sách thành viên của phòng (SMEMBERS)
+    /// </summary>
+    public async Task<IEnumerable<Guid>> GetRoomMemberIdsAsync(Guid roomId)
+    {
+        var db = _redis.GetDatabase();
+        string cacheKey = $"room_members:{roomId}";
+
+        // 1. Thử lấy từ Redis Set (O(1) mạng)
+        var members = await db.SetMembersAsync(cacheKey);
+        if (members.Length > 0)
+        {
+            // Gia hạn TTL
+            await db.KeyExpireAsync(cacheKey, TimeSpan.FromHours(1));
+            return members.Select(m => Guid.Parse(m!));
+        }
+
+        _logger.LogInformation("Cache MISS for room members {RoomId}. Fetching all from SQL.", roomId);
+
+        // 2. Cache Miss: Query SQL một lần duy nhất cho toàn bộ member
+        var memberIds = await _dbContext.RoomMembers
+            .AsNoTracking()
+            .Where(rm => rm.RoomId == roomId)
+            .Select(rm => rm.UserId)
+            .ToListAsync();
+
+        // 3. Nạp lại vào Redis nếu có dữ liệu
+        if (memberIds.Any())
+        {
+            var redisValues = memberIds.Select(id => (RedisValue)id.ToString()).ToArray();
+            await db.SetAddAsync(cacheKey, redisValues);
+            await db.KeyExpireAsync(cacheKey, TimeSpan.FromHours(1));
+        }
+
+        return memberIds;
     }
 }

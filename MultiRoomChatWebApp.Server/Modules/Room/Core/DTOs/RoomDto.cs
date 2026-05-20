@@ -21,4 +21,8 @@ public class RoomDto
     public int UnreadCount { get; set; }
 
     public string? LastReadMessageId { get; set; }
+
+    public bool? IsPrivate { get; set; }
+
+    public Guid? GroupId { get; set; }
 }
