@@ -99,7 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [refreshToken]);
 
   /**
-   * Dang ky Axios interceptor bridge de request bi 401 co the refresh token va retry mot lan.
+   * Đăng ký Axios interceptor bridge để request bị 401 có thể refresh token và retry một lần.
    */
   useEffect(() => {
     configureAuthInterceptors({

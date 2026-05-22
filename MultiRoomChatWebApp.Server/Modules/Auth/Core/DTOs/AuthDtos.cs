@@ -9,7 +9,35 @@ public record RegisterRequest(
     string Email,
     string Password);
 
+/// <summary>
+/// DTO nội bộ: thông tin identity đã được OAuth middleware xác minh.
+/// Chỉ dùng trong backend, không nhận trực tiếp từ frontend.
+/// </summary>
+public record ExternalLoginRequest(
+    string Provider,
+    string ProviderUserId,
+    string Email,
+    string? DisplayName,
+    string? AvatarUrl);
+
 // DTO cho request đăng nhập
+/// <summary>
+/// Trạng thái xử lý đăng nhập external provider.
+/// </summary>
+public enum ExternalLoginAuthStatus
+{
+    Success,
+    AccountConflict
+}
+
+/// <summary>
+/// DTO nội bộ: kết quả đăng nhập external provider.
+/// AuthResponse chỉ có giá trị khi Status = Success.
+/// </summary>
+public record ExternalLoginAuthResult(
+    ExternalLoginAuthStatus Status,
+    AuthResponse? AuthResponse);
+
 public record LoginRequest(
     string Email,
     string Password);

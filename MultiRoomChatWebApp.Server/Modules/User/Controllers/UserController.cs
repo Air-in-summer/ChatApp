@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
 namespace MultiRoomChatWebApp.Server.Modules.User.Controllers;
 
@@ -19,26 +20,26 @@ public class UserController : ControllerBase
     }
 
     /// <summary>
-    /// [GET] /api/v1/users/me - Lay profile cua user dang dang nhap.
+    /// [GET] /api/v1/users/me - Lấy profile của user đang đăng nhập.
     /// </summary>
-    /// <returns>UserProfileDto cua user hien tai.</returns>
+    /// <returns>UserProfileDto của user hiện tại.</returns>
     [HttpGet("me")]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMyProfile()
     {
         if (!TryGetCurrentUserId(out var currentUserId))
-            return Unauthorized("User context is missing");
+            throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
 
         var profile = await _userService.GetProfileAsync(currentUserId);
         return Ok(profile);
     }
 
     /// <summary>
-    /// [PUT] /api/v1/users/me/profile - Cap nhat displayName/avatarUrl cua user dang dang nhap.
+    /// [PUT] /api/v1/users/me/profile - Cập nhật displayName/avatarUrl của user đang đăng nhập.
     /// </summary>
-    /// <param name="request">DisplayName va AvatarUrl moi.</param>
-    /// <returns>UserProfileDto sau khi cap nhat.</returns>
+    /// <param name="request">DisplayName và AvatarUrl mới.</param>
+    /// <returns>UserProfileDto sau khi cập nhật.</returns>
     [HttpPut("me/profile")]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -46,17 +47,17 @@ public class UserController : ControllerBase
     public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateUserProfileRequest request)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
-            return Unauthorized("User context is missing");
+            throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
 
         var profile = await _userService.UpdateProfileAsync(currentUserId, request);
         return Ok(profile);
     }
 
     /// <summary>
-    /// [PUT] /api/v1/users/me/password - Doi mat khau tai khoan local.
+    /// [PUT] /api/v1/users/me/password - Đổi mật khẩu tài khoản local.
     /// </summary>
-    /// <param name="request">Mat khau hien tai va mat khau moi.</param>
-    /// <returns>200 OK neu doi mat khau thanh cong.</returns>
+    /// <param name="request">Mật khẩu hiện tại và mật khẩu mới.</param>
+    /// <returns>200 OK nếu đổi mật khẩu thành công.</returns>
     [HttpPut("me/password")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -64,7 +65,7 @@ public class UserController : ControllerBase
     public async Task<IActionResult> ChangeMyPassword([FromBody] ChangePasswordRequest request)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
-            return Unauthorized("User context is missing");
+            throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
 
         await _userService.ChangePasswordAsync(currentUserId, request);
         return Ok();
@@ -93,11 +94,11 @@ public class UserController : ControllerBase
     {
         // Parse userId từ JWT claim
         if (!TryGetCurrentUserId(out var currentUserId))
-            return Unauthorized("User context is missing");
+            throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
 
         // Validate keyword tối thiểu 1 ký tự
         if (string.IsNullOrWhiteSpace(keyword) || keyword.Length < 1)
-            return BadRequest("Keyword must be at least 1 character.");
+            throw ApiException.BadRequest("invalid_search_keyword", "Từ khóa tìm kiếm không được để trống.");
 
         var results = await _userService.SearchByKeywordAsync(keyword, currentUserId);
         return Ok(results);

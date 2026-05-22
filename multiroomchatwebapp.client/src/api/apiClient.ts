@@ -10,7 +10,7 @@ let getAccessTokenForRetry: (() => string | null) | null = null;
 let refreshAccessTokenForRetry: (() => Promise<string | null>) | null = null;
 
 /**
- * Dang ky bridge tu AuthContext vao api layer de interceptor co the refresh token.
+ * Đăng ký bridge từ AuthContext vào api layer để interceptor có thể refresh token.
  */
 export const configureAuthInterceptors = (handlers: {
   getAccessToken: () => string | null;

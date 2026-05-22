@@ -10,6 +10,7 @@ import { DirectCallOverlay } from '../call/DirectCallOverlay';
 import { IncomingCallToast } from '../call/IncomingCallToast';
 import { VoiceAudioSink } from '../call/VoiceAudioSink';
 import { useSignalR } from '../../hooks/useSignalR';
+import { useAuth } from '../../context/AuthContext';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import toast from 'react-hot-toast';
@@ -40,6 +41,7 @@ export const MainLayout = () => {
   // selectedGroup: Thông tin Server đang được chọn (null nghĩa là đang xem danh sách Server)
   const [selectedGroup, setSelectedGroup] = useState<GroupDto | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const { user } = useAuth();
 
   // Hook dùng chung khởi tạo kết nối SignalR (Singleton lifecycle bound to MainLayout)
   const { sendMessage, sendTyping, stopTyping, markAsRead, joinRoom } = useSignalR();
@@ -152,6 +154,9 @@ export const MainLayout = () => {
         activeContext={navContext}
         onContextChange={setNavContext}
         onProfileClick={() => setIsProfileModalOpen(true)}
+        profileAvatarUrl={user?.avatarUrl}
+        profileDisplayName={user?.displayName}
+        profileUsername={user?.username}
       />
 
       {/* [Nhánh 1]: Tin nhắn cá nhân (DM) */}

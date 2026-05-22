@@ -1,7 +1,7 @@
 namespace MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 
 /// <summary>
-/// DTO profile ca nhan cua user dang dang nhap.
+/// DTO profile cá nhân của user đang đăng nhập.
 /// </summary>
 public class UserProfileDto
 {
@@ -13,7 +13,7 @@ public class UserProfileDto
 }
 
 /// <summary>
-/// Request cap nhat profile ca nhan trong scope core.
+/// Request cập nhật profile cá nhân trong scope core.
 /// </summary>
 public class UpdateUserProfileRequest
 {
@@ -22,7 +22,7 @@ public class UpdateUserProfileRequest
 }
 
 /// <summary>
-/// Request doi mat khau cho tai khoan password local.
+/// Request đổi mật khẩu cho tài khoản password local.
 /// </summary>
 public class ChangePasswordRequest
 {

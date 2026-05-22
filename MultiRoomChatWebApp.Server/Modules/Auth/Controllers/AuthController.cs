@@ -1,8 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Controllers;
 
@@ -14,14 +20,21 @@ public class AuthController : ControllerBase
     private const string DefaultRefreshTokenCookieName = "refreshToken";
     private const string DefaultRefreshTokenCookiePath = "/api/auth";
     private const int DefaultRefreshTokenMinutes = 10080;
+    private const string GoogleExternalCookieScheme = "GoogleExternal";
+    private const string GoogleOAuthCompletePath = "/api/auth/google/complete";
 
     private readonly IAuthService _authService;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, IConfiguration configuration)
+    public AuthController(
+        IAuthService authService,
+        IConfiguration configuration,
+        ILogger<AuthController> logger)
     {
         _authService = authService;
         _configuration = configuration;
+        _logger = logger;
     }
 
     /// <summary>
@@ -61,7 +74,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lay ten cookie refresh token tu cau hinh de cac thao tac set/read/delete dong bo.
+    /// Lấy tên cookie refresh token từ cấu hình để các thao tác set/read/delete đồng bộ.
     /// </summary>
     private string GetRefreshCookieName()
     {
@@ -69,7 +82,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lay Path cookie refresh token, mac dinh chi gui cookie den auth endpoints.
+    /// Lấy Path cookie refresh token, mặc định chỉ gửi cookie đến auth endpoints.
     /// </summary>
     private string GetRefreshCookiePath()
     {
@@ -77,7 +90,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lay SameSite tu cau hinh, fallback Lax de giam rui ro CSRF cho request dung cookie.
+    /// Lấy SameSite từ cấu hình, fallback Lax để giảm rủi ro CSRF cho request dùng cookie.
     /// </summary>
     private SameSiteMode GetRefreshCookieSameSite()
     {
@@ -88,11 +101,246 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lay thoi han refresh token tu cau hinh de cookie MaxAge khop voi DB token lifetime.
+    /// Lấy thời hạn refresh token từ cấu hình để cookie MaxAge khớp với DB token lifetime.
     /// </summary>
     private int GetRefreshTokenMinutes()
     {
         return _configuration.GetValue("Auth:TokenLifetime:RefreshTokenMinutes", DefaultRefreshTokenMinutes);
+    }
+
+    /// <summary>
+    /// Chuẩn hóa returnUrl để OAuth chỉ redirect về đường dẫn nội bộ của SPA.
+    /// </summary>
+    /// <param name="returnUrl">Đường dẫn frontend muốn quay lại sau khi đăng nhập xong.</param>
+    /// <returns>Đường dẫn nội bộ an toàn, fallback về "/" nếu input không hợp lệ.</returns>
+    private static string NormalizeInternalReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl))
+            return "/";
+
+        var trimmed = returnUrl.Trim();
+        if (!trimmed.StartsWith('/') || trimmed.StartsWith("//") || trimmed.Contains('\\'))
+            return "/";
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Tạo URL frontend callback sau khi backend xử lý OAuth xong hoặc gặp lỗi.
+    /// </summary>
+    /// <param name="oauthError">Mã lỗi an toàn để frontend map thành message.</param>
+    /// <param name="returnUrl">Đường dẫn nội bộ đã được normalize.</param>
+    /// <returns>URL frontend callback kèm oauthError và returnUrl.</returns>
+    private string BuildFrontendOAuthCallbackUrl(string oauthError, string returnUrl)
+    {
+        var frontendCallbackUrl = _configuration["Authentication:Google:FrontendCallbackUrl"];
+        if (string.IsNullOrWhiteSpace(frontendCallbackUrl))
+            frontendCallbackUrl = "/oauth/callback";
+
+        var separator = frontendCallbackUrl.Contains('?') ? '&' : '?';
+        return $"{frontendCallbackUrl}{separator}oauthError={Uri.EscapeDataString(oauthError)}&returnUrl={Uri.EscapeDataString(returnUrl)}";
+    }
+
+    /// <summary>
+    /// Tạo URL frontend callback thành công, không đưa access token vào query string.
+    /// </summary>
+    /// <param name="returnUrl">Đường dẫn nội bộ đã được normalize.</param>
+    /// <returns>URL frontend callback chỉ kèm returnUrl an toàn.</returns>
+    private string BuildFrontendOAuthSuccessCallbackUrl(string returnUrl)
+    {
+        var frontendCallbackUrl = _configuration["Authentication:Google:FrontendCallbackUrl"];
+        if (string.IsNullOrWhiteSpace(frontendCallbackUrl))
+            frontendCallbackUrl = "/oauth/callback";
+
+        var separator = frontendCallbackUrl.Contains('?') ? '&' : '?';
+        return $"{frontendCallbackUrl}{separator}returnUrl={Uri.EscapeDataString(returnUrl)}";
+    }
+
+    /// <summary>
+    /// Đọc claim đầu tiên có giá trị từ principal Google.
+    /// </summary>
+    /// <param name="principal">ClaimsPrincipal đã được Google middleware tạo.</param>
+    /// <param name="claimTypes">Danh sách claim type fallback theo thứ tự ưu tiên.</param>
+    /// <returns>Giá trị claim nếu có, ngược lại null.</returns>
+    private static string? GetClaimValue(ClaimsPrincipal principal, params string[] claimTypes)
+    {
+        foreach (var claimType in claimTypes)
+        {
+            var value = principal.FindFirst(claimType)?.Value;
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Kiểm tra claim email_verified từ Google.
+    /// </summary>
+    /// <param name="principal">ClaimsPrincipal đã được Google middleware tạo.</param>
+    /// <returns>true nếu Google xác nhận email đã verified.</returns>
+    private static bool IsGoogleEmailVerified(ClaimsPrincipal principal)
+    {
+        var value = GetClaimValue(principal, "email_verified", "urn:google:email_verified");
+        return bool.TryParse(value, out var parsed) && parsed;
+    }
+
+    /// <summary>
+    /// Hash provider user id để log audit mà không ghi raw external identifier.
+    /// </summary>
+    /// <param name="provider">Tên OAuth provider.</param>
+    /// <param name="providerUserId">User id gốc từ OAuth provider.</param>
+    /// <returns>Hash rút gọn đủ để correlation log, không dùng làm security token.</returns>
+    private static string? HashProviderUserIdForAudit(string provider, string? providerUserId)
+    {
+        if (string.IsNullOrWhiteSpace(providerUserId))
+            return null;
+
+        var raw = Encoding.UTF8.GetBytes($"{provider}:{providerUserId}");
+        var hash = SHA256.HashData(raw);
+        return Convert.ToHexString(hash)[..16];
+    }
+
+    /// <summary>
+    /// Log kết quả OAuth thất bại với reason an toàn, không log token/claim nhạy cảm.
+    /// </summary>
+    private void LogOAuthFailure(string provider, string reason, string? providerUserId = null)
+    {
+        var providerUserIdHash = HashProviderUserIdForAudit(provider, providerUserId);
+        _logger.LogWarning(
+            "Đăng nhập OAuth thất bại. Provider={Provider}; Reason={Reason}; ProviderUserIdHash={ProviderUserIdHash}",
+            provider,
+            reason,
+            providerUserIdHash ?? "unknown");
+    }
+
+    /// <summary>
+    /// Log kết quả OAuth thành công theo user nội bộ và hash provider user id.
+    /// </summary>
+    private void LogOAuthSuccess(string provider, Guid userId, string providerUserId)
+    {
+        _logger.LogInformation(
+            "Đăng nhập OAuth thành công. Provider={Provider}; UserId={UserId}; ProviderUserIdHash={ProviderUserIdHash}",
+            provider,
+            userId,
+            HashProviderUserIdForAudit(provider, providerUserId));
+    }
+
+    /// <summary>
+    /// [GET] /api/auth/google/login - Bắt đầu flow đăng nhập Google.
+    /// </summary>
+    /// <param name="returnUrl">Đường dẫn nội bộ để frontend quay lại sau khi OAuth thành công.</param>
+    /// <returns>ChallengeResult để ASP.NET Core redirect sang Google.</returns>
+    /// <remarks>
+    /// Luồng xử lý:
+    /// 1. Nhận returnUrl từ frontend và chuẩn hóa để chống open redirect.
+    /// 2. Tạo RedirectUri nội bộ sau khi Google middleware xử lý callback xong.
+    /// 3. Challenge sang Google bằng provider scheme, không đưa token Google về frontend.
+    /// </remarks>
+    [HttpGet("google/login")]
+    public IActionResult GoogleLogin([FromQuery] string? returnUrl)
+    {
+        var safeReturnUrl = NormalizeInternalReturnUrl(returnUrl);
+        var completeRedirectUri = $"{GoogleOAuthCompletePath}{QueryString.Create("returnUrl", safeReturnUrl)}";
+
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = completeRedirectUri
+        };
+        properties.Items["returnUrl"] = safeReturnUrl;
+
+        return Challenge(properties, GoogleDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// [GET] /api/auth/google/complete - Đọc principal Google sau khi middleware xử lý callback.
+    /// </summary>
+    /// <param name="returnUrl">Đường dẫn nội bộ để frontend quay lại sau khi OAuth hoàn tất.</param>
+    /// <returns>Redirect về frontend callback với kết quả OAuth hiện tại.</returns>
+    /// <remarks>
+    /// Luồng xử lý:
+    /// 1. Đọc external cookie `GoogleExternal` do Google middleware tạo sau callback.
+    /// 2. Lấy và validate provider user id, email, email_verified, displayName, picture.
+    /// 3. Xóa external cookie tạm để không giữ principal Google dài hơn cần thiết.
+    /// 4. Nếu login thành công thì phát refresh cookie và redirect frontend callback thành công.
+    /// 5. Nếu email đã tồn tại nhưng chưa link thì trả `account_conflict`, không auto-link.
+    /// </remarks>
+    [HttpGet("google/complete")]
+    public async Task<IActionResult> GoogleComplete([FromQuery] string? returnUrl)
+    {
+        var safeReturnUrl = NormalizeInternalReturnUrl(returnUrl);
+        const string provider = GoogleDefaults.AuthenticationScheme;
+        var authenticateResult = await HttpContext.AuthenticateAsync(GoogleExternalCookieScheme);
+
+        try
+        {
+            if (!authenticateResult.Succeeded || authenticateResult.Principal is null)
+            {
+                LogOAuthFailure(provider, "oauth_not_completed");
+                return Redirect(BuildFrontendOAuthCallbackUrl("oauth_failed", safeReturnUrl));
+            }
+
+            var principal = authenticateResult.Principal;
+            var providerUserId = GetClaimValue(principal, ClaimTypes.NameIdentifier);
+            var email = GetClaimValue(principal, ClaimTypes.Email);
+            var displayName = GetClaimValue(principal, ClaimTypes.Name);
+            var picture = GetClaimValue(principal, "picture", "urn:google:picture", "urn:google:image");
+
+            if (string.IsNullOrWhiteSpace(providerUserId) || string.IsNullOrWhiteSpace(email))
+            {
+                LogOAuthFailure(provider, "missing_required_claims", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("oauth_failed", safeReturnUrl));
+            }
+
+            if (!IsGoogleEmailVerified(principal))
+            {
+                LogOAuthFailure(provider, "email_not_verified", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("email_not_verified", safeReturnUrl));
+            }
+
+            var normalizedEmail = email.Trim().ToLowerInvariant();
+            ExternalLoginAuthResult authResult;
+            try
+            {
+                authResult = await _authService.LoginWithExternalProviderAsync(new ExternalLoginRequest(
+                    provider,
+                    providerUserId,
+                    normalizedEmail,
+                    displayName,
+                    picture));
+            }
+            catch (ApiException ex) when (ex.Code == "user_inactive")
+            {
+                LogOAuthFailure(provider, "user_inactive", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("user_inactive", safeReturnUrl));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                LogOAuthFailure(provider, "user_inactive", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("user_inactive", safeReturnUrl));
+            }
+
+            if (authResult.Status == ExternalLoginAuthStatus.AccountConflict)
+            {
+                LogOAuthFailure(provider, "account_conflict", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("account_conflict", safeReturnUrl));
+            }
+
+            if (authResult.AuthResponse == null)
+            {
+                LogOAuthFailure(provider, "oauth_failed", providerUserId);
+                return Redirect(BuildFrontendOAuthCallbackUrl("oauth_failed", safeReturnUrl));
+            }
+
+            SetRefreshTokenCookie(authResult.AuthResponse.RefreshToken);
+            LogOAuthSuccess(provider, authResult.AuthResponse.UserId, providerUserId);
+
+            return Redirect(BuildFrontendOAuthSuccessCallbackUrl(safeReturnUrl));
+        }
+        finally
+        {
+            await HttpContext.SignOutAsync(GoogleExternalCookieScheme);
+        }
     }
 
     /// <summary>
@@ -192,7 +440,7 @@ public class AuthController : ControllerBase
         // Đọc RefreshToken từ Cookie thay vì từ body JSON
         var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
         if (string.IsNullOrEmpty(refreshTokenFromCookie))
-            return Unauthorized("Refresh token cookie không tồn tại.");
+            throw ApiException.Unauthorized("refresh_token_missing", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
 
         var result = await _authService.RefreshAsync(refreshTokenFromCookie);
 

@@ -1,15 +1,33 @@
+import { useEffect, useState } from 'react';
 import styles from './NavColumn.module.css';
 
 interface NavColumnProps {
   activeContext: 'dm' | 'group';
   onContextChange: (ctx: 'dm' | 'group') => void;
   onProfileClick: () => void;
+  profileAvatarUrl?: string | null;
+  profileDisplayName?: string | null;
+  profileUsername?: string | null;
 }
 
 /**
  * Cot 1: thanh dieu huong ngu canh va entry point tai khoan.
  */
-export const NavColumn = ({ activeContext, onContextChange, onProfileClick }: NavColumnProps) => {
+export const NavColumn = ({
+  activeContext,
+  onContextChange,
+  onProfileClick,
+  profileAvatarUrl,
+  profileDisplayName,
+  profileUsername,
+}: NavColumnProps) => {
+  const [hasAvatarError, setHasAvatarError] = useState(false);
+  const fallbackText = (profileDisplayName || profileUsername || '?').trim().charAt(0).toUpperCase() || '?';
+
+  useEffect(() => {
+    setHasAvatarError(false);
+  }, [profileAvatarUrl]);
+
   return (
     <nav className={styles.navColumn}>
       <div className={styles.logo}>
@@ -49,15 +67,21 @@ export const NavColumn = ({ activeContext, onContextChange, onProfileClick }: Na
       <div className={styles.spacer} />
 
       <button
-        className={styles.navBtn}
+        className={`${styles.navBtn} ${styles.profileBtn}`}
         onClick={onProfileClick}
         title="Tài khoản"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
+        {profileAvatarUrl && !hasAvatarError ? (
+          <img
+            className={styles.profileAvatar}
+            src={profileAvatarUrl}
+            alt="Avatar tài khoản"
+            referrerPolicy="no-referrer"
+            onError={() => setHasAvatarError(true)}
+          />
+        ) : (
+          <span className={styles.profileFallback}>{fallbackText}</span>
+        )}
       </button>
     </nav>
   );

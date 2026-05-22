@@ -1,14 +1,43 @@
 using System.Threading.RateLimiting;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using MultiRoomChatWebApp.Server.Shared.Middleware;
 using Serilog;
+using System.Security.Claims;
 
 // ──────────────────────────────────────────────────────────
 // 1. SERILOG: Bootstrap logger (catches startup errors)
 // ──────────────────────────────────────────────────────────
+const string GoogleExternalCookieScheme = "GoogleExternal";
+
+static string NormalizeInternalReturnUrl(string? returnUrl)
+{
+    if (string.IsNullOrWhiteSpace(returnUrl))
+        return "/";
+
+    var trimmed = returnUrl.Trim();
+    if (!trimmed.StartsWith('/') || trimmed.StartsWith("//") || trimmed.Contains('\\'))
+        return "/";
+
+    return trimmed;
+}
+
+static string BuildFrontendOAuthCallbackUrl(IConfiguration configuration, string oauthError, string returnUrl)
+{
+    var frontendCallbackUrl = configuration["Authentication:Google:FrontendCallbackUrl"];
+    if (string.IsNullOrWhiteSpace(frontendCallbackUrl))
+        frontendCallbackUrl = "/oauth/callback";
+
+    var separator = frontendCallbackUrl.Contains('?') ? '&' : '?';
+    return $"{frontendCallbackUrl}{separator}oauthError={Uri.EscapeDataString(oauthError)}&returnUrl={Uri.EscapeDataString(returnUrl)}";
+}
+
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
@@ -113,8 +142,20 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces.IVoiceSessionService, MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceSessionService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceMissedCallWorker>();
 
-    // Configure JWT Authentication
-    builder.Services.AddAuthentication(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
+    // Configure Authentication
+    // JWT Bearer vẫn là scheme mặc định cho API/SignalR. Google chỉ là external scheme
+    // được gọi rõ bằng Challenge ở endpoint OAuth, không thay thế JWT nội bộ của app.
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddCookie(GoogleExternalCookieScheme, options =>
+        {
+            options.Cookie.Name = "googleExternalAuth";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.Path = "/api/auth/google";
+            options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
+            options.SlidingExpiration = false;
+        })
         .AddJwtBearer(options =>
         {
             options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
@@ -145,6 +186,74 @@ try
                     }
                     return Task.CompletedTask;
                 }
+            };
+        })
+        .AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
+        {
+            var googleSection = builder.Configuration.GetSection("Authentication:Google");
+
+            options.SignInScheme = GoogleExternalCookieScheme;
+            options.ClientId = googleSection["ClientId"] ?? string.Empty;
+            options.ClientSecret = googleSection["ClientSecret"] ?? string.Empty;
+            options.CallbackPath = googleSection["CallbackPath"] ?? "/api/auth/google/callback";
+            options.SaveTokens = false;
+
+            // Chỉ xin scope tối thiểu: identity, email và profile. Frontend không nhận Google token.
+            options.Scope.Clear();
+            options.Scope.Add("openid");
+            options.Scope.Add("email");
+            options.Scope.Add("profile");
+
+            options.Events.OnCreatingTicket = context =>
+            {
+                if (context.Principal?.Identity is not ClaimsIdentity identity)
+                    return Task.CompletedTask;
+
+                if (context.User.TryGetProperty("email_verified", out var emailVerified))
+                {
+                    var isVerified = emailVerified.ValueKind == System.Text.Json.JsonValueKind.True
+                        || string.Equals(emailVerified.GetString(), "true", StringComparison.OrdinalIgnoreCase);
+                    identity.AddClaim(new Claim("email_verified", isVerified.ToString().ToLowerInvariant()));
+                }
+
+                if (context.User.TryGetProperty("picture", out var picture))
+                {
+                    var pictureUrl = picture.GetString();
+                    if (!string.IsNullOrWhiteSpace(pictureUrl))
+                        identity.AddClaim(new Claim("picture", pictureUrl));
+                }
+
+                return Task.CompletedTask;
+            };
+
+            options.Events.OnRemoteFailure = context =>
+            {
+                context.HandleResponse();
+
+                var remoteError = context.Request.Query["error"].ToString();
+                var errorCode = string.Equals(remoteError, "access_denied", StringComparison.OrdinalIgnoreCase)
+                    ? "access_denied"
+                    : "oauth_failed";
+
+                var returnUrl = context.Properties?.Items.TryGetValue("returnUrl", out var storedReturnUrl) == true
+                    ? storedReturnUrl
+                    : null;
+                var safeReturnUrl = NormalizeInternalReturnUrl(returnUrl);
+
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("GoogleOAuth");
+                logger.LogWarning(
+                    "Đăng nhập OAuth thất bại tại callback từ provider. Provider={Provider}; Reason={Reason}",
+                    GoogleDefaults.AuthenticationScheme,
+                    errorCode);
+
+                context.Response.Redirect(BuildFrontendOAuthCallbackUrl(
+                    builder.Configuration,
+                    errorCode,
+                    safeReturnUrl));
+
+                return Task.CompletedTask;
             };
         });
 
@@ -181,6 +290,35 @@ try
     // FluentValidation: auto-discover all validators in this assembly
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState.Values
+                .SelectMany(value => value.Errors)
+                .Select(error => string.IsNullOrWhiteSpace(error.ErrorMessage)
+                    ? "Dữ liệu gửi lên không hợp lệ."
+                    : error.ErrorMessage)
+                .Distinct()
+                .ToArray();
+
+            var message = errors.Length > 0
+                ? errors[0]
+                : "Dữ liệu gửi lên không hợp lệ.";
+
+            return new BadRequestObjectResult(new
+            {
+                type = "about:blank",
+                title = "Dữ liệu gửi lên không hợp lệ.",
+                status = StatusCodes.Status400BadRequest,
+                code = "validation_failed",
+                message,
+                detail = message,
+                errors,
+                traceId = context.HttpContext.TraceIdentifier
+            });
+        };
+    });
 
     // CORS: only allow React dev server in Development
     builder.Services.AddCors(options =>
@@ -225,14 +363,14 @@ try
     // ──────────────────────────────────────────────────────────
     var app = builder.Build();
 
-    // Global Error Handler (must be first to catch everything)
+    // Serilog đứng ngoài ErrorHandlingMiddleware để log status code cuối cùng sau khi lỗi được map.
+    app.UseSerilogRequestLogging();
+
+    // Global Error Handler
     app.UseMiddleware<ErrorHandlingMiddleware>();
 
     // Security Headers (X-Frame-Options, CSP, etc.)
     app.UseMiddleware<SecurityHeadersMiddleware>();
-
-    // Serilog request logging (method, path, status code, duration)
-    app.UseSerilogRequestLogging();
 
     if (app.Environment.IsDevelopment())
     {

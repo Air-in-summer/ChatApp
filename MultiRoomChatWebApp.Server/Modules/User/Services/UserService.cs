@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
 namespace MultiRoomChatWebApp.Server.Modules.User.Services;
 
@@ -66,10 +67,10 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Lay profile cua user dang dang nhap theo userId trong JWT.
+    /// Lấy profile của user đang đăng nhập theo userId trong JWT.
     /// </summary>
-    /// <param name="userId">Id user hien tai.</param>
-    /// <returns>Profile public cua chinh user.</returns>
+    /// <param name="userId">Id user hiện tại.</param>
+    /// <returns>Profile public của chính user.</returns>
     public async Task<UserProfileDto> GetProfileAsync(Guid userId)
     {
         var user = await _dbContext.Users
@@ -77,23 +78,23 @@ public class UserService : IUserService
             .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
 
         if (user == null)
-            throw new KeyNotFoundException("User not found");
+            throw ApiException.NotFound("user_not_found", "Không tìm thấy tài khoản.");
 
         return MapToProfileDto(user);
     }
 
     /// <summary>
-    /// Cap nhat profile core: displayName va avatarUrl, sau do invalidate cache user.
+    /// Cập nhật profile core: displayName và avatarUrl, sau đó invalidate cache user.
     /// </summary>
-    /// <param name="userId">Id user hien tai.</param>
-    /// <param name="request">Du lieu profile moi.</param>
-    /// <returns>Profile sau khi cap nhat.</returns>
+    /// <param name="userId">Id user hiện tại.</param>
+    /// <param name="request">Dữ liệu profile mới.</param>
+    /// <returns>Profile sau khi cập nhật.</returns>
     /// <remarks>
-    /// Luong xu ly:
+    /// Luồng xử lý:
     /// 1. Validate displayName/avatarUrl theo scope core.
-    /// 2. Tim user active trong DB.
-    /// 3. Cap nhat SQL va UpdatedAt.
-    /// 4. Invalidate Redis user cache de group/member hydrate lai du lieu moi.
+    /// 2. Tìm user active trong DB.
+    /// 3. Cập nhật SQL và UpdatedAt.
+    /// 4. Invalidate Redis user cache để group/member hydrate lại dữ liệu mới.
     /// </remarks>
     public async Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateUserProfileRequest request)
     {
@@ -102,7 +103,7 @@ public class UserService : IUserService
 
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
         if (user == null)
-            throw new KeyNotFoundException("User not found");
+            throw ApiException.NotFound("user_not_found", "Không tìm thấy tài khoản.");
 
         user.DisplayName = displayName;
         user.AvatarUrl = avatarUrl;
@@ -115,16 +116,16 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Doi mat khau local va thu hoi refresh token de bat user dang nhap lai.
+    /// Đổi mật khẩu local và thu hồi refresh token để bắt user đăng nhập lại.
     /// </summary>
-    /// <param name="userId">Id user hien tai.</param>
-    /// <param name="request">Mat khau hien tai va mat khau moi.</param>
+    /// <param name="userId">Id user hiện tại.</param>
+    /// <param name="request">Mật khẩu hiện tại và mật khẩu mới.</param>
     /// <remarks>
-    /// Luong xu ly:
-    /// 1. Tim user active va dam bao tai khoan co password local.
-    /// 2. Verify current password bang BCrypt.
-    /// 3. Validate do manh password moi theo rule dang ky hien tai.
-    /// 4. Cap nhat PasswordHash va revoke refresh token cua user.
+    /// Luồng xử lý:
+    /// 1. Tìm user active và đảm bảo tài khoản có password local.
+    /// 2. Verify current password bằng BCrypt.
+    /// 3. Validate độ mạnh password mới theo rule đăng ký hiện tại.
+    /// 4. Cập nhật PasswordHash và revoke refresh token của user.
     /// </remarks>
     public async Task ChangePasswordAsync(Guid userId, ChangePasswordRequest request)
     {
@@ -133,13 +134,13 @@ public class UserService : IUserService
             .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
 
         if (user == null)
-            throw new KeyNotFoundException("User not found");
+            throw ApiException.NotFound("user_not_found", "Không tìm thấy tài khoản.");
 
         if (string.IsNullOrWhiteSpace(user.PasswordHash))
-            throw new InvalidOperationException("This account does not have a local password");
+            throw ApiException.BadRequest("local_password_not_available", "Tài khoản này chưa có mật khẩu cục bộ.");
 
         if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
-            throw new UnauthorizedAccessException("Current password is incorrect");
+            throw ApiException.BadRequest("current_password_incorrect", "Mật khẩu hiện tại không đúng.");
 
         ValidateNewPassword(request.NewPassword);
 
@@ -170,10 +171,10 @@ public class UserService : IUserService
     {
         var normalized = displayName.Trim();
         if (string.IsNullOrWhiteSpace(normalized))
-            throw new ArgumentException("DisplayName is required");
+            throw ApiException.BadRequest("invalid_display_name", "Tên hiển thị không được để trống.");
 
         if (normalized.Length > MaxDisplayNameLength)
-            throw new ArgumentException($"DisplayName must be at most {MaxDisplayNameLength} characters");
+            throw ApiException.BadRequest("invalid_display_name", $"Tên hiển thị không được vượt quá {MaxDisplayNameLength} ký tự.");
 
         return normalized;
     }
@@ -185,12 +186,12 @@ public class UserService : IUserService
             return null;
 
         if (normalized.Length > MaxAvatarUrlLength)
-            throw new ArgumentException($"AvatarUrl must be at most {MaxAvatarUrlLength} characters");
+            throw ApiException.BadRequest("invalid_avatar_url", $"Avatar URL không được vượt quá {MaxAvatarUrlLength} ký tự.");
 
         if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            throw new ArgumentException("AvatarUrl must be an absolute http/https URL");
+            throw ApiException.BadRequest("invalid_avatar_url", "Avatar URL phải là đường dẫn http/https hợp lệ.");
         }
 
         return normalized;
@@ -199,17 +200,17 @@ public class UserService : IUserService
     private static void ValidateNewPassword(string newPassword)
     {
         if (string.IsNullOrWhiteSpace(newPassword))
-            throw new ArgumentException("New password is required");
+            throw ApiException.BadRequest("invalid_new_password", "Mật khẩu mới không được để trống.");
 
         if (newPassword.Length < MinPasswordLength || newPassword.Length > MaxPasswordLength)
-            throw new ArgumentException($"New password must be {MinPasswordLength}-{MaxPasswordLength} characters");
+            throw ApiException.BadRequest("invalid_new_password", $"Mật khẩu mới phải có từ {MinPasswordLength} đến {MaxPasswordLength} ký tự.");
 
         if (!newPassword.Any(char.IsUpper) ||
             !newPassword.Any(char.IsLower) ||
             !newPassword.Any(char.IsDigit) ||
             !newPassword.Any(ch => !char.IsLetterOrDigit(ch)))
         {
-            throw new ArgumentException("New password must include uppercase, lowercase, number and special character");
+            throw ApiException.BadRequest("invalid_new_password", "Mật khẩu mới phải có chữ hoa, chữ thường, chữ số và ký tự đặc biệt.");
         }
     }
 }

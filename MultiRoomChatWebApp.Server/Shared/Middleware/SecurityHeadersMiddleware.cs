@@ -27,8 +27,8 @@ public class SecurityHeadersMiddleware
         // Restrict browser features (camera, microphone allowed for voice chat)
         context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()";
 
-        // Basic Content Security Policy
-        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;";
+        // Cho phép avatar Google từ host cụ thể, không mở toàn bộ ảnh HTTPS bên ngoài.
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://lh3.googleusercontent.com; font-src 'self' data:;";
 
         await _next(context);
     }

@@ -6,6 +6,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
 import { Button } from '../../../components/ui/Button/Button';
+import { getApiErrorMessage } from '../../../utils/apiError';
 import { sanitizeInternalReturnUrl } from '../../../utils/returnUrl';
 import styles from './LoginPage.module.css';
 
@@ -67,11 +68,7 @@ export const LoginPage = () => {
       // Guard: chỉ chấp nhận returnUrl bắt đầu bằng '/' để chống Open Redirect attack
       navigate(returnUrl, { replace: true });
     } catch (err: unknown) {
-      // Axios bọc lỗi server vào err.response.data
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Sai email hoặc mật khẩu';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Sai email hoặc mật khẩu'));
     } finally {
       setLoading(false);
     }
@@ -117,7 +114,7 @@ export const LoginPage = () => {
           </Button>
 
           <div className={styles.divider}>
-            <span>hoac</span>
+            <span>hoặc</span>
           </div>
 
           <button
@@ -127,7 +124,7 @@ export const LoginPage = () => {
             disabled={loading || googleLoading}
           >
             <span className={styles.googleMark}>G</span>
-            <span>{googleLoading ? 'Dang chuyen huong...' : 'Dang nhap bang Google'}</span>
+            <span>{googleLoading ? 'Đang chuyển hướng...' : 'Đăng nhập bằng Google'}</span>
           </button>
         </form>
 

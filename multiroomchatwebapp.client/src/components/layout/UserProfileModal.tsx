@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createAuthClient } from '../../api/apiClient';
 import { useAuth } from '../../context/AuthContext';
+import { getApiErrorMessage } from '../../utils/apiError';
 import styles from './UserProfileModal.module.css';
 
 interface UserProfileModalProps {
@@ -18,7 +19,7 @@ interface UserProfile {
 }
 
 /**
- * Modal tai khoan core: cap nhat profile, doi mat khau va dang xuat.
+ * Modal tài khoản core: cập nhật profile, đổi mật khẩu và đăng xuất.
  */
 export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   const { accessToken, logout, refreshToken } = useAuth();
@@ -33,6 +34,8 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasAvatarPreviewError, setHasAvatarPreviewError] = useState(false);
+  const avatarFallbackText = (displayName || profile?.username || '?').trim().charAt(0).toUpperCase() || '?';
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -54,6 +57,10 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
     loadProfile();
   }, [accessToken]);
 
+  useEffect(() => {
+    setHasAvatarPreviewError(false);
+  }, [avatarUrl]);
+
   const handleProfileSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!accessToken) return;
@@ -70,9 +77,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       await refreshToken();
       toast.success('Đã cập nhật hồ sơ.');
     } catch (error: unknown) {
-      const message =
-        (error as { response?: { data?: { message?: string } | string } })?.response?.data;
-      toast.error(typeof message === 'string' ? message : message?.message || 'Không cập nhật được hồ sơ.');
+      toast.error(getApiErrorMessage(error, 'Không cập nhật được hồ sơ.'));
     } finally {
       setIsProfileSaving(false);
     }
@@ -99,9 +104,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       await logout();
       navigate('/login', { replace: true });
     } catch (error: unknown) {
-      const message =
-        (error as { response?: { data?: { message?: string } | string } })?.response?.data;
-      toast.error(typeof message === 'string' ? message : message?.message || 'Không đổi được mật khẩu.');
+      toast.error(getApiErrorMessage(error, 'Không đổi được mật khẩu.'));
     } finally {
       setIsPasswordSaving(false);
     }
@@ -117,7 +120,16 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       <div className={styles.modal} onMouseDown={(event) => event.stopPropagation()}>
         <header className={styles.header}>
           <div className={styles.avatarPreview}>
-            {avatarUrl ? <img src={avatarUrl} alt={displayName} /> : (displayName || '?')[0].toUpperCase()}
+            {avatarUrl && !hasAvatarPreviewError ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                referrerPolicy="no-referrer"
+                onError={() => setHasAvatarPreviewError(true)}
+              />
+            ) : (
+              avatarFallbackText
+            )}
           </div>
           <div className={styles.identity}>
             <h2>Tài khoản</h2>

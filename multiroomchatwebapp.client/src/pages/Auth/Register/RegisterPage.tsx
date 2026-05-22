@@ -5,6 +5,7 @@ import { apiClient } from '../../../api/apiClient';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
 import { Button } from '../../../components/ui/Button/Button';
+import { getApiErrorMessage } from '../../../utils/apiError';
 import styles from './RegisterPage.module.css';
 
 /**
@@ -65,10 +66,7 @@ export const RegisterPage = () => {
       toast.success('Đăng ký thành công! Hãy đăng nhập.');
       navigate('/login');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Lỗi đăng ký, vui lòng thử lại';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Lỗi đăng ký, vui lòng thử lại'));
     } finally {
       setLoading(false);
     }

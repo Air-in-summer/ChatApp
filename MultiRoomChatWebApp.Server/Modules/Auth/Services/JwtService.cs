@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
 using AppUser = MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User;
 
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
@@ -97,18 +98,18 @@ public class JwtService : IJwtService
     }
 
     /// <summary>
-    /// Bam Refresh Token raw bang SHA-256 truoc khi luu hoac truy van database.
+    /// Băm Refresh Token raw bằng SHA-256 trước khi lưu hoặc truy vấn database.
     /// </summary>
-    /// <param name="refreshToken">Refresh Token raw lay tu cookie HttpOnly.</param>
-    /// <returns>Chuoi hash Base64 dung de so khop voi TokenHash trong DB.</returns>
+    /// <param name="refreshToken">Refresh Token raw lấy từ cookie HttpOnly.</param>
+    /// <returns>Chuỗi hash Base64 dùng để so khớp với TokenHash trong DB.</returns>
     /// <remarks>
-    /// Refresh Token co entropy cao va chi raw token moi duoc gui ve browser.
-    /// Database chi giu hash de giam rui ro neu du lieu bi lo.
+    /// Refresh Token có entropy cao và chỉ raw token mới được gửi về browser.
+    /// Database chỉ giữ hash để giảm rủi ro nếu dữ liệu bị lộ.
     /// </remarks>
     public string HashRefreshToken(string refreshToken)
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
-            throw new ArgumentException("Refresh token is required", nameof(refreshToken));
+            throw ApiException.Unauthorized("refresh_token_missing", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
 
         var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
         var hashBytes = SHA256.HashData(tokenBytes);
@@ -116,7 +117,7 @@ public class JwtService : IJwtService
     }
 
     /// <summary>
-    /// Lay thoi han Access Token tu cau hinh, fallback ve gia tri production-safe.
+    /// Lấy thời hạn Access Token từ cấu hình, fallback về giá trị production-safe.
     /// </summary>
     private int GetAccessTokenMinutes()
     {
@@ -124,7 +125,7 @@ public class JwtService : IJwtService
     }
 
     /// <summary>
-    /// Lay thoi han Refresh Token tu cau hinh de dong bo voi cookie MaxAge.
+    /// Lấy thời hạn Refresh Token từ cấu hình để đồng bộ với cookie MaxAge.
     /// </summary>
     private int GetRefreshTokenMinutes()
     {
