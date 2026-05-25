@@ -55,6 +55,14 @@ public interface IVoiceSessionService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Ket thuc cac DM call dang Ringing/Active giua hai user khi relationship policy khong con cho phep tiep tuc.
+    /// </summary>
+    Task<int> EndDirectCallsBetweenUsersAsync(
+        Guid actorUserId,
+        Guid otherUserId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Xu ly callback tu LiveKit khi participant roi room hoac mat ket noi bat thuong.
     /// </summary>
     Task HandleLiveKitParticipantLeftAsync(

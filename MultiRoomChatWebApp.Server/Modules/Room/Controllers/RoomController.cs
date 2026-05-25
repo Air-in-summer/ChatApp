@@ -105,7 +105,8 @@ public class RoomController : ControllerBase
             {
                 Id = room.Id,
                 Type = room.Type,
-                Name = room.Name
+                Name = room.Name,
+                OtherUserId = targetUserId
             };
             return Ok(dto);
         }

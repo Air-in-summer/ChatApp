@@ -38,6 +38,62 @@
   color: var(--text-secondary);
 }
 
+.blockedGroupWarning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 10px var(--spacing-md);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.32);
+  background: rgba(120, 53, 15, 0.28);
+  color: #fde68a;
+}
+
+.blockedGroupWarningText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.blockedGroupWarningText strong {
+  color: #fef3c7;
+  font-size: 0.86rem;
+}
+
+.blockedGroupWarningText span {
+  color: rgba(254, 243, 199, 0.86);
+}
+
+.blockedGroupWarningActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.blockedGroupWarningActions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  border-radius: 6px;
+  background: rgba(253, 230, 138, 0.12);
+  color: #fef3c7;
+  cursor: pointer;
+}
+
+.blockedGroupWarningActions button:hover {
+  background: rgba(253, 230, 138, 0.2);
+}
+
+.leaveGroupWarningButton {
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  background: rgba(127, 29, 29, 0.42) !important;
+  color: #fecaca !important;
+}
+
 .addMemberBtn {
   margin-left: auto;
   background: none;
@@ -157,6 +213,22 @@
 
 .theirs .messageColumn {
   align-items: flex-start;
+}
+
+.authorActionRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.authorName {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mine .bubble {

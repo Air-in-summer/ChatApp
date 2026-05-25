@@ -1,13 +1,14 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 using MongoDB.Driver;
 using StackExchange.Redis;
-using MultiRoomChatWebApp.Server.Infrastructure.Database;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Hubs;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
@@ -117,13 +118,30 @@ public class MessagePersistenceWorker : BackgroundService
                     async Task BroadcastToMembersAsync()
                     {
                         using var scope = _scopeFactory.CreateScope();
-                        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var roomMetadataCache = scope.ServiceProvider.GetRequiredService<IRoomMetadataCache>();
+                        var roomPermissionsCache = scope.ServiceProvider.GetRequiredService<IRoomPermissionsCache>();
+                        var groupPermissionsCache = scope.ServiceProvider.GetRequiredService<IGroupPermissionsCache>();
 
-                        var memberIds = await dbContext.RoomMembers
-                            .AsNoTracking()
-                            .Where(rm => rm.RoomId == command.RoomId)
-                            .Select(rm => rm.UserId.ToString())
-                            .ToListAsync(stoppingToken);
+                        var roomMetadata = await roomMetadataCache.GetRoomMetadataAsync(command.RoomId);
+                        if (roomMetadata == null)
+                        {
+                            _logger.LogWarning(
+                                "Worker: Khong tim thay metadata cho Room {RoomId}, bo qua broadcast message {MessageId}",
+                                command.RoomId,
+                                newMessage.Id);
+                            return;
+                        }
+
+                        var memberIds = roomMetadata.Value.Type == RoomType.Text &&
+                                        roomMetadata.Value.GroupId.HasValue &&
+                                        !roomMetadata.Value.IsPrivate
+                            ? (await groupPermissionsCache.GetGroupMemberRolesAsync(roomMetadata.Value.GroupId.Value))
+                                .Keys
+                                .Select(userId => userId.ToString())
+                                .ToList()
+                            : (await roomPermissionsCache.GetRoomMemberIdsAsync(command.RoomId))
+                                .Select(userId => userId.ToString())
+                                .ToList();
 
                         // Phân phát tin nhắn qua Websocket tới TẤT CẢ thành viên
                         await _hubContext.Clients.Users(memberIds).ReceiveMessage(newMessage);
@@ -166,4 +184,3 @@ public class MessagePersistenceWorker : BackgroundService
         }
     }
 }
-

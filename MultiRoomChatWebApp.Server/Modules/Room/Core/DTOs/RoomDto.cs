@@ -9,6 +9,8 @@ public class RoomDto
     public RoomType Type { get; set; }
     
     public string? Name { get; set; }
+
+    public Guid? OtherUserId { get; set; }
     
     public string? OtherUserDisplayName { get; set; }
     

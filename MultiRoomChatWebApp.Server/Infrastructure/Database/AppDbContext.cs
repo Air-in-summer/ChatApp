@@ -20,6 +20,10 @@ public class AppDbContext : DbContext
     public DbSet<ReadReceipt> ReadReceipts => Set<ReadReceipt>();
     public DbSet<Modules.Group.Core.Entities.Group> Groups => Set<Modules.Group.Core.Entities.Group>();
     public DbSet<Modules.Group.Core.Entities.GroupMember> GroupMembers => Set<Modules.Group.Core.Entities.GroupMember>();
+    public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
+    public DbSet<Friendship> Friendships => Set<Friendship>();
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+    public DbSet<UserPresenceState> UserPresenceStates => Set<UserPresenceState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +98,77 @@ public class AppDbContext : DbContext
 
             entity.HasOne(d => d.User)
                   .WithMany(p => p.ExternalLogins)
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FriendRequest>(entity =>
+        {
+            entity.ToTable("FriendRequests", table =>
+                table.HasCheckConstraint("CK_FriendRequests_NotSelf", "\"RequesterId\" <> \"ReceiverId\""));
+
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ReceiverId, e.Status, e.CreatedAt });
+            entity.HasIndex(e => new { e.RequesterId, e.Status, e.CreatedAt });
+            entity.HasIndex(e => new { e.RequesterId, e.ReceiverId, e.Status });
+
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+
+            entity.HasOne(d => d.Requester)
+                  .WithMany()
+                  .HasForeignKey(d => d.RequesterId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.Receiver)
+                  .WithMany()
+                  .HasForeignKey(d => d.ReceiverId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Friendship>(entity =>
+        {
+            entity.ToTable("Friendships", table =>
+                table.HasCheckConstraint("CK_Friendships_NormalizedPair", "\"UserAId\" < \"UserBId\""));
+
+            entity.HasKey(e => new { e.UserAId, e.UserBId });
+            entity.HasIndex(e => new { e.UserBId, e.UserAId });
+
+            entity.HasOne(d => d.UserA)
+                  .WithMany()
+                  .HasForeignKey(d => d.UserAId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.UserB)
+                  .WithMany()
+                  .HasForeignKey(d => d.UserBId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<UserBlock>(entity =>
+        {
+            entity.ToTable("UserBlocks", table =>
+                table.HasCheckConstraint("CK_UserBlocks_NotSelf", "\"BlockerId\" <> \"BlockedId\""));
+
+            entity.HasKey(e => new { e.BlockerId, e.BlockedId });
+            entity.HasIndex(e => new { e.BlockedId, e.BlockerId });
+
+            entity.HasOne(d => d.Blocker)
+                  .WithMany()
+                  .HasForeignKey(d => d.BlockerId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.Blocked)
+                  .WithMany()
+                  .HasForeignKey(d => d.BlockedId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<UserPresenceState>(entity =>
+        {
+            entity.HasKey(e => e.UserId);
+
+            entity.HasOne(d => d.User)
+                  .WithMany()
                   .HasForeignKey(d => d.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });

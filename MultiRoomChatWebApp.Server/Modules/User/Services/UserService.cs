@@ -15,11 +15,16 @@ public class UserService : IUserService
 
     private readonly AppDbContext _dbContext;
     private readonly IUserCacheService _userCacheService;
+    private readonly IUserRelationshipGraphService _relationshipGraphService;
 
-    public UserService(AppDbContext dbContext, IUserCacheService userCacheService)
+    public UserService(
+        AppDbContext dbContext,
+        IUserCacheService userCacheService,
+        IUserRelationshipGraphService relationshipGraphService)
     {
         _dbContext = dbContext;
         _userCacheService = userCacheService;
+        _relationshipGraphService = relationshipGraphService;
     }
 
     /// <summary>
@@ -46,12 +51,21 @@ public class UserService : IUserService
         if (string.IsNullOrEmpty(kw))
             return Enumerable.Empty<UserSearchDto>();
 
-        var users = await _dbContext.Users
+        var excludedUserIds = await _relationshipGraphService.GetBlockedOrBlockingUserIdsAsync(currentUserId);
+
+        var query = _dbContext.Users
             .AsNoTracking()
             .Where(u => u.IsActive && 
                         u.Id != currentUserId &&
                         (EF.Functions.ILike(u.Username, $"%{kw}%") ||
-                         EF.Functions.ILike(u.DisplayName, $"%{kw}%")))
+                         EF.Functions.ILike(u.DisplayName, $"%{kw}%")));
+
+        if (excludedUserIds.Count > 0)
+        {
+            query = query.Where(u => !excludedUserIds.Contains(u.Id));
+        }
+
+        var users = await query
             .OrderBy(u => u.DisplayName)
             .Select(u => new UserSearchDto
             {

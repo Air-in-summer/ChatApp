@@ -2,6 +2,9 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Hubs;
 
@@ -15,12 +18,27 @@ public class ChatHub : Hub<IChatClient>
     private readonly IPresenceTracker _tracker;
     private readonly MediatR.IMediator _mediator;
     private readonly StackExchange.Redis.IConnectionMultiplexer _redis;
+    private readonly IRoomMetadataCache _roomMetadataCache;
+    private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IUserRelationshipGraphService _relationshipGraphService;
+    private readonly IUserPresenceService _userPresenceService;
 
-    public ChatHub(IPresenceTracker tracker, MediatR.IMediator mediator, StackExchange.Redis.IConnectionMultiplexer redis)
+    public ChatHub(
+        IPresenceTracker tracker,
+        MediatR.IMediator mediator,
+        StackExchange.Redis.IConnectionMultiplexer redis,
+        IRoomMetadataCache roomMetadataCache,
+        IRoomPermissionsCache roomPermissionsCache,
+        IUserRelationshipGraphService relationshipGraphService,
+        IUserPresenceService userPresenceService)
     {
         _tracker = tracker;
         _mediator = mediator;
         _redis = redis;
+        _roomMetadataCache = roomMetadataCache;
+        _roomPermissionsCache = roomPermissionsCache;
+        _relationshipGraphService = relationshipGraphService;
+        _userPresenceService = userPresenceService;
     }
 
     /// <summary>
@@ -39,7 +57,7 @@ public class ChatHub : Hub<IChatClient>
             {
                 // Báo cho MỌI NGƯỜI KHÁC biết ổng vừa lên mạng
                 // Ở quy mô cực lớn có thể bị lag broadcast, lúc đó ta mới tối ưu báo cho list bạn bè thôi.
-                await Clients.Others.UserIsOnline(currentUserId);
+                await NotifyPresenceAudienceAsync(currentUserId, isOnline: true);
             }
         }
 
@@ -61,11 +79,26 @@ public class ChatHub : Hub<IChatClient>
             if (isOffline)
             {
                 // Nếu đây là cái phao cuối cùng -> Rụng hoàn toàn -> Broadcast cho all biết ổng sụp rồi
-                await Clients.Others.UserIsOffline(currentUserId);
+                await _userPresenceService.MarkOfflineAsync(currentUserId, DateTime.UtcNow);
+                await NotifyPresenceAudienceAsync(currentUserId, isOnline: false);
             }
         }
 
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// Client gọi định kỳ để gia hạn TTL connection trong Redis presence.
+    /// </summary>
+    public async Task Heartbeat()
+    {
+        var currentUserId = GetCurrentUserIdOrThrow();
+        var becameOnline = await _tracker.TouchHeartbeatAsync(currentUserId, Context.ConnectionId);
+
+        if (becameOnline)
+        {
+            await NotifyPresenceAudienceAsync(currentUserId, isOnline: true);
+        }
     }
 
     /// <summary>
@@ -74,6 +107,8 @@ public class ChatHub : Hub<IChatClient>
     /// </summary>
     public async Task JoinRoom(Guid roomId)
     {
+        var currentUserId = GetCurrentUserIdOrThrow();
+        await EnsureCanJoinRoomAsync(roomId, currentUserId);
         await Groups.AddToGroupAsync(Context.ConnectionId, roomId.ToString());
     }
 
@@ -149,5 +184,52 @@ public class ChatHub : Hub<IChatClient>
             // 3. Chỉ gửi thông báo cho người khác nếu có sự thay đổi thực sự
             await Clients.OthersInGroup(roomId.ToString()).ReceiveReadReceipt(currentUserId, roomId, lastReadMessageId);
         }
+    }
+
+    private Guid GetCurrentUserIdOrThrow()
+    {
+        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(userIdString, out var currentUserId)
+            ? currentUserId
+            : throw new HubException("Phiên đăng nhập không hợp lệ.");
+    }
+
+    private async Task NotifyPresenceAudienceAsync(Guid changedUserId, bool isOnline)
+    {
+        var audienceIds = await _relationshipGraphService.GetPresenceAudienceAsync(changedUserId);
+        if (audienceIds.Count == 0)
+        {
+            return;
+        }
+
+        var clients = Clients.Users(audienceIds.Select(userId => userId.ToString()));
+        if (isOnline)
+        {
+            await clients.UserIsOnline(changedUserId);
+            return;
+        }
+
+        await clients.UserIsOffline(changedUserId);
+    }
+
+    private async Task EnsureCanJoinRoomAsync(Guid roomId, Guid currentUserId)
+    {
+        var roomMetadata = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
+        if (roomMetadata == null)
+            throw new HubException("Phòng chat không tồn tại.");
+
+        if (roomMetadata.Value.Type != RoomType.DirectMessage)
+            return;
+
+        var memberIds = (await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId))
+            .Distinct()
+            .ToList();
+
+        if (memberIds.Count != 2 || !memberIds.Contains(currentUserId))
+            throw new HubException("Bạn không có quyền vào phòng này.");
+
+        var otherUserId = memberIds.First(id => id != currentUserId);
+        if (!await _relationshipGraphService.CanDirectMessageAsync(currentUserId, otherUserId))
+            throw new HubException("Không thể mở cuộc trò chuyện này.");
     }
 }

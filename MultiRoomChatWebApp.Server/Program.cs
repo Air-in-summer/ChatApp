@@ -28,6 +28,13 @@ static string NormalizeInternalReturnUrl(string? returnUrl)
     return trimmed;
 }
 
+static string GetUserRateLimitPartitionKey(HttpContext httpContext)
+{
+    return httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? httpContext.Connection.RemoteIpAddress?.ToString()
+        ?? "anonymous";
+}
+
 static string BuildFrontendOAuthCallbackUrl(IConfiguration configuration, string oauthError, string returnUrl)
 {
     var frontendCallbackUrl = configuration["Authentication:Google:FrontendCallbackUrl"];
@@ -125,6 +132,11 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupPermissionsCache, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupPermissionsCache>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces.IGroupMetadataCache, MultiRoomChatWebApp.Server.Modules.Group.Services.GroupMetadataCache>();
 
+    // Register User Relationship Services
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserRelationshipService, MultiRoomChatWebApp.Server.Modules.User.Services.UserRelationshipService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserRelationshipGraphService, MultiRoomChatWebApp.Server.Modules.User.Services.UserRelationshipGraphService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserPresenceService, MultiRoomChatWebApp.Server.Modules.User.Services.UserPresenceService>();
+
     // Register Chat / SignalR Services
     builder.Services.AddSignalR()
         .AddJsonProtocol(options => {
@@ -135,7 +147,8 @@ try
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessagePersistenceWorker>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.ReadReceiptWorker>();
     // Tracker đếm số lượng người online/offline (Dùng Singleton để chia sẻ bộ nhớ cho toàn HTTP pipeline)
-    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.InMemoryPresenceTracker>();
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisPresenceTracker>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.PresenceCleanupWorker>();
 
     // Register Voice Services (LiveKit Token)
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces.IVoiceTokenService, MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceTokenService>();
@@ -356,6 +369,28 @@ try
             limiter.Window = TimeSpan.FromMinutes(1);
             limiter.QueueLimit = 0;
         });
+
+        options.AddPolicy("FriendRequestLimit", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                GetUserRateLimitPartitionKey(httpContext),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
+                    Window = TimeSpan.FromHours(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                }));
+
+        options.AddPolicy("BlockActionLimit", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                GetUserRateLimitPartitionKey(httpContext),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromHours(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                }));
     });
 
     // ──────────────────────────────────────────────────────────

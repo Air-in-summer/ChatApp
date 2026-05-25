@@ -1,10 +1,12 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NavColumn } from './NavColumn';
+import type { NavContext } from './NavColumn';
 import { UserProfileModal } from './UserProfileModal';
 import { RoomListColumn } from './RoomListColumn';
 import { ChatColumn } from './ChatColumn';
 import { GroupListPanel } from '../group/GroupListPanel';
+import { FriendsPanel } from '../friends/FriendsPanel';
 import { CallEventToast } from '../call/CallEventToast';
 import { DirectCallOverlay } from '../call/DirectCallOverlay';
 import { IncomingCallToast } from '../call/IncomingCallToast';
@@ -35,7 +37,7 @@ const VoiceRoomPanel = lazy(() =>
  */
 export const MainLayout = () => {
   // navContext: 'dm' (Tin nhắn cá nhân) hoặc 'group' (Máy chủ/Nhóm)
-  const [navContext, setNavContext] = useState<'dm' | 'group'>('dm');
+  const [navContext, setNavContext] = useState<NavContext>('dm');
   // activeChat: Phòng chat đang mở ở Cột 3
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   // selectedGroup: Thông tin Server đang được chọn (null nghĩa là đang xem danh sách Server)
@@ -160,6 +162,10 @@ export const MainLayout = () => {
       />
 
       {/* [Nhánh 1]: Tin nhắn cá nhân (DM) */}
+      {navContext === 'friends' && (
+        <FriendsPanel />
+      )}
+
       {navContext === 'dm' && (
         <>
           <RoomListColumn
@@ -223,6 +229,7 @@ export const MainLayout = () => {
               markAsRead={markAsRead}
               joinRoom={joinRoom}
               className={styles.chatColumn}
+              onGroupLeft={handleBackToGroupList}
             />
           )}
         </>

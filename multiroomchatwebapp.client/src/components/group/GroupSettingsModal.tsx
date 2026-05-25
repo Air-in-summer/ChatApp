@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { deleteGroup, getGroupMembers, kickMember, leaveGroup } from '../../api/groupApi';
+import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
+import { UserActionMenu } from '../user/UserActionMenu';
 import type { GroupDto, GroupMemberDto } from '../../types/group';
 import styles from './GroupSettingsModal.module.css';
 
@@ -33,6 +35,12 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [copied, setCopied] = useState(false);
+  const friends = useUserRelationshipsStore(state => state.friends);
+  const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
+  const presenceByUserId = useUserRelationshipsStore(state => state.presenceByUserId);
+  const loadFriends = useUserRelationshipsStore(state => state.loadFriends);
+  const loadBlockedUsers = useUserRelationshipsStore(state => state.loadBlockedUsers);
+  const loadFriendsPresence = useUserRelationshipsStore(state => state.loadFriendsPresence);
 
   // [Luồng 14.4: Tải danh sách thành viên]
   const fetchMembers = async () => {
@@ -51,8 +59,11 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
   useEffect(() => {
     if (accessToken) {
       fetchMembers();
+      void loadFriends(accessToken).catch(() => undefined);
+      void loadBlockedUsers(accessToken).catch(() => undefined);
+      void loadFriendsPresence(accessToken).catch(() => undefined);
     }
-  }, [accessToken, group.id]);
+  }, [accessToken, group.id, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
   /** Xác định vai trò của người dùng hiện tại trong Server */
   const currentUserRole = useMemo(() => {
@@ -145,6 +156,27 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
     if (currentUserRole === 'Admin' && targetMember.role === 'Member') return true;
     
     return false;
+  };
+
+  const canSeeMemberPresence = (targetUserId: string) => {
+    if (targetUserId === user?.userId) return false;
+    if (!friends.some(friend => friend.user.id === targetUserId)) return false;
+    if (blockedUsers.some(blockedUser => blockedUser.user.id === targetUserId)) return false;
+    return true;
+  };
+
+  const renderPresence = (targetUserId: string) => {
+    if (!canSeeMemberPresence(targetUserId)) return null;
+
+    const presence = presenceByUserId[targetUserId];
+    if (!presence) return null;
+
+    return (
+      <div className={styles.memberPresence}>
+        <span className={presence.isOnline ? styles.onlineDot : styles.offlineDot} aria-hidden="true" />
+        {presence.isOnline ? 'Online' : 'Offline'}
+      </div>
+    );
   };
 
   return (
@@ -271,9 +303,17 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
                         <div className={`${styles.memberRoleTag} ${getRoleBadgeClass(member.role)}`}>
                           {member.role}
                         </div>
+                        {renderPresence(member.profile.id)}
                       </div>
 
                       {/* Nút Kick - Chỉ hiện nếu có quyền */}
+                      {user?.userId !== member.profile.id && (
+                        <UserActionMenu
+                          target={member.profile}
+                          blockWarningMessage="You may still share group spaces with this user. Group messages are not hidden in this phase."
+                        />
+                      )}
+
                       {canKickUser(member) && (
                         <button 
                           className={styles.kickBtn}

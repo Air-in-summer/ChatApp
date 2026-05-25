@@ -5,6 +5,7 @@ using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Events;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
 using MediatR;
 
 namespace MultiRoomChatWebApp.Server.Modules.Room.Services;
@@ -15,6 +16,7 @@ public class RoomService : IRoomService
     private readonly IUserCacheService _userCacheService;
     private readonly IRoomMetadataCache _metadataCache;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IUserRelationshipGraphService _relationshipGraphService;
     private readonly IMediator _mediator;
 
     public RoomService(
@@ -22,12 +24,14 @@ public class RoomService : IRoomService
         IUserCacheService userCacheService,
         IRoomMetadataCache metadataCache,
         IRoomPermissionsCache roomPermissionsCache,
+        IUserRelationshipGraphService relationshipGraphService,
         IMediator mediator)
     {
         _dbContext = dbContext;
         _userCacheService = userCacheService;
         _metadataCache = metadataCache;
         _roomPermissionsCache = roomPermissionsCache;
+        _relationshipGraphService = relationshipGraphService;
         _mediator = mediator;
     }
 
@@ -48,9 +52,12 @@ public class RoomService : IRoomService
             throw new ArgumentException("Cannot create a direct message room with yourself.");
 
         // 1. Kiểm tra User đích có tồn tại không
-        bool userExists = await _dbContext.Users.AnyAsync(u => u.Id == targetUserId);
+        bool userExists = await _dbContext.Users.AnyAsync(u => u.Id == targetUserId && u.IsActive);
         if (!userExists)
             throw new KeyNotFoundException("Target user does not exist.");
+
+        if (!await _relationshipGraphService.CanDirectMessageAsync(currentUserId, targetUserId))
+            throw ApiException.Conflict("direct_message_not_allowed", "Không thể tạo hoặc mở cuộc trò chuyện này.");
 
         // 2. Query tối ưu tìm xem đã có phòng DM giữa 2 người này chưa
         // Tập các RoomId mà currentUserId tham gia (Tận dụng Index-Only Scan)
@@ -241,6 +248,7 @@ public class RoomService : IRoomService
                     Id = projection.RoomId,
                     Type = projection.Type,
                     Name = projection.Name,
+                    OtherUserId = projection.OtherUserId,
                     IsPrivate = projection.IsPrivate,
                     GroupId = projection.GroupId
                 };

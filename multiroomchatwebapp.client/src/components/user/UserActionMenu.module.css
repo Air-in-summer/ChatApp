@@ -1,0 +1,74 @@
+.menuRoot {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.trigger {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 170px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+}
+
+.alignRight {
+  right: 0;
+}
+
+.alignLeft {
+  left: 0;
+}
+
+.menuItem {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.menuItem:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menuItem:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.dangerItem {
+  color: #fca5a5;
+}
+
+.dangerItem:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+}

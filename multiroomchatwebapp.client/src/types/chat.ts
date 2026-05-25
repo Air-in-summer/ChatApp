@@ -9,6 +9,7 @@ export interface RoomDto {
   id: string;
   type: 'DirectMessage' | 'Group' | 'Text' | 'Voice';
   name: string | null;
+  otherUserId?: string | null;
   otherUserDisplayName?: string;
   otherUserUsername?: string;
   lastMessageContent?: string;

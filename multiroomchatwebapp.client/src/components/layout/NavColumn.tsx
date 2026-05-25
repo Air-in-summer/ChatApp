@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import styles from './NavColumn.module.css';
 
+export type NavContext = 'friends' | 'dm' | 'group';
+
 interface NavColumnProps {
-  activeContext: 'dm' | 'group';
-  onContextChange: (ctx: 'dm' | 'group') => void;
+  activeContext: NavContext;
+  onContextChange: (ctx: NavContext) => void;
   onProfileClick: () => void;
   profileAvatarUrl?: string | null;
   profileDisplayName?: string | null;
@@ -38,6 +40,22 @@ export const NavColumn = ({
       </div>
 
       <div className={styles.divider} />
+
+      <button
+        className={`${styles.navBtn} ${activeContext === 'friends' ? styles.active : ''}`}
+        onClick={() => onContextChange('friends')}
+        title="Ban be"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2">
+          <path d="M16 11c1.66 0 3-1.57 3-3.5S17.66 4 16 4s-3 1.57-3 3.5S14.34 11 16 11z" />
+          <path d="M8 11c1.66 0 3-1.57 3-3.5S9.66 4 8 4 5 5.57 5 7.5 6.34 11 8 11z" />
+          <path d="M2 20c0-3.31 2.69-6 6-6" />
+          <path d="M22 20c0-3.31-2.69-6-6-6" />
+          <path d="M8 14c2.21 0 4 1.79 4 4v2" />
+          <path d="M16 14c-2.21 0-4 1.79-4 4v2" />
+        </svg>
+      </button>
 
       <button
         className={`${styles.navBtn} ${activeContext === 'dm' ? styles.active : ''}`}

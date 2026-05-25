@@ -2,13 +2,15 @@ import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 're
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
-import { getGroupMembers } from '../../api/groupApi';
+import { getGroupMembers, leaveGroup } from '../../api/groupApi';
 import { useChatStore } from '../../store/useChatStore';
+import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { useVoiceStore } from '../../store/useVoiceStore';
 import type { ActiveChat, RoomDto, MessageDto, GetMessagesResponse } from '../../types/chat';
-import type { GroupRole } from '../../types/group';
+import type { GroupMemberDto, GroupRole } from '../../types/group';
 import { DirectCallButton } from '../call/DirectCallButton';
 import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
+import { UserActionMenu } from '../user/UserActionMenu';
 import styles from './ChatColumn.module.css';
 
 const VoiceRoomPanel = lazy(() =>
@@ -27,6 +29,7 @@ interface ChatColumnProps {
   joinRoom: (roomId: string) => Promise<void>;
   /** Class CSS từ cha (Layout) để định hình cột */
   className?: string;
+  onGroupLeft?: () => void;
 }
 
 export const ChatColumn = ({
@@ -37,12 +40,14 @@ export const ChatColumn = ({
   stopTyping,
   markAsRead,
   joinRoom,
-  className
+  className,
+  onGroupLeft,
 }: ChatColumnProps) => {
   const { accessToken, user } = useAuth();
   const userId = user?.userId;
   const activeSession = useVoiceStore((state) => state.activeSession);
   const voiceConnectionStatus = useVoiceStore((state) => state.connectionStatus);
+  const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
 
   const roomId = activeChat?.type === 'real' ? activeChat.room.id : null;
   const storeMessages = useChatStore(state => roomId ? state.messages[roomId] : undefined);
@@ -73,7 +78,9 @@ export const ChatColumn = ({
 
   // States cho tính năng Add Member
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupMemberDto[]>([]);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [dismissedBlockedGroupWarningByRoom, setDismissedBlockedGroupWarningByRoom] = useState<Record<string, boolean>>({});
 
   // [CHỐT MỐC UNREAD] Dùng Ref để "chụp ảnh" mốc đọc ngay khi click vào phòng.
   // Ref này sẽ KHÔNG thay đổi trong suốt lần ghé thăm này, giúp vạch Divider không bị mất khi markAsRead chạy.
@@ -102,19 +109,27 @@ export const ChatColumn = ({
 
   // Hook: Lấy quyền GroupRole nếu phòng này là Private trong Group
   useEffect(() => {
-    if (activeChat?.type === 'real' && activeChat.room.groupId && activeChat.room.isPrivate && accessToken && userId) {
-      const fetchRole = async () => {
+    if (activeChat?.type === 'real' && activeChat.room.groupId && accessToken) {
+      const fetchMembers = async () => {
         try {
           const members = await getGroupMembers(accessToken, activeChat.room.groupId!);
-          const me = members.find(m => m.profile.id === userId);
-          if (me) setCurrentUserRole(me.role);
+          setGroupMembers(members);
+
+          if (activeChat.room.isPrivate && userId) {
+            const me = members.find(m => m.profile.id === userId);
+            if (me) setCurrentUserRole(me.role);
+          } else {
+            setCurrentUserRole(null);
+          }
         } catch (error) {
-          console.error('Failed to fetch role for private room:', error);
+          console.error('Failed to fetch group members:', error);
+          setGroupMembers([]);
         }
       };
-      fetchRole();
+      fetchMembers();
     } else {
       setCurrentUserRole(null);
+      setGroupMembers([]);
     }
   }, [activeChat, accessToken, userId]);
 
@@ -409,6 +424,15 @@ export const ChatColumn = ({
   const headerName = isVirtual
     ? activeChat.targetUser.displayName
     : (activeChat.room.name || activeChat.room.otherUserDisplayName || "Unknown");
+  const headerActionTarget = isVirtual
+    ? activeChat.targetUser
+    : activeChat.room.type === 'DirectMessage' && activeChat.room.otherUserId
+      ? {
+          id: activeChat.room.otherUserId,
+          displayName: activeChat.room.otherUserDisplayName ?? headerName,
+          username: activeChat.room.otherUserUsername ?? null,
+        }
+      : null;
   const inlineDirectCallSession =
     activeChat.type === 'real' &&
     activeChat.room.type === 'DirectMessage' &&
@@ -421,6 +445,48 @@ export const ChatColumn = ({
     activeChat.type === 'real' &&
     activeChat.room.type === 'DirectMessage' &&
     !inlineDirectCallSession;
+  const groupMemberByUserId = new Map(groupMembers.map(member => [member.profile.id, member]));
+  const getMessageAuthorTarget = (message: MessageDto) => {
+    if (message.senderId === userId) return null;
+    const member = groupMemberByUserId.get(message.senderId);
+    return member?.profile ?? null;
+  };
+  const blockedUserIds = new Set(blockedUsers.map(blockedUser => blockedUser.user.id));
+  const sharedGroupBlockedMembers =
+    activeChat?.type === 'real' && activeChat.room.groupId
+      ? groupMembers.filter(member => member.profile.id !== userId && blockedUserIds.has(member.profile.id))
+      : [];
+  const shouldShowSharedGroupBlockWarning =
+    activeChat?.type === 'real' &&
+    Boolean(activeChat.room.groupId) &&
+    sharedGroupBlockedMembers.length > 0 &&
+    !dismissedBlockedGroupWarningByRoom[activeChat.room.id];
+  const sharedGroupBlockedNames = sharedGroupBlockedMembers
+    .map(member => member.profile.displayName || member.profile.username || 'người dùng đã chặn')
+    .slice(0, 3)
+    .join(', ');
+
+  const handleDismissBlockedGroupWarning = () => {
+    if (activeChat?.type !== 'real') return;
+
+    setDismissedBlockedGroupWarningByRoom(state => ({
+      ...state,
+      [activeChat.room.id]: true,
+    }));
+  };
+
+  const handleLeaveSharedGroup = async () => {
+    if (!accessToken || activeChat?.type !== 'real' || !activeChat.room.groupId) return;
+    if (!window.confirm('Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm.')) return;
+
+    try {
+      await leaveGroup(accessToken, activeChat.room.groupId);
+      toast.success('Đã rời nhóm.');
+      onGroupLeft?.();
+    } catch {
+      toast.error('Không thể rời nhóm, vui lòng thử lại sau.');
+    }
+  };
 
   return (
     <div className={`${styles.chatColumn} ${className || ''}`}>
@@ -443,6 +509,13 @@ export const ChatColumn = ({
           <DirectCallButton
             dmRoomId={activeChat.room.id}
             displayName={headerName}
+          />
+        )}
+
+        {headerActionTarget && (
+          <UserActionMenu
+            target={headerActionTarget}
+            hideMessageAction
           />
         )}
 
@@ -474,6 +547,27 @@ export const ChatColumn = ({
               className={styles.inlineCallPanel}
             />
           </Suspense>
+        </section>
+      )}
+
+      {shouldShowSharedGroupBlockWarning && (
+        <section className={styles.blockedGroupWarning} aria-live="polite">
+          <div className={styles.blockedGroupWarningText}>
+            <strong>Nhóm này có người bạn đã chặn.</strong>
+            <span>
+              {sharedGroupBlockedNames}
+              {sharedGroupBlockedMembers.length > 3 ? ` và ${sharedGroupBlockedMembers.length - 3} người khác` : ''}
+              {' '}vẫn có thể gửi tin nhắn trong kênh chung. Tin nhắn nhóm không bị ẩn ở giai đoạn này.
+            </span>
+          </div>
+          <div className={styles.blockedGroupWarningActions}>
+            <button type="button" onClick={handleDismissBlockedGroupWarning}>
+              Vào nhóm
+            </button>
+            <button type="button" className={styles.leaveGroupWarningButton} onClick={() => void handleLeaveSharedGroup()}>
+              Rời nhóm
+            </button>
+          </div>
         </section>
       )}
 
@@ -533,6 +627,17 @@ export const ChatColumn = ({
               )}
               <div className={`${styles.messageWrapper} ${isMine ? styles.mine : styles.theirs}`}>
                 <div className={styles.messageColumn}>
+                  {!isMine && getMessageAuthorTarget(msg) && (
+                    <div className={styles.authorActionRow}>
+                      <span className={styles.authorName}>
+                        {getMessageAuthorTarget(msg)?.displayName}
+                      </span>
+                      <UserActionMenu
+                        target={getMessageAuthorTarget(msg)!}
+                        blockWarningMessage="You may still share group spaces with this user. Group messages are not hidden in this phase."
+                      />
+                    </div>
+                  )}
                   {/* Bubble tin nhắn */}
                   <div className={`${styles.bubble} ${msg.status === 'Failed' ? styles.bubbleFailed : ''}`}>
                     {msg.content}

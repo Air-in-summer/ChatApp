@@ -327,6 +327,32 @@
   width: fit-content;
 }
 
+.memberPresence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.onlineDot,
+.offlineDot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.onlineDot {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+.offlineDot {
+  background: #94a3b8;
+}
+
 .roleOwner {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;

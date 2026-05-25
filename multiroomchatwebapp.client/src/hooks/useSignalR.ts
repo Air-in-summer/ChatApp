@@ -3,9 +3,12 @@ import * as signalR from '@microsoft/signalr';
 import { useAuth } from '../context/AuthContext';
 import { useChatStore } from '../store/useChatStore';
 import { useNotificationStore } from '../store/useNotificationStore';
+import { useUserRelationshipsStore } from '../store/useUserRelationshipsStore';
 import { useVoiceStore } from '../store/useVoiceStore';
 import type { VoiceCallIncomingDto, VoiceCallStatusChangedDto } from '../api/voiceApi';
 import type { MessageDto } from '../types/chat';
+
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const cleanupActiveDirectCallIfMatches = (
   payload: VoiceCallStatusChangedDto,
@@ -58,6 +61,8 @@ export const useSignalR = () => {
   useEffect(() => {
     if (!accessToken) return;
 
+    let heartbeatTimer: ReturnType<typeof window.setInterval> | undefined;
+
     // 1. Khởi tạo kết nối
     const newConnection = new signalR.HubConnectionBuilder()
       .withUrl('https://localhost:7222/hub/chat', {
@@ -68,6 +73,25 @@ export const useSignalR = () => {
       .build();
 
     connectionRef.current = newConnection;
+
+    const startPresenceHeartbeat = () => {
+      if (heartbeatTimer !== undefined) return;
+
+      heartbeatTimer = window.setInterval(() => {
+        if (newConnection.state === signalR.HubConnectionState.Connected) {
+          newConnection.invoke('Heartbeat').catch((error) => {
+            console.error('Lỗi Heartbeat SignalR:', error);
+          });
+        }
+      }, PRESENCE_HEARTBEAT_INTERVAL_MS);
+    };
+
+    const stopPresenceHeartbeat = () => {
+      if (heartbeatTimer === undefined) return;
+
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    };
 
     // 2. Đăng ký các sự kiện lắng nghe từ Backend
 
@@ -156,11 +180,18 @@ export const useSignalR = () => {
     });
 
     newConnection.on('UserIsOnline', (userId: string) => {
-      console.log('🟢 User online:', userId);
+      useUserRelationshipsStore.getState().setUserOnline(userId);
     });
 
-    newConnection.on('UserIsOffline', (userId: string) => {
-      console.log('⚪ User offline:', userId);
+    newConnection.on('UserIsOffline', (payload: string | { userId?: string; lastSeenAt?: string | null }) => {
+      if (typeof payload === 'string') {
+        useUserRelationshipsStore.getState().setUserOffline(payload);
+        return;
+      }
+
+      if (payload?.userId) {
+        useUserRelationshipsStore.getState().setUserOffline(payload.userId, payload.lastSeenAt);
+      }
     });
 
     /**
@@ -224,6 +255,8 @@ export const useSignalR = () => {
       try {
         await newConnection.start();
         setIsConnected(true);
+        await newConnection.invoke('Heartbeat');
+        startPresenceHeartbeat();
         console.log('🔌 Đã kết nối SignalR thành công!');
 
         // [User-based Routing] Auto-join loop đã được vô hiệu hóa.
@@ -255,6 +288,7 @@ export const useSignalR = () => {
 
     // 4. Cleanup khi unmount
     return () => {
+      stopPresenceHeartbeat();
       newConnection.stop();
       setIsConnected(false);
     };

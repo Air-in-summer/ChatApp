@@ -51,6 +51,33 @@ public class InMemoryPresenceTracker : IPresenceTracker
         return Task.FromResult(isOffline);
     }
 
+    public Task<bool> TouchHeartbeatAsync(Guid userId, string connectionId)
+    {
+        lock (OnlineUsers)
+        {
+            if (OnlineUsers.TryGetValue(userId, out var connectionIds))
+            {
+                if (!connectionIds.Contains(connectionId))
+                {
+                    connectionIds.Add(connectionId);
+                }
+
+                return Task.FromResult(false);
+            }
+
+            OnlineUsers.Add(userId, new List<string> { connectionId });
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<bool> IsOnlineAsync(Guid userId)
+    {
+        lock (OnlineUsers)
+        {
+            return Task.FromResult(OnlineUsers.ContainsKey(userId));
+        }
+    }
+
     public Task<IEnumerable<Guid>> GetOnlineUsersAsync(IEnumerable<Guid> userIds)
     {
         IEnumerable<Guid> onlineSubset;
@@ -61,5 +88,10 @@ public class InMemoryPresenceTracker : IPresenceTracker
         }
 
         return Task.FromResult(onlineSubset);
+    }
+
+    public Task<IReadOnlyCollection<Guid>> CleanupExpiredConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyCollection<Guid>>(Array.Empty<Guid>());
     }
 }

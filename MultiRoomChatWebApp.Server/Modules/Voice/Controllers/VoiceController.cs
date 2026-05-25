@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.DTOs;
@@ -21,17 +22,20 @@ public class VoiceController : ControllerBase
     private readonly IVoiceTokenService _voiceTokenService;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
     private readonly IRoomMetadataCache _roomMetadataCache;
+    private readonly IGroupPermissionsCache _groupPermissionsCache;
     private readonly ILogger<VoiceController> _logger;
 
     public VoiceController(
         IVoiceTokenService voiceTokenService,
         IRoomPermissionsCache roomPermissionsCache,
         IRoomMetadataCache roomMetadataCache,
+        IGroupPermissionsCache groupPermissionsCache,
         ILogger<VoiceController> logger)
     {
         _voiceTokenService = voiceTokenService;
         _roomPermissionsCache = roomPermissionsCache;
         _roomMetadataCache = roomMetadataCache;
+        _groupPermissionsCache = groupPermissionsCache;
         _logger = logger;
     }
 
@@ -97,7 +101,9 @@ public class VoiceController : ControllerBase
         // ──────────────────────────────────────────────────────
         // Sử dụng RoomPermissionsCache (Redis → PostgreSQL fallback)
         // Cache check O(1), đảm bảo user là member của Room hoặc Group chứa Room
-        var isMember = await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
+        var isMember = roomMetadata.Value.GroupId.HasValue && !roomMetadata.Value.IsPrivate
+            ? await _groupPermissionsCache.IsUserInGroupAsync(roomMetadata.Value.GroupId.Value, userId)
+            : await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
         if (!isMember)
         {
             _logger.LogWarning(

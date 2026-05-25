@@ -2,6 +2,7 @@ using MediatR;
 using MongoDB.Driver;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.Enums;
@@ -27,6 +28,7 @@ public class VoiceSessionService : IVoiceSessionService
     private readonly IMongoCollection<VoiceSession> _voiceSessions;
     private readonly IRoomMetadataCache _roomMetadataCache;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IUserRelationshipGraphService _relationshipGraphService;
     private readonly IVoiceTokenService _voiceTokenService;
     private readonly IMediator _mediator;
     private readonly ILogger<VoiceSessionService> _logger;
@@ -35,6 +37,7 @@ public class VoiceSessionService : IVoiceSessionService
         IMongoDatabase mongoDatabase,
         IRoomMetadataCache roomMetadataCache,
         IRoomPermissionsCache roomPermissionsCache,
+        IUserRelationshipGraphService relationshipGraphService,
         IVoiceTokenService voiceTokenService,
         IMediator mediator,
         ILogger<VoiceSessionService> logger)
@@ -42,6 +45,7 @@ public class VoiceSessionService : IVoiceSessionService
         _voiceSessions = mongoDatabase.GetCollection<VoiceSession>(VoiceSessionsCollectionName);
         _roomMetadataCache = roomMetadataCache;
         _roomPermissionsCache = roomPermissionsCache;
+        _relationshipGraphService = relationshipGraphService;
         _voiceTokenService = voiceTokenService;
         _mediator = mediator;
         _logger = logger;
@@ -68,11 +72,16 @@ public class VoiceSessionService : IVoiceSessionService
             throw new UnauthorizedAccessException("Bạn không phải thành viên của DM room này.");
         }
 
+        var calleeUserId = memberIds.First(id => id != callerUserId);
+        if (!await _relationshipGraphService.CanStartVoiceCallAsync(callerUserId, calleeUserId))
+        {
+            throw new UnauthorizedAccessException("Không thể bắt đầu cuộc gọi này.");
+        }
+
         await EnsureNoActiveDirectCallAsync(dmRoomId);
 
         var now = DateTime.UtcNow;
         var sessionId = Guid.NewGuid();
-        var calleeUserId = memberIds.First(id => id != callerUserId);
 
         var session = new VoiceSession
         {
@@ -320,6 +329,77 @@ public class VoiceSessionService : IVoiceSessionService
         }
 
         return missedCount;
+    }
+
+    public async Task<int> EndDirectCallsBetweenUsersAsync(
+        Guid actorUserId,
+        Guid otherUserId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<VoiceSession>.Filter.And(
+            Builders<VoiceSession>.Filter.Eq(s => s.Kind, VoiceSessionKind.DirectCall),
+            Builders<VoiceSession>.Filter.In(s => s.Status, ActiveDirectCallStatuses),
+            Builders<VoiceSession>.Filter.ElemMatch(s => s.Participants, p => p.UserId == actorUserId),
+            Builders<VoiceSession>.Filter.ElemMatch(s => s.Participants, p => p.UserId == otherUserId));
+
+        var sessions = await _voiceSessions
+            .Find(filter)
+            .ToListAsync(cancellationToken);
+
+        if (sessions.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTime.UtcNow;
+        var endedCount = 0;
+
+        foreach (var session in sessions)
+        {
+            session.Status = VoiceSessionStatus.Ended;
+            session.EndedAt = now;
+
+            foreach (var participant in session.Participants.Where(p => p.Status == VoiceParticipantStatus.Joined))
+            {
+                participant.Status = VoiceParticipantStatus.Left;
+                participant.LeftAt ??= now;
+            }
+
+            var replaceFilter = Builders<VoiceSession>.Filter.And(
+                Builders<VoiceSession>.Filter.Eq(s => s.Id, session.Id),
+                Builders<VoiceSession>.Filter.In(s => s.Status, ActiveDirectCallStatuses));
+
+            var result = await _voiceSessions.ReplaceOneAsync(
+                replaceFilter,
+                session,
+                cancellationToken: cancellationToken);
+
+            if (result.MatchedCount == 0)
+            {
+                continue;
+            }
+
+            endedCount++;
+
+            await _mediator.Publish(new VoiceCallEndedEvent(
+                session.Participants.Select(p => p.UserId),
+                new VoiceCallStatusChangedDto
+                {
+                    Session = MapSession(session),
+                    ActorUserId = actorUserId
+                }), cancellationToken);
+        }
+
+        if (endedCount > 0)
+        {
+            _logger.LogInformation(
+                "Da ket thuc {EndedCount} DirectCall VoiceSession giua {ActorUserId} va {OtherUserId} do relationship policy.",
+                endedCount,
+                actorUserId,
+                otherUserId);
+        }
+
+        return endedCount;
     }
 
     public async Task HandleLiveKitParticipantLeftAsync(

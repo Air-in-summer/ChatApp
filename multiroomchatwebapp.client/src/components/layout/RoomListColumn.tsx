@@ -8,6 +8,7 @@ import { GroupSettingsModal } from '../group/GroupSettingsModal';
 import { CreateChannelModal } from '../group/CreateChannelModal';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
+import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { useVoiceConnection } from '../../hooks/useVoiceConnection';
 import { VoiceStatusBar } from './VoiceStatusBar';
 import type { ActiveChat, RoomDto, UserSearchResult } from '../../types/chat';
@@ -61,6 +62,12 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   const setInitialLastReadIds = useChatStore(state => state.setInitialLastReadIds);
   // roomMetadata: chứa lastMessage cập nhật real-time qua SignalR
   const roomMetadata = useChatStore(state => state.roomMetadata);
+  const friends = useUserRelationshipsStore(state => state.friends);
+  const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
+  const presenceByUserId = useUserRelationshipsStore(state => state.presenceByUserId);
+  const loadFriends = useUserRelationshipsStore(state => state.loadFriends);
+  const loadBlockedUsers = useUserRelationshipsStore(state => state.loadBlockedUsers);
+  const loadFriendsPresence = useUserRelationshipsStore(state => state.loadFriendsPresence);
 
   /** Format thời gian hiển thị (VD: 14:30 hoặc 05/05) */
   const formatTime = (isoString?: string) => {
@@ -72,6 +79,27 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     }
     return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
   };
+
+  const formatLastSeen = (isoString?: string | null) => {
+    if (!isoString) return '';
+    return `Last seen ${formatTime(isoString)}`;
+  };
+
+  const getAllowedDmPresence = (otherUserId?: string | null) => {
+    if (!otherUserId) return null;
+    if (!friends.some(friend => friend.user.id === otherUserId)) return null;
+    if (blockedUsers.some(blockedUser => blockedUser.user.id === otherUserId)) return null;
+
+    return presenceByUserId[otherUserId] ?? null;
+  };
+
+  useEffect(() => {
+    if (!accessToken || context !== 'dm') return;
+
+    void loadFriends(accessToken).catch(() => undefined);
+    void loadBlockedUsers(accessToken).catch(() => undefined);
+    void loadFriendsPresence(accessToken).catch(() => undefined);
+  }, [accessToken, context, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
   /**
    * [Luồng: Tải dữ liệu phòng]
@@ -466,6 +494,18 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                     </span>
                   )}
                 </div>
+
+                {getAllowedDmPresence(room.otherUserId) && (
+                  <span className={styles.presenceLine}>
+                    <span
+                      className={getAllowedDmPresence(room.otherUserId)?.isOnline ? styles.onlineDot : styles.offlineDot}
+                      aria-hidden="true"
+                    />
+                    {getAllowedDmPresence(room.otherUserId)?.isOnline
+                      ? 'Online'
+                      : formatLastSeen(getAllowedDmPresence(room.otherUserId)?.lastSeenAt)}
+                  </span>
+                )}
 
                 {/* Hiển thị nội dung tin nhắn cuối cùng (Ưu tiên bản cập nhật real-time qua store) */}
                 {(roomMetadata[room.id]?.lastMessageContent ?? room.lastMessageContent) ? (
