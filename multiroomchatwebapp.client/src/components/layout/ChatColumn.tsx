@@ -2,9 +2,8 @@ import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 're
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
-import { getGroupMembers, leaveGroup } from '../../api/groupApi';
+import { getGroupMembers } from '../../api/groupApi';
 import { useChatStore } from '../../store/useChatStore';
-import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { useVoiceStore } from '../../store/useVoiceStore';
 import type { ActiveChat, RoomDto, MessageDto, GetMessagesResponse } from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
@@ -29,7 +28,6 @@ interface ChatColumnProps {
   joinRoom: (roomId: string) => Promise<void>;
   /** Class CSS từ cha (Layout) để định hình cột */
   className?: string;
-  onGroupLeft?: () => void;
 }
 
 export const ChatColumn = ({
@@ -41,13 +39,11 @@ export const ChatColumn = ({
   markAsRead,
   joinRoom,
   className,
-  onGroupLeft,
 }: ChatColumnProps) => {
   const { accessToken, user } = useAuth();
   const userId = user?.userId;
   const activeSession = useVoiceStore((state) => state.activeSession);
   const voiceConnectionStatus = useVoiceStore((state) => state.connectionStatus);
-  const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
 
   const roomId = activeChat?.type === 'real' ? activeChat.room.id : null;
   const storeMessages = useChatStore(state => roomId ? state.messages[roomId] : undefined);
@@ -80,7 +76,6 @@ export const ChatColumn = ({
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
   const [groupMembers, setGroupMembers] = useState<GroupMemberDto[]>([]);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
-  const [dismissedBlockedGroupWarningByRoom, setDismissedBlockedGroupWarningByRoom] = useState<Record<string, boolean>>({});
 
   // [CHỐT MỐC UNREAD] Dùng Ref để "chụp ảnh" mốc đọc ngay khi click vào phòng.
   // Ref này sẽ KHÔNG thay đổi trong suốt lần ghé thăm này, giúp vạch Divider không bị mất khi markAsRead chạy.
@@ -451,43 +446,6 @@ export const ChatColumn = ({
     const member = groupMemberByUserId.get(message.senderId);
     return member?.profile ?? null;
   };
-  const blockedUserIds = new Set(blockedUsers.map(blockedUser => blockedUser.user.id));
-  const sharedGroupBlockedMembers =
-    activeChat?.type === 'real' && activeChat.room.groupId
-      ? groupMembers.filter(member => member.profile.id !== userId && blockedUserIds.has(member.profile.id))
-      : [];
-  const shouldShowSharedGroupBlockWarning =
-    activeChat?.type === 'real' &&
-    Boolean(activeChat.room.groupId) &&
-    sharedGroupBlockedMembers.length > 0 &&
-    !dismissedBlockedGroupWarningByRoom[activeChat.room.id];
-  const sharedGroupBlockedNames = sharedGroupBlockedMembers
-    .map(member => member.profile.displayName || member.profile.username || 'người dùng đã chặn')
-    .slice(0, 3)
-    .join(', ');
-
-  const handleDismissBlockedGroupWarning = () => {
-    if (activeChat?.type !== 'real') return;
-
-    setDismissedBlockedGroupWarningByRoom(state => ({
-      ...state,
-      [activeChat.room.id]: true,
-    }));
-  };
-
-  const handleLeaveSharedGroup = async () => {
-    if (!accessToken || activeChat?.type !== 'real' || !activeChat.room.groupId) return;
-    if (!window.confirm('Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm.')) return;
-
-    try {
-      await leaveGroup(accessToken, activeChat.room.groupId);
-      toast.success('Đã rời nhóm.');
-      onGroupLeft?.();
-    } catch {
-      toast.error('Không thể rời nhóm, vui lòng thử lại sau.');
-    }
-  };
-
   return (
     <div className={`${styles.chatColumn} ${className || ''}`}>
       {/* Header Room Info */}
@@ -547,27 +505,6 @@ export const ChatColumn = ({
               className={styles.inlineCallPanel}
             />
           </Suspense>
-        </section>
-      )}
-
-      {shouldShowSharedGroupBlockWarning && (
-        <section className={styles.blockedGroupWarning} aria-live="polite">
-          <div className={styles.blockedGroupWarningText}>
-            <strong>Nhóm này có người bạn đã chặn.</strong>
-            <span>
-              {sharedGroupBlockedNames}
-              {sharedGroupBlockedMembers.length > 3 ? ` và ${sharedGroupBlockedMembers.length - 3} người khác` : ''}
-              {' '}vẫn có thể gửi tin nhắn trong kênh chung. Tin nhắn nhóm không bị ẩn ở giai đoạn này.
-            </span>
-          </div>
-          <div className={styles.blockedGroupWarningActions}>
-            <button type="button" onClick={handleDismissBlockedGroupWarning}>
-              Vào nhóm
-            </button>
-            <button type="button" className={styles.leaveGroupWarningButton} onClick={() => void handleLeaveSharedGroup()}>
-              Rời nhóm
-            </button>
-          </div>
         </section>
       )}
 

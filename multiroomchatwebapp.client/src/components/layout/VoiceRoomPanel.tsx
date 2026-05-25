@@ -10,9 +10,13 @@ import type {
   VideoTrack,
   TrackPublication,
 } from 'livekit-client';
+import { useAuth } from '../../context/AuthContext';
+import { getGroupMembers } from '../../api/groupApi';
 import { useVoiceStore } from '../../store/useVoiceStore';
 import { useVoiceConnection } from '../../hooks/useVoiceConnection';
 import { VoiceSettingsModal } from './VoiceSettingsModal';
+import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
+import type { GroupRole } from '../../types/group';
 import styles from './VoiceRoomPanel.module.css';
 
 const isLocalVideoMediaSource = (source: Track.Source) =>
@@ -130,6 +134,10 @@ interface VoiceRoomPanelProps {
   mode?: 'channel' | 'direct-call';
   /** Bat buoc khi mode = direct-call de match dung active session */
   sessionId?: string;
+  /** ID group chua voice room, dung cho private voice management */
+  groupId?: string | null;
+  /** Voice room co phai private khong */
+  isPrivate?: boolean;
 }
 
 /**
@@ -154,7 +162,10 @@ export const VoiceRoomPanel = ({
   className,
   mode = 'channel',
   sessionId,
+  groupId,
+  isPrivate = false,
 }: VoiceRoomPanelProps) => {
+  const { accessToken, user } = useAuth();
   // Đọc state từ Zustand store
   const connectionStatus = useVoiceStore((s) => s.connectionStatus);
   const activeSession = useVoiceStore((s) => s.activeSession);
@@ -176,6 +187,8 @@ export const VoiceRoomPanel = ({
   const [pendingMediaAction, setPendingMediaAction] = useState<'mic' | 'camera' | 'screen' | null>(null);
   const [roomRenderVersion, setRoomRenderVersion] = useState(0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
   const mainMediaStageRef = useRef<HTMLDivElement | null>(null);
 
   // Kiểm tra user có đang connect vào ĐÚNG phòng này không
@@ -306,6 +319,36 @@ export const VoiceRoomPanel = ({
 
     void joinVoiceRoom(roomId, roomName);
   };
+
+  useEffect(() => {
+    if (mode !== 'channel' || !isPrivate || !groupId || !accessToken || !user?.userId) {
+      setCurrentUserRole(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCurrentUserRole = async () => {
+      try {
+        const members = await getGroupMembers(accessToken, groupId);
+        if (!isMounted) return;
+
+        const me = members.find(member => member.profile.id === user.userId);
+        setCurrentUserRole(me?.role ?? null);
+      } catch (error) {
+        if (!isMounted) return;
+
+        setCurrentUserRole(null);
+        console.error('Failed to fetch current user role for private voice room:', error);
+      }
+    };
+
+    void loadCurrentUserRole();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [accessToken, groupId, isPrivate, mode, user?.userId]);
 
   useEffect(() => {
     if (!liveKitRoom) return;
@@ -526,6 +569,12 @@ export const VoiceRoomPanel = ({
     return '';
   };
 
+  const canManagePrivateVoiceRoom =
+    mode === 'channel' &&
+    isPrivate &&
+    Boolean(groupId) &&
+    (currentUserRole === 'Owner' || currentUserRole === 'Admin');
+
   return (
     <div className={`${styles.voicePanel} ${mode === 'direct-call' ? styles.directCallPanel : ''} ${className || ''}`}>
       {/* === Header === */}
@@ -540,7 +589,10 @@ export const VoiceRoomPanel = ({
           </svg>
         </div>
         <div className={styles.headerInfo}>
-          <h2>{roomName}</h2>
+          <h2>
+            {roomName}
+            {isPrivate && <span className={styles.privateBadge}>PRIVATE</span>}
+          </h2>
           {/* Badge trạng thái kết nối */}
           {isActive && (
             <span className={`${styles.connectionBadge} ${getStatusClass()}`}>
@@ -549,6 +601,21 @@ export const VoiceRoomPanel = ({
             </span>
           )}
         </div>
+        {canManagePrivateVoiceRoom && (
+          <button
+            type="button"
+            className={styles.addMemberButton}
+            onClick={() => setIsAddMemberModalOpen(true)}
+            title="Thêm thành viên vào phòng"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="8.5" cy="7" r="4" />
+              <line x1="20" y1="8" x2="20" y2="14" />
+              <line x1="23" y1="11" x2="17" y2="11" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* === Banner lỗi === */}
@@ -818,6 +885,19 @@ export const VoiceRoomPanel = ({
 
       {isSettingsOpen && (
         <VoiceSettingsModal onClose={() => setIsSettingsOpen(false)} />
+      )}
+
+      {isAddMemberModalOpen && groupId && (
+        <AddMemberToRoomModal
+          groupId={groupId}
+          roomId={roomId}
+          roomName={roomName}
+          onClose={() => setIsAddMemberModalOpen(false)}
+          onSuccess={(count) => {
+            setIsAddMemberModalOpen(false);
+            toast.success(`Đã thêm ${count} thành viên vào phòng.`);
+          }}
+        />
       )}
     </div>
   );

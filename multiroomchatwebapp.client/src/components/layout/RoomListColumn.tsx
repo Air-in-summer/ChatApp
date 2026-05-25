@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
-import { getGroupRooms, getGroupMembers, createGroupChannel } from '../../api/groupApi';
+import { getGroupRooms, getGroupMembers, createGroupChannel, leaveGroup } from '../../api/groupApi';
 import { UserSearchModal } from '../discovery/UserSearchModal';
 import { GroupSettingsModal } from '../group/GroupSettingsModal';
 import { CreateChannelModal } from '../group/CreateChannelModal';
@@ -12,7 +12,7 @@ import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore
 import { useVoiceConnection } from '../../hooks/useVoiceConnection';
 import { VoiceStatusBar } from './VoiceStatusBar';
 import type { ActiveChat, RoomDto, UserSearchResult } from '../../types/chat';
-import type { GroupDto, GroupRole, CreateGroupChannelRequest } from '../../types/group';
+import type { GroupDto, GroupRole, GroupMemberDto, CreateGroupChannelRequest } from '../../types/group';
 import styles from './RoomListColumn.module.css';
 
 interface RoomListColumnProps {
@@ -49,6 +49,8 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole>('Member');
+  const [groupMembers, setGroupMembers] = useState<GroupMemberDto[]>([]);
+  const [dismissedBlockedGroupWarningByGroup, setDismissedBlockedGroupWarningByGroup] = useState<Record<string, boolean>>({});
   const {
     joinVoiceRoom,
     shouldSwitchVoiceSession,
@@ -94,11 +96,18 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   };
 
   useEffect(() => {
-    if (!accessToken || context !== 'dm') return;
+    if (!accessToken) return;
 
-    void loadFriends(accessToken).catch(() => undefined);
-    void loadBlockedUsers(accessToken).catch(() => undefined);
-    void loadFriendsPresence(accessToken).catch(() => undefined);
+    if (context === 'dm') {
+      void loadFriends(accessToken).catch(() => undefined);
+      void loadBlockedUsers(accessToken).catch(() => undefined);
+      void loadFriendsPresence(accessToken).catch(() => undefined);
+      return;
+    }
+
+    if (context === 'group') {
+      void loadBlockedUsers(accessToken).catch(() => undefined);
+    }
   }, [accessToken, context, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
   /**
@@ -151,6 +160,8 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       const fetchRole = async () => {
         try {
           const members = await getGroupMembers(accessToken, group.id);
+          setGroupMembers(members);
+
           const me = members.find(m => m.profile.id === user?.userId);
           if (me) {
             setCurrentUserRole(me.role);
@@ -162,6 +173,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
           }
         } catch (err) {
           console.error('Failed to fetch group role:', err);
+          setGroupMembers([]);
           // Fallback check ownerId
           if (group.ownerId === user?.userId) {
             setCurrentUserRole('Owner');
@@ -171,6 +183,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       fetchRole();
     } else {
       setCurrentUserRole('Member');
+      setGroupMembers([]);
     }
   }, [fetchRoomsLogic, context, group, accessToken, user?.userId]);
 
@@ -289,10 +302,44 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   // [Nhánh Render: Ngữ cảnh Group]
   // Hiển thị danh sách kênh của một Server (Discord style)
   // Phân tách kênh Text và Voice ra 2 section riêng biệt
+  const handleDismissBlockedGroupWarning = () => {
+    if (!group) return;
+
+    setDismissedBlockedGroupWarningByGroup(state => ({
+      ...state,
+      [group.id]: true,
+    }));
+  };
+
+  const handleLeaveSharedGroup = async () => {
+    if (!accessToken || !group) return;
+    if (!window.confirm('Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm.')) return;
+
+    try {
+      await leaveGroup(accessToken, group.id);
+      toast.success('Đã rời nhóm.');
+      onBack?.();
+    } catch {
+      toast.error('Không thể rời nhóm, vui lòng thử lại sau.');
+    }
+  };
+
   if (context === 'group') {
     // Tách danh sách rooms thành Text channels và Voice channels
     const textRooms = rooms.filter(r => r.type !== 'Voice');
     const voiceRooms = rooms.filter(r => r.type === 'Voice');
+    const blockedUserIds = new Set(blockedUsers.map(blockedUser => blockedUser.user.id));
+    const sharedGroupBlockedMembers = groupMembers.filter(
+      member => member.profile.id !== user?.userId && blockedUserIds.has(member.profile.id)
+    );
+    const shouldShowSharedGroupBlockWarning =
+      Boolean(group) &&
+      sharedGroupBlockedMembers.length > 0 &&
+      !dismissedBlockedGroupWarningByGroup[group!.id];
+    const sharedGroupBlockedNames = sharedGroupBlockedMembers
+      .map(member => member.profile.displayName || member.profile.username || 'người dùng đã chặn')
+      .slice(0, 3)
+      .join(', ');
 
     return (
       <>
@@ -320,6 +367,27 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
         </div>
 
         {/* === Section: Kênh văn bản (Text Channels) === */}
+        {shouldShowSharedGroupBlockWarning && (
+          <section className={styles.blockedGroupWarning} aria-live="polite">
+            <div className={styles.blockedGroupWarningText}>
+              <strong>Nhóm này có người bạn đã chặn.</strong>
+              <span>
+                {sharedGroupBlockedNames}
+                {sharedGroupBlockedMembers.length > 3 ? ` và ${sharedGroupBlockedMembers.length - 3} người khác` : ''}
+                {' '}vẫn có thể gửi tin trong các kênh chung. Tin nhắn nhóm chưa bị ẩn ở giai đoạn này.
+              </span>
+            </div>
+            <div className={styles.blockedGroupWarningActions}>
+              <button type="button" onClick={handleDismissBlockedGroupWarning}>
+                Vào nhóm
+              </button>
+              <button type="button" className={styles.leaveGroupWarningButton} onClick={() => void handleLeaveSharedGroup()}>
+                Rời nhóm
+              </button>
+            </div>
+          </section>
+        )}
+
         <div className={styles.sectionHeader}>
           <span className={styles.sectionTitle}>Kênh văn bản</span>
           {/* [Bước 15.2]: Nút tạo kênh mới - Chỉ hiện cho Owner/Admin */}

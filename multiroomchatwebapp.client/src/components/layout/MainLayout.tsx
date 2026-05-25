@@ -216,6 +216,8 @@ export const MainLayout = () => {
               <VoiceRoomPanel
                 roomId={activeChat.room.id}
                 roomName={activeChat.room.name || 'Voice Channel'}
+                groupId={activeChat.room.groupId}
+                isPrivate={activeChat.room.isPrivate}
                 className={styles.chatColumn}
               />
             </Suspense>
@@ -229,7 +231,6 @@ export const MainLayout = () => {
               markAsRead={markAsRead}
               joinRoom={joinRoom}
               className={styles.chatColumn}
-              onGroupLeft={handleBackToGroupList}
             />
           )}
         </>
