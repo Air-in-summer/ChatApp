@@ -32,7 +32,8 @@ public class ChatDevController : ControllerBase
         {
             RoomId = request.RoomId,
             SenderId = currentUserId,
-            Content = request.Content
+            Content = request.Content,
+            MediaIds = request.MediaIds
         };
 
         // Kích hoạt MediatR kịch bản chính (Handler)
@@ -49,4 +50,5 @@ public class SendMessageRequestDto
 {
     public Guid RoomId { get; set; }
     public string Content { get; set; } = string.Empty;
+    public List<Guid> MediaIds { get; set; } = [];
 }

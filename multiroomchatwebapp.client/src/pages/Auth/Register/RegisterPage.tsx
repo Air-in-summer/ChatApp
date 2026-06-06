@@ -88,7 +88,7 @@ export const RegisterPage = () => {
             <InputText
               label="Tên hiển thị"
               name="displayName"
-              placeholder="Thái Nguyễn"
+              placeholder="Nguyễn Văn A"
               value={formData.displayName}
               onChange={handleChange}
               error={errors.displayName}

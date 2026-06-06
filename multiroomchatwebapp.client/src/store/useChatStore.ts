@@ -91,7 +91,26 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       const roomMsgs = state.messages[roomId] || [];
       // Tránh duplicate nếu nhận lại chính tin nhắn mình vừa gửi
-      if (roomMsgs.some((m) => m.id === message.id)) return state;
+      const existingIndex = roomMsgs.findIndex((m) => m.id === message.id);
+      if (existingIndex >= 0) {
+        return {
+          messages: {
+            ...state.messages,
+            [roomId]: roomMsgs.map((currentMessage, index) =>
+              index === existingIndex
+                ? {
+                    ...currentMessage,
+                    ...message,
+                    attachments: message.attachments?.map((attachment, attachmentIndex) => ({
+                      ...attachment,
+                      localPreviewUrl: currentMessage.attachments?.[attachmentIndex]?.localPreviewUrl,
+                    })) ?? currentMessage.attachments,
+                  }
+                : currentMessage
+            ),
+          },
+        };
+      }
 
       return {
         messages: {

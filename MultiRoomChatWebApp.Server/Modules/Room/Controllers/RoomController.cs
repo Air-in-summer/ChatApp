@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
 using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
 
@@ -49,10 +51,11 @@ public class RoomController : ControllerBase
                 if (overview.LastMessage != null)
                 {
                     // Lấy preview tin nhắn cuối
-                    string content = overview.LastMessage.Content ?? "";
+                    var textContent = overview.LastMessage.Content ?? "";
+                    string content = textContent;
                     if (overview.LastMessage.Attachments != null && overview.LastMessage.Attachments.Any())
                     {
-                        content = "[Tệp đính kèm] " + content;
+                        content = BuildAttachmentPreview(overview.LastMessage, textContent);
                     }
                     
                     // Nếu là tin nhắn do chính mình gửi, thêm tiền tố "Bạn: "
@@ -118,5 +121,24 @@ public class RoomController : ControllerBase
         {
             return NotFound(ex.Message);
         }
+    }
+
+    private static string BuildAttachmentPreview(Message message, string textContent)
+    {
+        var firstAttachment = message.Attachments?.FirstOrDefault();
+        if (firstAttachment == null)
+            return textContent;
+
+        var attachmentLabel = firstAttachment.Kind switch
+        {
+            MediaKind.Image => "[Ảnh]",
+            MediaKind.Audio => "[Audio]",
+            MediaKind.Video => "[Video]",
+            _ => "[Tệp]"
+        };
+
+        return string.IsNullOrWhiteSpace(textContent)
+            ? attachmentLabel
+            : $"{attachmentLabel} {textContent}";
     }
 }

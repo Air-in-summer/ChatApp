@@ -1,4 +1,7 @@
 using System.Threading.RateLimiting;
+using Amazon;
+using Amazon.Runtime;
+using Amazon.S3;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -7,6 +10,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 using MultiRoomChatWebApp.Server.Shared.Middleware;
 using Serilog;
 using System.Security.Claims;
@@ -111,6 +116,39 @@ try
     var redisMultiplexer = StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString);
     
     builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(redisMultiplexer);
+
+    // Register Media Storage foundation (S3-compatible; local/dev dùng MinIO trên D:\ChatAppData\minio)
+    builder.Services.Configure<MediaStorageOptions>(
+        builder.Configuration.GetSection(MediaStorageOptions.SectionName));
+    builder.Services.AddSingleton<IAmazonS3>(sp =>
+    {
+        var mediaOptions = sp.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
+        AWSCredentials credentials = string.IsNullOrWhiteSpace(mediaOptions.AccessKey) ||
+                                     string.IsNullOrWhiteSpace(mediaOptions.SecretKey)
+            ? new AnonymousAWSCredentials()
+            : new BasicAWSCredentials(mediaOptions.AccessKey, mediaOptions.SecretKey);
+
+        var s3Config = new AmazonS3Config
+        {
+            ForcePathStyle = mediaOptions.ForcePathStyle,
+            RegionEndpoint = RegionEndpoint.USEast1
+        };
+
+        if (!string.IsNullOrWhiteSpace(mediaOptions.Endpoint))
+        {
+            s3Config.ServiceURL = mediaOptions.Endpoint;
+            s3Config.UseHttp = mediaOptions.Endpoint.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return new AmazonS3Client(credentials, s3Config);
+    });
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaStorageService, MultiRoomChatWebApp.Server.Modules.Media.Services.S3MediaStorageService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.MediaService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaValidationService, MultiRoomChatWebApp.Server.Modules.Media.Services.MediaValidationService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IAvatarMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.AvatarMediaService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IChatMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.ChatMediaService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.MediaStorageBootstrapService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.PendingMediaCleanupWorker>();
 
     // Register Auth Services
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IJwtService, MultiRoomChatWebApp.Server.Modules.Auth.Services.JwtService>();

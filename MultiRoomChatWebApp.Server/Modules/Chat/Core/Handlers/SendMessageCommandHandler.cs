@@ -1,5 +1,8 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
+using MultiRoomChatWebApp.Server.Infrastructure.Database;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
@@ -22,6 +25,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
     private readonly IRoomMetadataCache _roomMetadataCache;
     private readonly Modules.Group.Core.Interfaces.IGroupPermissionsCache _groupPermissionsCache;
     private readonly IUserRelationshipGraphService _relationshipGraphService;
+    private readonly AppDbContext _dbContext;
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<SendMessageCommandHandler> _logger;
 
@@ -30,6 +34,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
         IRoomMetadataCache roomMetadataCache,
         Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache,
         IUserRelationshipGraphService relationshipGraphService,
+        AppDbContext dbContext,
         IConnectionMultiplexer redis,
         ILogger<SendMessageCommandHandler> logger)
     {
@@ -37,6 +42,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
         _roomMetadataCache = roomMetadataCache;
         _groupPermissionsCache = groupPermissionsCache;
         _relationshipGraphService = relationshipGraphService;
+        _dbContext = dbContext;
         _redis = redis;
         _logger = logger;
     }
@@ -46,6 +52,21 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
     /// </summary>
     public async Task<bool> Handle(SendMessageCommand request, CancellationToken cancellationToken)
     {
+        request.Content = request.Content?.Trim() ?? string.Empty;
+        request.MediaIds = (request.MediaIds ?? [])
+            .Where(mediaId => mediaId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(request.Content) && request.MediaIds.Count == 0)
+        {
+            _logger.LogWarning(
+                "Bao mat: User {UserId} gui message rong vao Room {RoomId}.",
+                request.SenderId,
+                request.RoomId);
+            return false;
+        }
+
         // 1. Lấy Metadata của Phòng
         var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(request.RoomId);
         
@@ -83,6 +104,12 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
                 "Bao mat: User {UserId} bi chan gui tin DM vao Room {RoomId} boi relationship policy.",
                 request.SenderId,
                 request.RoomId);
+            return false;
+        }
+
+        if (request.MediaIds.Count > 0 &&
+            !await ArePendingMediaValidAsync(request.MediaIds, request.SenderId, request.RoomId, cancellationToken))
+        {
             return false;
         }
 
@@ -131,6 +158,61 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, boo
 
         await db.StringSetAsync(blockKey, "1", DirectMessageBlockPolicyTtl);
         await db.KeyDeleteAsync(allowKey);
+        return false;
+    }
+
+    private async Task<bool> ArePendingMediaValidAsync(
+        IReadOnlyCollection<Guid> mediaIds,
+        Guid senderId,
+        Guid roomId,
+        CancellationToken cancellationToken)
+    {
+        var mediaAssets = await _dbContext.MediaAssets
+            .AsNoTracking()
+            .Where(asset => mediaIds.Contains(asset.Id))
+            .Select(asset => new
+            {
+                asset.Id,
+                asset.OwnerUserId,
+                asset.Scope,
+                asset.Status,
+                asset.RoomId,
+                asset.DeletedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        if (mediaAssets.Count != mediaIds.Count)
+        {
+            _logger.LogWarning(
+                "Bao mat: User {UserId} gui media khong ton tai vao Room {RoomId}. Expected={Expected}; Actual={Actual}",
+                senderId,
+                roomId,
+                mediaIds.Count,
+                mediaAssets.Count);
+            return false;
+        }
+
+        var invalidMedia = mediaAssets.FirstOrDefault(asset =>
+            asset.Scope != MediaScope.ChatAttachment ||
+            asset.OwnerUserId != senderId ||
+            asset.Status != MediaAssetStatus.Pending ||
+            asset.RoomId != null ||
+            asset.DeletedAt != null);
+
+        if (invalidMedia == null)
+            return true;
+
+        _logger.LogWarning(
+            "Bao mat: User {UserId} gui media {MediaId} khong hop le vao Room {RoomId}. Scope={Scope}; Status={Status}; RoomId={MediaRoomId}; Owner={OwnerUserId}; DeletedAt={DeletedAt}",
+            senderId,
+            invalidMedia.Id,
+            roomId,
+            invalidMedia.Scope,
+            invalidMedia.Status,
+            invalidMedia.RoomId,
+            invalidMedia.OwnerUserId,
+            invalidMedia.DeletedAt);
+
         return false;
     }
 }

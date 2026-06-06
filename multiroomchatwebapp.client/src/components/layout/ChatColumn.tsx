@@ -3,10 +3,19 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
 import { getGroupMembers } from '../../api/groupApi';
+import { cancelPendingChatMedia, getMediaAccessUrl, getMediaContentBlob, uploadChatMedia } from '../../api/mediaApi';
 import { useChatStore } from '../../store/useChatStore';
 import { useVoiceStore } from '../../store/useVoiceStore';
-import type { ActiveChat, RoomDto, MessageDto, GetMessagesResponse } from '../../types/chat';
+import type {
+  ActiveChat,
+  AttachmentKind,
+  RoomDto,
+  MessageDto,
+  GetMessagesResponse,
+  MessageAttachmentDto,
+} from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
+import { determineMessageType } from '../../utils/chatMessagePreview';
 import { DirectCallButton } from '../call/DirectCallButton';
 import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
 import { UserActionMenu } from '../user/UserActionMenu';
@@ -16,12 +25,319 @@ const VoiceRoomPanel = lazy(() =>
   import('./VoiceRoomPanel').then((module) => ({ default: module.VoiceRoomPanel }))
 );
 
+const CHAT_MEDIA_ACCEPT = [
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.mp3',
+  '.wav',
+  '.ogg',
+  '.webm',
+  '.mp4',
+].join(',');
+
+const BASIC_EMOJI_GROUPS = [
+  {
+    label: 'Smileys',
+    emojis: [
+      '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
+      '🙂', '🙃', '😉', '😊', '😇', '😍', '🥰', '😘',
+      '😋', '😛', '😜', '🤪', '🤨', '🧐', '🤓', '😎',
+      '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁',
+      '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭',
+      '😤', '😠', '😡', '🤯', '😳', '🥵', '🥶', '😱',
+      '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫',
+      '😶', '😐', '😑', '😬', '🙄', '😴',
+    ],
+  },
+  {
+    label: 'Gestures',
+    emojis: [
+      '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘',
+      '🤙', '👋', '👏', '🙌', '🫶', '🙏', '💪',
+    ],
+  },
+  {
+    label: 'Symbols',
+    emojis: [
+      '❤️', '🧡', '💛', '💚', '💙', '💜', '🤍',
+      '💔', '✨', '🔥', '💯', '✅', '❌', '⭐', '🎉',
+    ],
+  },
+];
+
+const CHAT_MEDIA_LIMITS: Record<AttachmentKind, number> = {
+  Image: 10 * 1024 * 1024,
+  Audio: 25 * 1024 * 1024,
+  Video: 100 * 1024 * 1024,
+  File: 25 * 1024 * 1024,
+};
+
+type PendingAttachmentStatus = 'uploading' | 'ready' | 'failed' | 'removing';
+
+interface PendingAttachment {
+  localId: string;
+  mediaId?: string;
+  kind: AttachmentKind;
+  filename: string;
+  size: number;
+  mimeType: string;
+  localPreviewUrl?: string;
+  previewUrl?: string;
+  expiresAt?: string;
+  status: PendingAttachmentStatus;
+  error?: string;
+  controller?: AbortController;
+}
+
+const getClientMediaKind = (file: File): AttachmentKind | null => {
+  const dotIndex = file.name.lastIndexOf('.');
+  const extension = dotIndex >= 0 ? file.name.slice(dotIndex).toLowerCase() : '';
+  const mimeType = file.type.toLowerCase();
+
+  if (['.jpg', '.jpeg', '.png', '.webp'].includes(extension) || mimeType.startsWith('image/')) {
+    return 'Image';
+  }
+
+  if (['.mp3', '.wav', '.ogg'].includes(extension) || mimeType.startsWith('audio/')) {
+    return 'Audio';
+  }
+
+  if (extension === '.webm') {
+    return mimeType.startsWith('audio/') ? 'Audio' : 'Video';
+  }
+
+  if (extension === '.mp4' || mimeType.startsWith('video/')) {
+    return 'Video';
+  }
+
+  return null;
+};
+
+const formatFileSize = (size: number): string => {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const toMessageAttachment = (attachment: PendingAttachment): MessageAttachmentDto => ({
+  mediaId: attachment.mediaId ?? null,
+  kind: attachment.kind,
+  filename: attachment.filename,
+  size: attachment.size,
+  mimeType: attachment.mimeType,
+  localPreviewUrl: attachment.localPreviewUrl,
+  url: attachment.previewUrl,
+  expiresAt: attachment.expiresAt,
+});
+
+interface MessageAttachmentRendererProps {
+  attachment: MessageAttachmentDto;
+  token: string | null | undefined;
+}
+
+const MessageAttachmentRenderer = ({ attachment, token }: MessageAttachmentRendererProps) => {
+  const [url, setUrl] = useState(attachment.localPreviewUrl ?? attachment.url ?? '');
+  const [expiresAt, setExpiresAt] = useState(attachment.expiresAt ?? null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const retryRef = useRef(false);
+  const objectUrlRef = useRef<string | null>(null);
+
+  const clearObjectUrl = () => {
+    if (!objectUrlRef.current) return;
+
+    URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+  };
+
+  useEffect(() => {
+    setUrl(attachment.localPreviewUrl ?? attachment.url ?? '');
+    setExpiresAt(attachment.expiresAt ?? null);
+    setLoadFailed(false);
+    retryRef.current = false;
+  }, [attachment.mediaId, attachment.localPreviewUrl, attachment.url, attachment.expiresAt]);
+
+  const refreshUrl = async () => {
+    if (!token || !attachment.mediaId || isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      const result = await getMediaAccessUrl(token, attachment.mediaId);
+      setUrl(result.url);
+      setExpiresAt(result.expiresAt ?? null);
+      setLoadFailed(false);
+    } catch (error) {
+      console.error('Khong the refresh media URL:', error);
+      setLoadFailed(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const loadContentBlob = async () => {
+    if (!token || !attachment.mediaId || isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      const blob = await getMediaContentBlob(token, attachment.mediaId);
+      clearObjectUrl();
+
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objectUrl;
+      setUrl(objectUrl);
+      setExpiresAt(null);
+      setLoadFailed(false);
+    } catch (error) {
+      console.error('Khong the tai media content:', error);
+      setLoadFailed(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearObjectUrl();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!attachment.mediaId) return;
+
+    if (attachment.localPreviewUrl) return;
+
+    if (attachment.kind !== 'File') {
+      if (!url.startsWith('blob:')) {
+        void loadContentBlob();
+      }
+      return;
+    }
+
+    if (!url) {
+      refreshUrl();
+      return;
+    }
+
+    if (!expiresAt) return;
+
+    const expiresInMs = new Date(expiresAt).getTime() - Date.now();
+    if (expiresInMs <= 60_000) {
+      refreshUrl();
+    }
+  }, [attachment.mediaId, attachment.localPreviewUrl, attachment.kind, token, url, expiresAt]);
+
+  const handleMediaError = () => {
+    if (attachment.localPreviewUrl && url === attachment.localPreviewUrl) {
+      if (attachment.kind !== 'File') {
+        void loadContentBlob();
+        return;
+      }
+
+      if (attachment.url) {
+        setUrl(attachment.url);
+        return;
+      }
+    }
+
+    if (retryRef.current) {
+      setLoadFailed(true);
+      return;
+    }
+
+    retryRef.current = true;
+    if (attachment.kind !== 'File') {
+      void loadContentBlob();
+      return;
+    }
+
+    void refreshUrl();
+  };
+
+  if (loadFailed) {
+    return (
+      <div className={styles.attachmentUnavailable}>
+        Không tải được media
+      </div>
+    );
+  }
+
+  if (!url || isRefreshing) {
+    return (
+      <div className={styles.attachmentLoading}>
+        Đang tải media...
+      </div>
+    );
+  }
+
+  if (attachment.kind === 'Image') {
+    return (
+      <button
+        type="button"
+        className={styles.imageAttachmentButton}
+        onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+        title={attachment.filename}
+      >
+        <img
+          src={url}
+          alt={attachment.filename}
+          className={styles.imageAttachment}
+          onError={handleMediaError}
+        />
+      </button>
+    );
+  }
+
+  if (attachment.kind === 'Audio') {
+    return (
+      <div className={styles.mediaAttachment}>
+        <div className={styles.attachmentName}>{attachment.filename}</div>
+        <audio controls src={url} className={styles.audioAttachment} onError={handleMediaError} />
+      </div>
+    );
+  }
+
+  if (attachment.kind === 'Video') {
+    return (
+      <div className={styles.mediaAttachment}>
+        <video
+          controls
+          preload="metadata"
+          src={url}
+          className={styles.videoAttachment}
+          onError={handleMediaError}
+        />
+        <div className={styles.attachmentName}>{attachment.filename}</div>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      className={styles.fileAttachment}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        if (!url) event.preventDefault();
+      }}
+    >
+      <span className={styles.fileIcon}>□</span>
+      <span className={styles.fileInfo}>
+        <span className={styles.attachmentName}>{attachment.filename}</span>
+        <span className={styles.attachmentMeta}>{formatFileSize(attachment.size)}</span>
+      </span>
+    </a>
+  );
+};
+
 interface ChatColumnProps {
   activeChat: ActiveChat | null;
   /** Callback trả ngược về Layout để update Cột 2 (VD: đang ảo gõ enter -> thành room thật) */
   onChatEvolvedToReal: (realRoom: RoomDto) => void;
   // Các hàm từ useSignalR truyền xuống
-  sendMessage: (roomId: string, content: string, tempId: string) => Promise<void>;
+  sendMessage: (roomId: string, content: string, tempId: string, mediaIds?: string[]) => Promise<void>;
   sendTyping: (roomId: string) => Promise<void>;
   stopTyping: (roomId: string) => Promise<void>;
   markAsRead: (roomId: string, messageId: string) => Promise<void>;
@@ -65,12 +381,40 @@ export const ChatColumn = ({
   const roomReadReceipts = useChatStore(state => roomId ? state.readReceipts[roomId] : undefined) || {};
 
   const [inputText, setInputText] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isSendingFirstMessage, setIsSendingFirstMessage] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const localAttachmentUrlsRef = useRef<Set<string>>(new Set());
+
+  const createLocalAttachmentUrl = (file: File): string => {
+    const objectUrl = URL.createObjectURL(file);
+    localAttachmentUrlsRef.current.add(objectUrl);
+    return objectUrl;
+  };
+
+  const releaseLocalAttachmentUrl = (objectUrl?: string) => {
+    if (!objectUrl || !localAttachmentUrlsRef.current.has(objectUrl)) return;
+
+    URL.revokeObjectURL(objectUrl);
+    localAttachmentUrlsRef.current.delete(objectUrl);
+  };
+
+  useEffect(() => {
+    return () => {
+      localAttachmentUrlsRef.current.forEach((objectUrl) => {
+        URL.revokeObjectURL(objectUrl);
+      });
+      localAttachmentUrlsRef.current.clear();
+    };
+  }, []);
 
   // States cho tính năng Add Member
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
@@ -93,7 +437,43 @@ export const ChatColumn = ({
   // Hook: Xoá màn hình khi chuyển sang Chat của người khác
   useEffect(() => {
     setInputText('');
+    setIsEmojiPickerOpen(false);
+    setPendingAttachments((current) => {
+      current.forEach((attachment) => {
+        releaseLocalAttachmentUrl(attachment.localPreviewUrl);
+
+        if (attachment.status === 'uploading') {
+          attachment.controller?.abort();
+          return;
+        }
+
+        if (attachment.status === 'ready' && attachment.mediaId && accessToken) {
+          cancelPendingChatMedia(accessToken, attachment.mediaId)
+            .catch((error) => console.error('Khong the huy pending media khi doi phong:', error));
+        }
+      });
+
+      return [];
+    });
   }, [activeChat]);
+
+  useEffect(() => {
+    if (!isEmojiPickerOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        composerRef.current &&
+        !composerRef.current.contains(target)
+      ) {
+        setIsEmojiPickerOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isEmojiPickerOpen]);
 
   // Hook: JoinRoom SignalR Group khi chọn phòng — BẮT BUỘC để nhận broadcast
   useEffect(() => {
@@ -305,13 +685,170 @@ export const ChatColumn = ({
     }
   };
 
-  // HÀM XỬ LÝ SỰ KIỆN: BẤM ENTER GỬI TIN
+  const handlePickAttachment = () => {
+    if (!activeChat || isSendingFirstMessage) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleAttachmentSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+
+    if (!files.length || !accessToken || !activeChat) return;
+
+    for (const file of files) {
+      const kind = getClientMediaKind(file);
+      if (!kind) {
+        toast.error('Định dạng file chưa được hỗ trợ.');
+        continue;
+      }
+
+      const maxBytes = CHAT_MEDIA_LIMITS[kind];
+      if (file.size > maxBytes) {
+        toast.error(`${file.name} vượt quá giới hạn ${formatFileSize(maxBytes)}.`);
+        continue;
+      }
+
+      const localId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const controller = new AbortController();
+      const localPreviewUrl = createLocalAttachmentUrl(file);
+      const pendingAttachment: PendingAttachment = {
+        localId,
+        kind,
+        filename: file.name,
+        size: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        localPreviewUrl,
+        status: 'uploading',
+        controller,
+      };
+
+      setPendingAttachments((current) => [...current, pendingAttachment]);
+
+      try {
+        const uploaded = await uploadChatMedia(accessToken, file, controller.signal);
+        setPendingAttachments((current) =>
+          current.map((attachment) =>
+            attachment.localId === localId
+              ? {
+                  ...attachment,
+                  mediaId: uploaded.mediaId,
+                  kind: uploaded.kind,
+                  filename: uploaded.filename,
+                  size: uploaded.size,
+                  mimeType: uploaded.mimeType,
+                  previewUrl: uploaded.previewUrl,
+                  expiresAt: uploaded.expiresAt,
+                  status: 'ready',
+                  controller: undefined,
+                }
+              : attachment
+          )
+        );
+      } catch (error) {
+        if (controller.signal.aborted) {
+          setPendingAttachments((current) =>
+            current.filter((attachment) => attachment.localId !== localId)
+          );
+          continue;
+        }
+
+        console.error('Upload chat media failed:', error);
+        toast.error('Không upload được file. Vui lòng thử lại.');
+        setPendingAttachments((current) =>
+          current.map((attachment) =>
+            attachment.localId === localId
+              ? { ...attachment, status: 'failed', error: 'Upload thất bại', controller: undefined }
+              : attachment
+          )
+        );
+      }
+    }
+  };
+
+  const handleRemovePendingAttachment = async (attachment: PendingAttachment) => {
+    if (attachment.status === 'uploading') {
+      attachment.controller?.abort();
+      releaseLocalAttachmentUrl(attachment.localPreviewUrl);
+      setPendingAttachments((current) =>
+        current.filter((item) => item.localId !== attachment.localId)
+      );
+      return;
+    }
+
+    if (attachment.status === 'failed' || !attachment.mediaId || !accessToken) {
+      releaseLocalAttachmentUrl(attachment.localPreviewUrl);
+      setPendingAttachments((current) =>
+        current.filter((item) => item.localId !== attachment.localId)
+      );
+      return;
+    }
+
+    setPendingAttachments((current) =>
+      current.map((item) =>
+        item.localId === attachment.localId ? { ...item, status: 'removing' } : item
+      )
+    );
+
+    try {
+      await cancelPendingChatMedia(accessToken, attachment.mediaId);
+      releaseLocalAttachmentUrl(attachment.localPreviewUrl);
+      setPendingAttachments((current) =>
+        current.filter((item) => item.localId !== attachment.localId)
+      );
+    } catch (error) {
+      console.error('Cancel pending media failed:', error);
+      toast.error('Không xóa được file đã chọn.');
+      setPendingAttachments((current) =>
+        current.map((item) =>
+          item.localId === attachment.localId ? { ...item, status: 'ready' } : item
+        )
+      );
+    }
+  };
+
+  const handleEmojiSelected = (emoji: string) => {
+    const textarea = textAreaRef.current;
+    const start = textarea?.selectionStart ?? inputText.length;
+    const end = textarea?.selectionEnd ?? inputText.length;
+    const nextValue = `${inputText.slice(0, start)}${emoji}${inputText.slice(end)}`;
+
+    setInputText(nextValue);
+
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      const nextPosition = start + emoji.length;
+      textarea?.setSelectionRange(nextPosition, nextPosition);
+    });
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !activeChat || !accessToken) return;
+    if (!activeChat || !accessToken) return;
+
+    const readyAttachments = pendingAttachments.filter(
+      (attachment) => attachment.status === 'ready' && attachment.mediaId
+    );
+    const isBusyWithAttachments = pendingAttachments.some(
+      (attachment) => attachment.status === 'uploading' || attachment.status === 'removing'
+    );
 
     const contentToSend = inputText.trim();
+    if (!contentToSend && readyAttachments.length === 0) return;
+
+    if (isBusyWithAttachments) {
+      toast.error('Vui lòng chờ file upload xong trước khi gửi.');
+      return;
+    }
+
+    const optimisticAttachments = readyAttachments.map(toMessageAttachment);
+    const mediaIds = readyAttachments
+      .map((attachment) => attachment.mediaId)
+      .filter((mediaId): mediaId is string => Boolean(mediaId));
+
     setInputText(''); // Reset giao diện ngay lập tức
+    setIsEmojiPickerOpen(false);
+    setPendingAttachments([]);
 
     // Xoá timeout gõ phím
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -323,6 +860,8 @@ export const ChatColumn = ({
     // Xóa vạch Unread ngay khi A nhắn tin (chỉ UI, không gọi API)
     initialLastReadIdRef.current = undefined;
 
+    let optimisticRoomId = roomId;
+
     try {
       if (activeChat.type === 'virtual') {
         // [MAGICAL FLOW] - Giờ mới bắt đầu tạo phòng
@@ -332,6 +871,8 @@ export const ChatColumn = ({
         const roomRes = await createAuthClient(accessToken).post<RoomDto>(`/api/v1/rooms/direct/${targetUserId}`);
         const realRoom = roomRes.data;
         realRoom.otherUserDisplayName = activeChat.targetUser.displayName;
+        realRoom.otherUserUsername = activeChat.targetUser.username;
+        realRoom.otherUserAvatarUrl = activeChat.targetUser.avatarUrl;
 
         // Báo cho cha chuyển sang RealRoom
         onChatEvolvedToReal(realRoom);
@@ -343,13 +884,15 @@ export const ChatColumn = ({
           senderId: userId || '',
           content: contentToSend,
           status: 'Sending',
-          type: 'Text',
-          createdAt: new Date().toISOString()
+          type: determineMessageType(contentToSend, optimisticAttachments),
+          createdAt: new Date().toISOString(),
+          attachments: optimisticAttachments,
         };
+        optimisticRoomId = realRoom.id;
         addMessage(realRoom.id, tempMsg);
 
         // Phát sóng bằng SignalR kèm tempId để Worker callback đúng
-        await sendMessage(realRoom.id, contentToSend, tempId);
+        await sendMessage(realRoom.id, contentToSend, tempId, mediaIds);
       } else {
         // Hiển thị Optimistic UI với status Sending
         const tempMsg: MessageDto = {
@@ -358,35 +901,38 @@ export const ChatColumn = ({
           senderId: userId || '',
           content: contentToSend,
           status: 'Sending',
-          type: 'Text',
-          createdAt: new Date().toISOString()
+          type: determineMessageType(contentToSend, optimisticAttachments),
+          createdAt: new Date().toISOString(),
+          attachments: optimisticAttachments,
         };
         addMessage(roomId!, tempMsg);
 
         // Luồng chat bình thường, phòng đã tồn tại
-        await sendMessage(roomId!, contentToSend, tempId);
+        await sendMessage(roomId!, contentToSend, tempId, mediaIds);
       }
     } catch (error) {
+      setPendingAttachments(readyAttachments);
       console.error("Gửi tin thất bại", error);
       // Đánh dấu tin tạm là Failed nếu Hub invoke thất bại
-      if (roomId) {
+      if (optimisticRoomId) {
         const failedMsg: MessageDto = {
           id: tempId,
-          roomId: roomId,
+          roomId: optimisticRoomId,
           senderId: userId || '',
           content: contentToSend,
           status: 'Failed',
-          type: 'Text',
-          createdAt: new Date().toISOString()
+          type: determineMessageType(contentToSend, optimisticAttachments),
+          createdAt: new Date().toISOString(),
+          attachments: optimisticAttachments,
         };
-        updateMessageStatus(roomId, tempId, failedMsg);
+        updateMessageStatus(optimisticRoomId, tempId, failedMsg);
       }
     } finally {
       setIsSendingFirstMessage(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
 
     if (roomId) {
@@ -397,6 +943,18 @@ export const ChatColumn = ({
       typingTimeoutRef.current = setTimeout(() => {
         stopTyping(roomId).catch(e => console.error(e));
       }, 2000);
+    }
+  };
+
+  const handleTextAreaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey) {
+      return;
+    }
+
+    e.preventDefault();
+
+    if (canSendMessage) {
+      e.currentTarget.form?.requestSubmit();
     }
   };
 
@@ -446,6 +1004,15 @@ export const ChatColumn = ({
     const member = groupMemberByUserId.get(message.senderId);
     return member?.profile ?? null;
   };
+  const hasReadyAttachments = pendingAttachments.some(attachment => attachment.status === 'ready');
+  const hasBusyAttachments = pendingAttachments.some(
+    attachment => attachment.status === 'uploading' || attachment.status === 'removing'
+  );
+  const canSendMessage =
+    Boolean(inputText.trim() || hasReadyAttachments) &&
+    !hasBusyAttachments &&
+    !isSendingFirstMessage;
+
   return (
     <div className={`${styles.chatColumn} ${className || ''}`}>
       {/* Header Room Info */}
@@ -576,9 +1143,23 @@ export const ChatColumn = ({
                     </div>
                   )}
                   {/* Bubble tin nhắn */}
-                  <div className={`${styles.bubble} ${msg.status === 'Failed' ? styles.bubbleFailed : ''}`}>
-                    {msg.content}
-                  </div>
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className={styles.attachmentStack}>
+                      {msg.attachments.map((attachment, attachmentIndex) => (
+                        <MessageAttachmentRenderer
+                          key={attachment.mediaId ?? `${msg.id}-${attachmentIndex}`}
+                          attachment={attachment}
+                          token={accessToken}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.content && (
+                    <div className={`${styles.bubble} ${msg.status === 'Failed' ? styles.bubbleFailed : ''}`}>
+                      {msg.content}
+                    </div>
+                  )}
 
                   {/* Trạng thái tin nhắn — chỉ hiện phía người gửi VÀ khi có status cần hiển thị */}
                   {hasStatusText && (
@@ -619,18 +1200,107 @@ export const ChatColumn = ({
       </div>
 
       {/* Input Form Textbox */}
+      <div className={styles.composer} ref={composerRef}>
+        {pendingAttachments.length > 0 && (
+          <div className={styles.pendingAttachmentList}>
+            {pendingAttachments.map((attachment) => (
+              <div key={attachment.localId} className={styles.pendingAttachmentItem}>
+                <div className={styles.pendingAttachmentPreview}>
+                  {attachment.kind === 'Image' && (attachment.localPreviewUrl || attachment.previewUrl) ? (
+                    <img src={attachment.localPreviewUrl ?? attachment.previewUrl} alt={attachment.filename} />
+                  ) : (
+                    <span>{attachment.kind}</span>
+                  )}
+                </div>
+                <div className={styles.pendingAttachmentInfo}>
+                  <span className={styles.pendingAttachmentName}>{attachment.filename}</span>
+                  <span className={styles.pendingAttachmentMeta}>
+                    {attachment.status === 'uploading' && 'Đang upload...'}
+                    {attachment.status === 'ready' && formatFileSize(attachment.size)}
+                    {attachment.status === 'failed' && (attachment.error ?? 'Upload thất bại')}
+                    {attachment.status === 'removing' && 'Đang xóa...'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.pendingRemoveButton}
+                  onClick={() => handleRemovePendingAttachment(attachment)}
+                  disabled={attachment.status === 'removing'}
+                  title="Xóa file"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isEmojiPickerOpen && (
+          <div className={styles.emojiPicker} role="dialog" aria-label="Emoji">
+            {BASIC_EMOJI_GROUPS.map((group) => (
+              <div key={group.label} className={styles.emojiGroup}>
+                <div className={styles.emojiGroupLabel}>{group.label}</div>
+                <div className={styles.emojiGrid}>
+                  {group.emojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={styles.emojiOption}
+                      onClick={() => handleEmojiSelected(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
       <form onSubmit={handleSendMessage} className={styles.inputArea}>
         <input
-          type="text"
+          ref={fileInputRef}
+          type="file"
+          accept={CHAT_MEDIA_ACCEPT}
+          multiple
+          className={styles.fileInput}
+          onChange={handleAttachmentSelected}
+        />
+        <button
+          type="button"
+          className={styles.emojiButton}
+          onClick={() => setIsEmojiPickerOpen((current) => !current)}
+          disabled={isSendingFirstMessage}
+          title="Emoji"
+          aria-label="Emoji"
+          aria-expanded={isEmojiPickerOpen}
+        >
+          🙂
+        </button>
+        <button
+          type="button"
+          className={styles.attachButton}
+          onClick={handlePickAttachment}
+          disabled={isSendingFirstMessage}
+          title="Đính kèm file"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.83-2.83l8.49-8.48" />
+          </svg>
+        </button>
+        <textarea
+          ref={textAreaRef}
           value={inputText}
           onChange={handleInputChange}
+          onKeyDown={handleTextAreaKeyDown}
           placeholder={`Nhập tin nhắn...`}
+          rows={1}
           disabled={isSendingFirstMessage}
           className={styles.textField}
         />
         <button
           type="submit"
-          disabled={!inputText.trim() || isSendingFirstMessage}
+          disabled={!canSendMessage}
           className={styles.sendButton}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -639,6 +1309,7 @@ export const ChatColumn = ({
           </svg>
         </button>
       </form>
+      </div>
 
       {/* Modal Add Member */}
       {isAddMemberModalOpen && activeChat?.type === 'real' && activeChat.room.groupId && (

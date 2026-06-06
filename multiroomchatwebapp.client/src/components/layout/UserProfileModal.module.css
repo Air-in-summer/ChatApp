@@ -127,8 +127,34 @@
   border-color: var(--accent-primary);
 }
 
+.avatarControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.filePickerBtn {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.filePickerBtn input {
+  display: none;
+}
+
 .primaryBtn,
 .secondaryBtn,
+.dangerBtn,
 .logoutBtn {
   min-height: 40px;
   border: none;
@@ -147,13 +173,19 @@
   color: var(--text-primary);
 }
 
+.dangerBtn {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+}
+
 .logoutBtn {
   background: rgba(239, 68, 68, 0.18);
   color: #fecaca;
 }
 
 .primaryBtn:disabled,
-.secondaryBtn:disabled {
+.secondaryBtn:disabled,
+.dangerBtn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

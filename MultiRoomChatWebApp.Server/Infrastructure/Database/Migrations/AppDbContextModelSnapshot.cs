@@ -185,6 +185,97 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.ToTable("GroupMembers");
                 });
 
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Media.Core.Entities.MediaAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccessLevel")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("AttachedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("BucketName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid?>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BucketName", "StorageKey")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerUserId", "CreatedAt");
+
+                    b.HasIndex("RoomId", "CreatedAt");
+
+                    b.HasIndex("Scope", "OwnerUserId");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("MediaAssets", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MediaAssets_SizeBytes_NonNegative", "\"SizeBytes\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", b =>
                 {
                     b.Property<Guid>("Id")
@@ -311,43 +402,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                         });
                 });
 
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.UserBlock", b =>
-                {
-                    b.Property<Guid>("BlockerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BlockedId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("BlockerId", "BlockedId");
-
-                    b.HasIndex("BlockedId", "BlockerId");
-
-                    b.ToTable("UserBlocks", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_UserBlocks_NotSelf", "\"BlockerId\" <> \"BlockedId\"");
-                        });
-                });
-
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.UserPresenceState", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("LastSeenAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("UserId");
-
-                    b.ToTable("UserPresenceStates");
-                });
-
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -404,6 +458,43 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Username"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.UserBlock", b =>
+                {
+                    b.Property<Guid>("BlockerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BlockedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("BlockerId", "BlockedId");
+
+                    b.HasIndex("BlockedId", "BlockerId");
+
+                    b.ToTable("UserBlocks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserBlocks_NotSelf", "\"BlockerId\" <> \"BlockedId\"");
+                        });
+                });
+
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.UserPresenceState", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("UserPresenceStates");
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin", b =>
@@ -475,6 +566,17 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Navigation("Group");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Media.Core.Entities.MediaAsset", b =>
+                {
+                    b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "OwnerUser")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OwnerUser");
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", b =>

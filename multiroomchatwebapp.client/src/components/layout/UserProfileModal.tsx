@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createAuthClient } from '../../api/apiClient';
+import { deleteAvatar, uploadAvatar } from '../../api/mediaApi';
 import { useAuth } from '../../context/AuthContext';
+import type { UserProfile } from '../../types/auth';
 import { getApiErrorMessage } from '../../utils/apiError';
 import styles from './UserProfileModal.module.css';
 
@@ -10,32 +12,32 @@ interface UserProfileModalProps {
   onClose: () => void;
 }
 
-interface UserProfile {
-  id: string;
-  username: string;
-  email: string;
-  displayName: string;
-  avatarUrl?: string | null;
-}
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /**
  * Modal tài khoản core: cập nhật profile, đổi mật khẩu và đăng xuất.
  */
 export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
-  const { accessToken, logout, refreshToken } = useAuth();
+  const { accessToken, logout, refreshToken, updateCurrentUserProfile } = useAuth();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [localAvatarPreviewUrl, setLocalAvatarPreviewUrl] = useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isProfileSaving, setIsProfileSaving] = useState(false);
+  const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+  const [isAvatarDeleting, setIsAvatarDeleting] = useState(false);
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasAvatarPreviewError, setHasAvatarPreviewError] = useState(false);
   const avatarFallbackText = (displayName || profile?.username || '?').trim().charAt(0).toUpperCase() || '?';
+  const avatarPreviewUrl = localAvatarPreviewUrl ?? avatarUrl;
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -58,8 +60,22 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!selectedAvatarFile) {
+      setLocalAvatarPreviewUrl(null);
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(selectedAvatarFile);
+    setLocalAvatarPreviewUrl(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [selectedAvatarFile]);
+
+  useEffect(() => {
     setHasAvatarPreviewError(false);
-  }, [avatarUrl]);
+  }, [avatarPreviewUrl]);
 
   const handleProfileSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,12 +90,68 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       });
 
       setProfile(response.data);
+      setAvatarUrl(response.data.avatarUrl ?? '');
       await refreshToken();
       toast.success('Đã cập nhật hồ sơ.');
     } catch (error: unknown) {
       toast.error(getApiErrorMessage(error, 'Không cập nhật được hồ sơ.'));
     } finally {
       setIsProfileSaving(false);
+    }
+  };
+
+  const handleAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+
+    if (!file) return;
+
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      toast.error('Ảnh đại diện chỉ hỗ trợ JPG, PNG hoặc WEBP.');
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast.error('Ảnh đại diện không được vượt quá 2MB.');
+      return;
+    }
+
+    setSelectedAvatarFile(file);
+  };
+
+  const handleAvatarUpload = async () => {
+    if (!accessToken || !selectedAvatarFile) return;
+
+    setIsAvatarUploading(true);
+    try {
+      const updatedProfile = await uploadAvatar(accessToken, selectedAvatarFile);
+      setProfile(updatedProfile);
+      setAvatarUrl(updatedProfile.avatarUrl ?? '');
+      setSelectedAvatarFile(null);
+      updateCurrentUserProfile(updatedProfile);
+      toast.success('Đã cập nhật ảnh đại diện.');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Không tải được ảnh đại diện.'));
+    } finally {
+      setIsAvatarUploading(false);
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    if (!accessToken) return;
+
+    setIsAvatarDeleting(true);
+    try {
+      const updatedProfile = await deleteAvatar(accessToken);
+      setProfile(updatedProfile);
+      setAvatarUrl(updatedProfile.avatarUrl ?? '');
+      setSelectedAvatarFile(null);
+      updateCurrentUserProfile(updatedProfile);
+      toast.success('Đã xóa ảnh đại diện.');
+    } catch (error: unknown) {
+      toast.error(getApiErrorMessage(error, 'Không xóa được ảnh đại diện.'));
+    } finally {
+      setIsAvatarDeleting(false);
     }
   };
 
@@ -120,9 +192,9 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       <div className={styles.modal} onMouseDown={(event) => event.stopPropagation()}>
         <header className={styles.header}>
           <div className={styles.avatarPreview}>
-            {avatarUrl && !hasAvatarPreviewError ? (
+            {avatarPreviewUrl && !hasAvatarPreviewError ? (
               <img
-                src={avatarUrl}
+                src={avatarPreviewUrl}
                 alt={displayName}
                 referrerPolicy="no-referrer"
                 onError={() => setHasAvatarPreviewError(true)}
@@ -144,15 +216,51 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
           <div className={styles.loading}>Đang tải hồ sơ...</div>
         ) : (
           <div className={styles.body}>
+            <section className={styles.section}>
+              <h3>Ảnh đại diện</h3>
+              <div className={styles.avatarControls}>
+                <label className={styles.filePickerBtn}>
+                  Chọn ảnh
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    onChange={handleAvatarFileChange}
+                  />
+                </label>
+                <button
+                  className={styles.primaryBtn}
+                  type="button"
+                  onClick={handleAvatarUpload}
+                  disabled={!selectedAvatarFile || isAvatarUploading}
+                >
+                  {isAvatarUploading ? 'Đang tải...' : 'Tải lên'}
+                </button>
+                {selectedAvatarFile && (
+                  <button
+                    className={styles.secondaryBtn}
+                    type="button"
+                    onClick={() => setSelectedAvatarFile(null)}
+                    disabled={isAvatarUploading}
+                  >
+                    Hủy chọn
+                  </button>
+                )}
+                <button
+                  className={styles.dangerBtn}
+                  type="button"
+                  onClick={handleAvatarDelete}
+                  disabled={!avatarUrl || isAvatarDeleting}
+                >
+                  {isAvatarDeleting ? 'Đang xóa...' : 'Xóa ảnh'}
+                </button>
+              </div>
+            </section>
+
             <form className={styles.section} onSubmit={handleProfileSave}>
               <h3>Hồ sơ</h3>
               <label>
                 Tên hiển thị
                 <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={100} />
-              </label>
-              <label>
-                Avatar URL
-                <input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." />
               </label>
               <button className={styles.primaryBtn} type="submit" disabled={isProfileSaving}>
                 {isProfileSaving ? 'Đang lưu...' : 'Lưu hồ sơ'}

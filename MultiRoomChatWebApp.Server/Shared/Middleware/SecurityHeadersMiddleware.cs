@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
+
 namespace MultiRoomChatWebApp.Server.Shared.Middleware;
 
 /// <summary>
@@ -7,10 +10,12 @@ namespace MultiRoomChatWebApp.Server.Shared.Middleware;
 public class SecurityHeadersMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly MediaStorageOptions _mediaStorageOptions;
 
-    public SecurityHeadersMiddleware(RequestDelegate next)
+    public SecurityHeadersMiddleware(RequestDelegate next, IOptions<MediaStorageOptions> mediaStorageOptions)
     {
         _next = next;
+        _mediaStorageOptions = mediaStorageOptions.Value;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -28,8 +33,22 @@ public class SecurityHeadersMiddleware
         context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()";
 
         // Cho phép avatar Google từ host cụ thể, không mở toàn bộ ảnh HTTPS bên ngoài.
-        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://lh3.googleusercontent.com; font-src 'self' data:;";
+        var mediaImgSource = GetConfiguredMediaImageSource();
+        context.Response.Headers["Content-Security-Policy"] =
+            $"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://lh3.googleusercontent.com{mediaImgSource}; media-src 'self' blob:{mediaImgSource}; font-src 'self' data:;";
 
         await _next(context);
+    }
+
+    private string GetConfiguredMediaImageSource()
+    {
+        var endpoint = string.IsNullOrWhiteSpace(_mediaStorageOptions.PublicEndpoint)
+            ? _mediaStorageOptions.Endpoint
+            : _mediaStorageOptions.PublicEndpoint;
+
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            return string.Empty;
+
+        return $" {uri.GetLeftPart(UriPartial.Authority)}";
     }
 }

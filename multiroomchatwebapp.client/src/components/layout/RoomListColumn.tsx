@@ -30,6 +30,30 @@ interface RoomListColumnProps {
   className?: string;
 }
 
+const DmRoomAvatar = ({ room }: { room: RoomDto }) => {
+  const [hasError, setHasError] = useState(false);
+  const avatarUrl = room.otherUserAvatarUrl;
+  const fallback = (room.otherUserDisplayName || room.otherUserUsername || '?')[0]?.toUpperCase() || '?';
+
+  useEffect(() => {
+    setHasError(false);
+  }, [avatarUrl]);
+
+  if (avatarUrl && !hasError) {
+    return (
+      <img
+        className={styles.avatarImage}
+        src={avatarUrl}
+        alt=""
+        referrerPolicy="no-referrer"
+        onError={() => setHasError(true)}
+      />
+    );
+  }
+
+  return <>{fallback}</>;
+};
+
 /**
  * Cột 2: Danh sách phòng chat hoặc danh sách Kênh (Channels).
  * Quản lý việc hiển thị danh sách, tìm kiếm người dùng (cho DM) và cập nhật số tin nhắn chưa đọc.
@@ -549,7 +573,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
               }}
             >
               <div className={styles.avatar}>
-                {(room.otherUserDisplayName || '?')[0]?.toUpperCase() || '?'}
+                <DmRoomAvatar room={room} />
               </div>
               <div className={styles.roomInfo}>
                 <div className={styles.roomNameRow}>

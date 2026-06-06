@@ -195,6 +195,115 @@
 }
 
 /* Dòng trạng thái tin nhắn dưới bubble */
+.attachmentStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, 100%);
+  margin-bottom: 6px;
+}
+
+.imageAttachmentButton {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.imageAttachment {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.mediaAttachment {
+  width: min(360px, 100%);
+  padding: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.audioAttachment {
+  width: 100%;
+  min-width: 260px;
+}
+
+.videoAttachment {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 6px;
+  background: black;
+}
+
+.fileAttachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(320px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.fileIcon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.18);
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.fileInfo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachmentName {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentMeta {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.attachmentLoading,
+.attachmentUnavailable {
+  width: min(280px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.attachmentUnavailable {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
 .statusRow {
   display: flex;
   align-items: center;
@@ -242,25 +351,202 @@
   opacity: 1;
 }
 
-.inputArea {
+.composer {
   display: flex;
-  gap: var(--spacing-sm);
+  flex-direction: column;
+  gap: 10px;
   padding: var(--spacing-md);
   background: var(--glass-bg);
   border-top: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-blur);
 }
 
+.emojiPicker {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.emojiGroup + .emojiGroup {
+  margin-top: 10px;
+}
+
+.emojiGroupLabel {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 4px;
+}
+
+.emojiOption {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  transition: var(--transition-fast);
+}
+
+.emojiOption:hover,
+.emojiOption:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.inputArea {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: 0;
+  background: transparent;
+  border-top: none;
+  backdrop-filter: none;
+}
+
+.fileInput {
+  display: none;
+}
+
+.attachButton,
+.emojiButton {
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid var(--glass-border);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.attachButton:hover:not(:disabled),
+.emojiButton:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.attachButton:disabled,
+.emojiButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pendingAttachmentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pendingAttachmentItem {
+  width: min(260px, 100%);
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pendingAttachmentPreview {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+}
+
+.pendingAttachmentPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pendingAttachmentInfo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pendingAttachmentName {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingAttachmentMeta {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.pendingRemoveButton {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.pendingRemoveButton:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fecaca;
+}
+
+.pendingRemoveButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .textField {
   flex: 1;
+  min-height: 46px;
+  max-height: 128px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
   padding: 12px 18px;
   color: var(--text-primary);
   font-size: 0.95rem;
+  line-height: 1.35;
   outline: none;
   transition: var(--transition-fast);
+  resize: none;
+  overflow-y: auto;
+  font-family: inherit;
 }
 
 .textField:focus {

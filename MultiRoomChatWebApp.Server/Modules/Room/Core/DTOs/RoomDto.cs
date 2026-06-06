@@ -16,6 +16,8 @@ public class RoomDto
     
     public string? OtherUserUsername { get; set; }
 
+    public string? OtherUserAvatarUrl { get; set; }
+
     public string? LastMessageContent { get; set; }
 
     public DateTime? LastMessageTimestamp { get; set; }

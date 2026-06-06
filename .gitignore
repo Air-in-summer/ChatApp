@@ -3,6 +3,8 @@
 .codex/
 .vs/
 docker/
+Latex/
+Slides - Copy/
 docker-compose.yml
 livekit.yaml
 bin/

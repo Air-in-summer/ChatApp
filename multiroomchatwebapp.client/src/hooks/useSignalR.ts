@@ -7,6 +7,7 @@ import { useUserRelationshipsStore } from '../store/useUserRelationshipsStore';
 import { useVoiceStore } from '../store/useVoiceStore';
 import type { VoiceCallIncomingDto, VoiceCallStatusChangedDto } from '../api/voiceApi';
 import type { MessageDto } from '../types/chat';
+import { buildMessagePreview } from '../utils/chatMessagePreview';
 
 const PRESENCE_HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -108,6 +109,18 @@ export const useSignalR = () => {
         content: raw.content ?? raw.Content ?? '',
         status: raw.status ?? raw.Status ?? 'Sent',
         createdAt: raw.createdAt ?? raw.CreatedAt ?? raw.created_at ?? new Date().toISOString(),
+        attachments: Array.isArray(raw.attachments ?? raw.Attachments)
+          ? (raw.attachments ?? raw.Attachments).map((attachment: any) => ({
+              mediaId: attachment.mediaId ?? attachment.MediaId ?? attachment.media_id ?? null,
+              kind: attachment.kind ?? attachment.Kind ?? 'File',
+              filename: attachment.filename ?? attachment.Filename ?? '',
+              size: attachment.size ?? attachment.Size ?? 0,
+              mimeType: attachment.mimeType ?? attachment.MimeType ?? attachment.mime_type ?? '',
+              url: attachment.url ?? attachment.Url ?? '',
+              thumbnailUrl: attachment.thumbnailUrl ?? attachment.ThumbnailUrl ?? attachment.thumbnail_url ?? null,
+              expiresAt: attachment.expiresAt ?? attachment.ExpiresAt ?? attachment.expires_at ?? null,
+            }))
+          : null,
       };
 
       if (!message.roomId) {
@@ -139,7 +152,7 @@ export const useSignalR = () => {
       }
 
       // Fix #1+#2+#4: Luôn update metadata để phòng lên đầu danh sách (cả khi A gửi lẫn khi nhận)
-      updateRoomMetadata(message.roomId, message.content, message.createdAt);
+      updateRoomMetadata(message.roomId, buildMessagePreview(message), message.createdAt);
 
       // Thêm mới tin nhắn vào store (addMessage tự check duplicate nếu tempId đã được thế)
       addMessage(message.roomId, message);
@@ -308,9 +321,19 @@ export const useSignalR = () => {
    * @param content - Nội dung tin nhắn
    * @param tempId - ID tạm (temp-xxx) để Worker callback đúng tin tạm sau khi lưu xong
    */
-  const sendMessage = useCallback(async (roomId: string, content: string, tempId: string) => {
+  const sendMessage = useCallback(async (
+    roomId: string,
+    content: string,
+    tempId: string,
+    mediaIds: string[] = []
+  ) => {
     if (connectionRef.current?.state === signalR.HubConnectionState.Connected) {
-      await connectionRef.current.invoke('SendMessage', roomId, content, tempId);
+      await connectionRef.current.invoke('SendMessage', {
+        roomId,
+        content,
+        tempId,
+        mediaIds,
+      });
     }
   }, []);
 

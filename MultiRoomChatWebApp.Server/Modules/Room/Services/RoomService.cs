@@ -262,6 +262,7 @@ public class RoomService : IRoomService
                     // Đắp thông tin vào DTO
                     dto.OtherUserDisplayName = otherUser?.DisplayName ?? "Unknown";
                     dto.OtherUserUsername = otherUser?.Username ?? "unknown";
+                    dto.OtherUserAvatarUrl = otherUser?.AvatarUrl;
                 }
 
                 return dto;

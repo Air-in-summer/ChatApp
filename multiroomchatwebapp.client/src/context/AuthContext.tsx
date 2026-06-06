@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { apiClient, configureAuthInterceptors } from '../api/apiClient';
-import type { AuthUser, AuthClientResponse } from '../types/auth';
+import type { AuthUser, AuthClientResponse, UserProfile } from '../types/auth';
 
 /**
  * Định nghĩa contract của AuthContext.
@@ -24,6 +24,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   /** Dùng nội bộ (AuthProvider) và Axios interceptor để lấy token mới. */
   refreshToken: () => Promise<string | null>;
+  updateCurrentUserProfile: (profile: UserProfile) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -136,6 +137,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
    * Đăng xuất: Gọi API thu hồi RefreshToken trong DB + xóa Cookie.
    * Sau đó xóa trạng thái trong RAM.
    */
+  const updateCurrentUserProfile = useCallback((profile: UserProfile): void => {
+    setUser(currentUser => {
+      if (!currentUser || currentUser.userId !== profile.id) {
+        return currentUser;
+      }
+
+      return {
+        ...currentUser,
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+      };
+    });
+  }, []);
+
   const logout = useCallback(async (): Promise<void> => {
     try {
       await apiClient.post('/api/auth/logout');
@@ -157,7 +173,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     login,
     logout,
     refreshToken,
-  }), [accessToken, user, isLoading, login, logout, refreshToken]);
+    updateCurrentUserProfile,
+  }), [accessToken, user, isLoading, login, logout, refreshToken, updateCurrentUserProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

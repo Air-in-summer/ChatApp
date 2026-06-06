@@ -1,5 +1,4 @@
 using MediatR;
-using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
 
@@ -13,8 +12,8 @@ public class SendMessageCommand : IRequest<bool>
     public Guid SenderId { get; set; }
     
     public string Content { get; set; } = string.Empty;
-    
-    public List<Attachment>? Attachments { get; set; }
+
+    public List<Guid> MediaIds { get; set; } = [];
 
     /// <summary>
     /// ID tạm do Frontend tự gán (ví dụ: "temp-1745808000000").

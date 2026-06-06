@@ -26,6 +26,9 @@ public sealed class ApiException : Exception
     public static ApiException Unauthorized(string code, string clientMessage)
         => new(StatusCodes.Status401Unauthorized, code, clientMessage);
 
+    public static ApiException Forbidden(string code, string clientMessage)
+        => new(StatusCodes.Status403Forbidden, code, clientMessage);
+
     public static ApiException NotFound(string code, string clientMessage)
         => new(StatusCodes.Status404NotFound, code, clientMessage);
 

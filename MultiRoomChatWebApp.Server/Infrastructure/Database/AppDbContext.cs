@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Entities;
 
@@ -24,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
     public DbSet<UserPresenceState> UserPresenceStates => Set<UserPresenceState>();
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -171,6 +173,37 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(d => d.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.ToTable("MediaAssets", table =>
+                table.HasCheckConstraint("CK_MediaAssets_SizeBytes_NonNegative", "\"SizeBytes\" >= 0"));
+
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => new { e.BucketName, e.StorageKey }).IsUnique();
+            entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAt });
+            entity.HasIndex(e => new { e.RoomId, e.CreatedAt });
+            entity.HasIndex(e => new { e.Status, e.CreatedAt });
+            entity.HasIndex(e => new { e.Scope, e.OwnerUserId });
+
+            entity.Property(e => e.Scope).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.AccessLevel).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+
+            entity.Property(e => e.BucketName).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.StorageKey).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.OriginalFileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.ContentType).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.PublicUrl).HasMaxLength(2048);
+            entity.Property(e => e.MessageId).HasMaxLength(64);
+
+            entity.HasOne(d => d.OwnerUser)
+                  .WithMany()
+                  .HasForeignKey(d => d.OwnerUserId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Room>(entity =>

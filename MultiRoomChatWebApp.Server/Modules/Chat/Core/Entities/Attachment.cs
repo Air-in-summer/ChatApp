@@ -1,9 +1,18 @@
 using MongoDB.Bson.Serialization.Attributes;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 
 public class Attachment
 {
+    [BsonElement("media_id")]
+    [BsonRepresentation(MongoDB.Bson.BsonType.String)]
+    public Guid? MediaId { get; set; }
+
+    [BsonElement("kind")]
+    [BsonRepresentation(MongoDB.Bson.BsonType.String)]
+    public MediaKind Kind { get; set; } = MediaKind.File;
+
     [BsonElement("url")]
     public string Url { get; set; } = string.Empty;
 
@@ -18,4 +27,7 @@ public class Attachment
 
     [BsonElement("thumbnail_url")]
     public string? ThumbnailUrl { get; set; }
+
+    [BsonElement("expires_at")]
+    public DateTime? ExpiresAt { get; set; }
 }

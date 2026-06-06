@@ -25,3 +25,11 @@ export interface AuthClientResponse {
   displayName: string;
   avatarUrl?: string | null;
 }
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string | null;
+}

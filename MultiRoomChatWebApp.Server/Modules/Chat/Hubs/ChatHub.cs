@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
@@ -115,20 +116,26 @@ public class ChatHub : Hub<IChatClient>
     /// <summary>
     /// Ném lệnh đi. Trả Thread lại ngay lập tức.
     /// </summary>
-    /// <param name="roomId">ID phòng chat (Guid)</param>
-    /// <param name="content">Nội dung tin nhắn</param>
-    /// <param name="tempId">ID tạm mà Frontend gán (ví dụ: temp-123) để Worker có thể callback update trạng thái</param>
-    public async Task SendMessage(Guid roomId, string content, string tempId)
+    /// <param name="request">Payload gui tin nhan, gom room/content/tempId va mediaIds pending neu co.</param>
+    public async Task SendMessage(SendMessageRequest request)
     {
+        if (request == null) return;
+
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdString, out Guid currentUserId)) return;
 
+        var mediaIds = (request.MediaIds ?? [])
+            .Where(mediaId => mediaId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
         var command = new Core.Commands.SendMessageCommand
         {
-            RoomId = roomId,
+            RoomId = request.RoomId,
             SenderId = currentUserId,
-            Content = content,
-            TempId = tempId
+            Content = request.Content ?? string.Empty,
+            TempId = request.TempId ?? string.Empty,
+            MediaIds = mediaIds
         };
 
         // Giao việc cho MediatR Handler

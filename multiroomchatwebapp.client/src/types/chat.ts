@@ -12,6 +12,7 @@ export interface RoomDto {
   otherUserId?: string | null;
   otherUserDisplayName?: string;
   otherUserUsername?: string;
+  otherUserAvatarUrl?: string | null;
   lastMessageContent?: string;
   lastMessageTimestamp?: string;
   unreadCount?: number;
@@ -53,6 +54,36 @@ export type ActiveChat =
  */
 export type MessageStatus = 'Sending' | 'Sent' | 'Delivered' | 'Read' | 'Failed';
 
+export type AttachmentKind = 'Image' | 'Audio' | 'Video' | 'File';
+
+export interface MessageAttachmentDto {
+  mediaId?: string | null;
+  kind: AttachmentKind;
+  filename: string;
+  size: number;
+  mimeType: string;
+  localPreviewUrl?: string;
+  url?: string;
+  thumbnailUrl?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface MediaUploadResultDto {
+  mediaId: string;
+  kind: AttachmentKind;
+  filename: string;
+  size: number;
+  mimeType: string;
+  previewUrl: string;
+  expiresAt: string;
+}
+
+export interface MediaAccessUrlDto {
+  mediaId: string;
+  url: string;
+  expiresAt?: string | null;
+}
+
 /**
  * Dữ liệu tin nhắn trả về từ Backend hoặc tạo tạm ở Frontend
  */
@@ -64,6 +95,7 @@ export interface MessageDto {
   content: string;
   status: MessageStatus;
   createdAt: string; // ISO String
+  attachments?: MessageAttachmentDto[] | null;
 }
 
 export interface GetMessagesResponse {

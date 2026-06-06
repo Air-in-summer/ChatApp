@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 using StackExchange.Redis;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
@@ -12,12 +16,21 @@ public class ChatService : IChatService
     private readonly IMongoCollection<Message> _messagesCollection;
     private readonly AppDbContext _dbContext;
     private readonly IConnectionMultiplexer _redis;
+    private readonly IMediaStorageService _mediaStorageService;
+    private readonly MediaStorageOptions _mediaOptions;
 
-    public ChatService(IMongoDatabase mongoDatabase, AppDbContext dbContext, IConnectionMultiplexer redis)
+    public ChatService(
+        IMongoDatabase mongoDatabase,
+        AppDbContext dbContext,
+        IConnectionMultiplexer redis,
+        IMediaStorageService mediaStorageService,
+        IOptions<MediaStorageOptions> mediaOptions)
     {
         _messagesCollection = mongoDatabase.GetCollection<Message>("messages");
         _dbContext = dbContext;
         _redis = redis;
+        _mediaStorageService = mediaStorageService;
+        _mediaOptions = mediaOptions.Value;
     }
 
     /// <summary>
@@ -51,6 +64,7 @@ public class ChatService : IChatService
         // MongoDB trả về danh sách từ Mới nhất -> Cũ nhất.
         // Cần đảo ngược lại để UI render từ Cũ nhất -> Mới nhất (từ trên xuống dưới)
         messages.Reverse();
+        await EnrichAttachmentUrlsAsync(messages);
 
         return messages;
     }
@@ -122,5 +136,61 @@ public class ChatService : IChatService
         }
 
         return result;
+    }
+
+    private async Task EnrichAttachmentUrlsAsync(List<Message> messages)
+    {
+        var mediaIds = messages
+            .SelectMany(message => message.Attachments ?? [])
+            .Where(attachment => attachment.MediaId.HasValue)
+            .Select(attachment => attachment.MediaId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (mediaIds.Count == 0)
+            return;
+
+        var mediaAssets = await _dbContext.MediaAssets
+            .AsNoTracking()
+            .Where(asset => mediaIds.Contains(asset.Id) && asset.DeletedAt == null)
+            .ToDictionaryAsync(asset => asset.Id);
+
+        var ttl = TimeSpan.FromMinutes(Math.Max(1, _mediaOptions.SignedUrlMinutes));
+        var expiresAt = DateTime.UtcNow.Add(ttl);
+
+        foreach (var message in messages)
+        {
+            if (message.Attachments == null)
+                continue;
+
+            foreach (var attachment in message.Attachments)
+            {
+                if (!attachment.MediaId.HasValue ||
+                    !mediaAssets.TryGetValue(attachment.MediaId.Value, out var mediaAsset))
+                {
+                    continue;
+                }
+
+                if (mediaAsset.Status != MediaAssetStatus.Attached ||
+                    mediaAsset.RoomId != message.RoomId)
+                {
+                    continue;
+                }
+
+                if (mediaAsset.AccessLevel == MediaAccessLevel.PublicRead &&
+                    !string.IsNullOrWhiteSpace(mediaAsset.PublicUrl))
+                {
+                    attachment.Url = mediaAsset.PublicUrl;
+                    attachment.ExpiresAt = null;
+                    continue;
+                }
+
+                attachment.Url = _mediaStorageService.CreatePresignedGetUrl(
+                    mediaAsset.BucketName,
+                    mediaAsset.StorageKey,
+                    ttl);
+                attachment.ExpiresAt = expiresAt;
+            }
+        }
     }
 }
