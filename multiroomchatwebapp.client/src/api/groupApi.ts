@@ -2,8 +2,10 @@ import { createAuthClient } from './apiClient';
 import type { 
   GroupDto, 
   CreateGroupRequest, 
+  UpdateGroupRequest,
   GroupMemberDto, 
-  CreateGroupChannelRequest 
+  CreateGroupChannelRequest,
+  UpdateRoomRequest,
 } from '../types/group';
 import type { RoomDto } from '../types/chat';
 
@@ -29,6 +31,16 @@ export const getMyGroups = async (token: string): Promise<GroupDto[]> => {
 export const createGroup = async (token: string, request: CreateGroupRequest): Promise<GroupDto> => {
   const client = createAuthClient(token);
   const response = await client.post<GroupDto>('/api/v1/groups', request);
+  return response.data;
+};
+
+export const updateGroup = async (
+  token: string,
+  groupId: string,
+  request: UpdateGroupRequest
+): Promise<GroupDto> => {
+  const client = createAuthClient(token);
+  const response = await client.patch<GroupDto>(`/api/v1/groups/${groupId}`, request);
   return response.data;
 };
 
@@ -74,6 +86,26 @@ export const createGroupChannel = async (
   const client = createAuthClient(token);
   const response = await client.post<{ roomId: string }>(`/api/v1/groups/${groupId}/rooms`, request);
   return response.data;
+};
+
+export const updateGroupRoom = async (
+  token: string,
+  groupId: string,
+  roomId: string,
+  request: UpdateRoomRequest
+): Promise<RoomDto> => {
+  const client = createAuthClient(token);
+  const response = await client.patch<RoomDto>(`/api/v1/groups/${groupId}/rooms/${roomId}`, request);
+  return response.data;
+};
+
+export const deleteGroupRoom = async (
+  token: string,
+  groupId: string,
+  roomId: string
+): Promise<void> => {
+  const client = createAuthClient(token);
+  await client.delete(`/api/v1/groups/${groupId}/rooms/${roomId}`);
 };
 
 /**
@@ -159,4 +191,3 @@ export const deleteGroup = async (token: string, groupId: string): Promise<void>
   const client = createAuthClient(token);
   await client.delete(`/api/v1/groups/${groupId}`);
 };
-

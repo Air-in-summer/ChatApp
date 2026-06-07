@@ -209,6 +209,8 @@ try
         });
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService, MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageAdmissionService, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageAdmissionService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageMutationPermissionService, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageMutationPermissionService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageMutationService, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageMutationService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageDeliveryRecipientResolver, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageDeliveryRecipientResolver>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageDeliveryAttachmentResolver, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageDeliveryAttachmentResolver>();
     builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageIdentityService, MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisMessageIdentityService>();

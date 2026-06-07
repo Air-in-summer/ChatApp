@@ -22,6 +22,7 @@ public class Room
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
 
     public virtual ICollection<RoomMember> Members { get; set; } = new List<RoomMember>();
 }

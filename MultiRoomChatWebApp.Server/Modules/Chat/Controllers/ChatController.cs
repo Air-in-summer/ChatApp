@@ -17,17 +17,20 @@ public class ChatController : ControllerBase
     private readonly IRoomPermissionsCache _roomPermissionsCache;
     private readonly IRoomMetadataCache _roomMetadataCache;
     private readonly Modules.Group.Core.Interfaces.IGroupPermissionsCache _groupPermissionsCache;
+    private readonly IMessageMutationService _messageMutationService;
 
     public ChatController(
         IChatService chatService, 
         IRoomPermissionsCache roomPermissionsCache,
         IRoomMetadataCache roomMetadataCache,
-        Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache)
+        Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache,
+        IMessageMutationService messageMutationService)
     {
         _chatService = chatService;
         _roomPermissionsCache = roomPermissionsCache;
         _roomMetadataCache = roomMetadataCache;
         _groupPermissionsCache = groupPermissionsCache;
+        _messageMutationService = messageMutationService;
     }
 
     /// <summary>
@@ -92,5 +95,213 @@ public class ChatController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    /// <summary>
+    /// [PATCH] /api/v1/chat/rooms/{roomId}/messages/{messageId} - Sua noi dung tin nhan cua chinh nguoi gui.
+    /// </summary>
+    [HttpPatch("rooms/{roomId:guid}/messages/{messageId}")]
+    [ProducesResponseType(typeof(MessageEditedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> EditMessage(
+        Guid roomId,
+        string messageId,
+        [FromBody] EditMessageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.EditMessageAsync(
+            userId,
+            roomId,
+            messageId,
+            request,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [DELETE] /api/v1/chat/rooms/{roomId}/messages/{messageId} - Xoa mem tin nhan voi moi nguoi.
+    /// </summary>
+    [HttpDelete("rooms/{roomId:guid}/messages/{messageId}")]
+    [ProducesResponseType(typeof(MessageDeletedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteMessage(
+        Guid roomId,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.DeleteMessageAsync(
+            userId,
+            roomId,
+            messageId,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [PUT] /api/v1/chat/rooms/{roomId}/messages/{messageId}/reactions - Them reaction cua nguoi dung hien tai.
+    /// </summary>
+    [HttpPut("rooms/{roomId:guid}/messages/{messageId}/reactions")]
+    [ProducesResponseType(typeof(MessageReactionUpdatedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AddMessageReaction(
+        Guid roomId,
+        string messageId,
+        [FromBody] MessageReactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.AddReactionAsync(
+            userId,
+            roomId,
+            messageId,
+            request.Emoji,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [DELETE] /api/v1/chat/rooms/{roomId}/messages/{messageId}/reactions - Go reaction cua nguoi dung hien tai.
+    /// </summary>
+    [HttpDelete("rooms/{roomId:guid}/messages/{messageId}/reactions")]
+    [ProducesResponseType(typeof(MessageReactionUpdatedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RemoveMessageReaction(
+        Guid roomId,
+        string messageId,
+        [FromBody] MessageReactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.RemoveReactionAsync(
+            userId,
+            roomId,
+            messageId,
+            request.Emoji,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [POST] /api/v1/chat/rooms/{roomId}/messages/{messageId}/pin - Ghim tin nhan trong phong.
+    /// </summary>
+    [HttpPost("rooms/{roomId:guid}/messages/{messageId}/pin")]
+    [ProducesResponseType(typeof(MessagePinnedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PinMessage(
+        Guid roomId,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.PinMessageAsync(
+            userId,
+            roomId,
+            messageId,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [DELETE] /api/v1/chat/rooms/{roomId}/messages/{messageId}/pin - Bo ghim tin nhan trong phong.
+    /// </summary>
+    [HttpDelete("rooms/{roomId:guid}/messages/{messageId}/pin")]
+    [ProducesResponseType(typeof(MessageUnpinnedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UnpinMessage(
+        Guid roomId,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.UnpinMessageAsync(
+            userId,
+            roomId,
+            messageId,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [GET] /api/v1/chat/rooms/{roomId}/pins - Lay danh sach tin nhan dang duoc ghim.
+    /// </summary>
+    [HttpGet("rooms/{roomId:guid}/pins")]
+    [ProducesResponseType(typeof(IEnumerable<Message>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPinnedMessages(
+        Guid roomId,
+        [FromQuery] int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _messageMutationService.GetPinnedMessagesAsync(
+            userId,
+            roomId,
+            limit,
+            cancellationToken);
+
+        return Ok(result);
     }
 }

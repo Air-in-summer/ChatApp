@@ -98,6 +98,61 @@ export interface MessageDto {
   createdAt: string; // ISO String
   acceptedAtUtc?: string | null;
   attachments?: MessageAttachmentDto[] | null;
+  updatedAt?: string | null;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  reactions?: MessageReactionDto[];
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
+}
+
+export interface EditMessageRequest {
+  content: string;
+}
+
+export interface MessageEditedDto {
+  roomId: string;
+  messageId: string;
+  content: string;
+  editedAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface MessageDeletedDto {
+  roomId: string;
+  messageId: string;
+  deletedAtUtc: string;
+  deletedBy: string;
+}
+
+export interface MessageReactionDto {
+  emoji: string;
+  userId: string;
+  createdAtUtc?: string;
+  createdAt?: string;
+}
+
+export interface MessageReactionRequest {
+  emoji: string;
+}
+
+export interface MessageReactionUpdatedDto {
+  roomId: string;
+  messageId: string;
+  reactions: MessageReactionDto[];
+}
+
+export interface MessagePinnedDto {
+  roomId: string;
+  messageId: string;
+  pinnedAtUtc: string;
+  pinnedBy: string;
+}
+
+export interface MessageUnpinnedDto {
+  roomId: string;
+  messageId: string;
 }
 
 export interface MessageAcceptedResult {

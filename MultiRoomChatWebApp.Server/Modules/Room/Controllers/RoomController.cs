@@ -52,8 +52,12 @@ public class RoomController : ControllerBase
                 {
                     // Lấy preview tin nhắn cuối
                     var textContent = overview.LastMessage.Content ?? "";
-                    string content = textContent;
-                    if (overview.LastMessage.Attachments != null && overview.LastMessage.Attachments.Any())
+                    string content = overview.LastMessage.DeletedAt.HasValue
+                        ? "Tin nhan da bi xoa"
+                        : textContent;
+                    if (!overview.LastMessage.DeletedAt.HasValue &&
+                        overview.LastMessage.Attachments != null &&
+                        overview.LastMessage.Attachments.Any())
                     {
                         content = BuildAttachmentPreview(overview.LastMessage, textContent);
                     }

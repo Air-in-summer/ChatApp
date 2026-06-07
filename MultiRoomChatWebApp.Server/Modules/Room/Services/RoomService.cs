@@ -4,6 +4,9 @@ using MultiRoomChatWebApp.Server.Modules.Room.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Events;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.Events;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Shared.Exceptions;
 using MediatR;
@@ -16,6 +19,7 @@ public class RoomService : IRoomService
     private readonly IUserCacheService _userCacheService;
     private readonly IRoomMetadataCache _metadataCache;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
+    private readonly IGroupPermissionsCache _groupPermissionsCache;
     private readonly IUserRelationshipGraphService _relationshipGraphService;
     private readonly IMediator _mediator;
 
@@ -24,6 +28,7 @@ public class RoomService : IRoomService
         IUserCacheService userCacheService,
         IRoomMetadataCache metadataCache,
         IRoomPermissionsCache roomPermissionsCache,
+        IGroupPermissionsCache groupPermissionsCache,
         IUserRelationshipGraphService relationshipGraphService,
         IMediator mediator)
     {
@@ -31,6 +36,7 @@ public class RoomService : IRoomService
         _userCacheService = userCacheService;
         _metadataCache = metadataCache;
         _roomPermissionsCache = roomPermissionsCache;
+        _groupPermissionsCache = groupPermissionsCache;
         _relationshipGraphService = relationshipGraphService;
         _mediator = mediator;
     }
@@ -76,7 +82,7 @@ public class RoomService : IRoomService
         // Lọc bảng Rooms dựa trên tập hợp cực nhỏ các commonRoomIds
         var existingRoom = await _dbContext.Rooms
             .Include(r => r.Members)
-            .Where(r => r.Type == RoomType.DirectMessage && commonRoomIds.Contains(r.Id))
+            .Where(r => r.Type == RoomType.DirectMessage && r.DeletedAt == null && commonRoomIds.Contains(r.Id))
             .FirstOrDefaultAsync();
 
         if (existingRoom != null)
@@ -200,6 +206,81 @@ public class RoomService : IRoomService
         return newRoom;
     }
 
+    /// <summary>
+    /// Cap nhat ten phong van ban thuoc group.
+    /// </summary>
+    public async Task<Core.DTOs.RoomDto> UpdateGroupRoomAsync(
+        Guid requesterId,
+        Guid groupId,
+        Guid roomId,
+        Core.DTOs.UpdateRoomRequest request)
+    {
+        var normalizedName = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            throw new ArgumentException("Ten phong khong duoc bo trong.", nameof(request));
+        }
+
+        if (normalizedName.Length > 100)
+        {
+            throw new ArgumentException("Ten phong khong duoc vuot qua 100 ky tu.", nameof(request));
+        }
+
+        await EnsureGroupRoomManagerAsync(groupId, requesterId);
+
+        var room = await _dbContext.Rooms
+            .FirstOrDefaultAsync(r => r.Id == roomId && r.GroupId == groupId && r.DeletedAt == null);
+
+        if (room == null)
+        {
+            throw new KeyNotFoundException("Khong tim thay phong trong nhom nay.");
+        }
+
+        room.Name = normalizedName;
+        room.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+        await PublishGroupRoomsChangedAsync(groupId);
+
+        return new Core.DTOs.RoomDto
+        {
+            Id = room.Id,
+            Name = room.Name,
+            Type = room.Type,
+            IsPrivate = room.IsPrivate,
+            GroupId = room.GroupId
+        };
+    }
+
+    /// <summary>
+    /// Soft delete phong van ban thuoc group va don cache quyen truy cap phong.
+    /// </summary>
+    public async Task DeleteGroupTextRoomAsync(Guid requesterId, Guid groupId, Guid roomId)
+    {
+        await EnsureGroupRoomManagerAsync(groupId, requesterId);
+
+        var room = await _dbContext.Rooms
+            .FirstOrDefaultAsync(r => r.Id == roomId && r.GroupId == groupId && r.DeletedAt == null);
+
+        if (room == null)
+        {
+            throw new KeyNotFoundException("Khong tim thay phong trong nhom nay.");
+        }
+
+        if (room.Type != RoomType.Text)
+        {
+            throw new InvalidOperationException("Chi co the xoa phong van ban trong nhom o giai doan nay.");
+        }
+
+        var deletedAt = DateTime.UtcNow;
+        room.DeletedAt = deletedAt;
+        room.UpdatedAt = deletedAt;
+        await _dbContext.SaveChangesAsync();
+
+        await _metadataCache.InvalidateRoomMetadataAsync(roomId);
+        await _roomPermissionsCache.InvalidateRoomCacheAsync(roomId);
+        await PublishGroupRoomsChangedAsync(groupId);
+    }
+
 
     /// <summary>
     /// Lấy tất cả phòng của User. Kết hợp nạp UserMetadata từ Redis để đạt hiệu năng tối đa.
@@ -211,7 +292,7 @@ public class RoomService : IRoomService
         // ta dùng .Select() để chỉ định chính xác những cột cần lấy.
         var roomProjections = await _dbContext.RoomMembers
             .AsNoTracking()
-            .Where(rm => rm.UserId == userId)
+            .Where(rm => rm.UserId == userId && rm.Room.DeletedAt == null)
             .Select(rm => new
             {
                 // Lấy thông tin cơ bản của phòng
@@ -324,7 +405,7 @@ public class RoomService : IRoomService
         // 1. Lấy ID các phòng Public trong Group
         var publicRoomIds = await _dbContext.Rooms
             .AsNoTracking()
-            .Where(r => r.GroupId == groupId && !r.IsPrivate)
+            .Where(r => r.GroupId == groupId && !r.IsPrivate && r.DeletedAt == null)
             .Select(r => r.Id)
             .ToListAsync();
 
@@ -406,5 +487,20 @@ public class RoomService : IRoomService
     public async Task<IEnumerable<Guid>> GetRoomMemberIdsAsync(Guid roomId)
     {
         return await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId);
+    }
+
+    private async Task EnsureGroupRoomManagerAsync(Guid groupId, Guid requesterId)
+    {
+        var role = await _groupPermissionsCache.GetMemberRoleAsync(groupId, requesterId);
+        if (role != GroupRole.Owner && role != GroupRole.Admin)
+        {
+            throw new UnauthorizedAccessException("Chi Owner hoac Admin cua nhom moi co quyen quan ly phong.");
+        }
+    }
+
+    private async Task PublishGroupRoomsChangedAsync(Guid groupId)
+    {
+        var memberRoles = await _groupPermissionsCache.GetGroupMemberRolesAsync(groupId);
+        await _mediator.Publish(new GroupRoomsChangedEvent(groupId, memberRoles.Keys));
     }
 }

@@ -57,7 +57,7 @@ public class RoomMetadataCache : IRoomMetadataCache
         // Cache Miss: Xuống SQL lấy thông tin cấu trúc
         var roomInfo = await _dbContext.Rooms
             .AsNoTracking()
-            .Where(r => r.Id == roomId)
+            .Where(r => r.Id == roomId && r.DeletedAt == null)
             .Select(r => new { r.GroupId, r.IsPrivate, r.Type })
             .FirstOrDefaultAsync();
 

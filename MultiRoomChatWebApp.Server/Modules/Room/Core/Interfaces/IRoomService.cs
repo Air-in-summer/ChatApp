@@ -21,6 +21,16 @@ public interface IRoomService
     Task<Entities.Room> CreateGroupRoomAsync(string name, Core.Enums.RoomType type, bool isPrivate, Guid createdBy, Guid groupId);
 
     /// <summary>
+    /// Cap nhat ten phong text/voice thuoc group. Chi Owner/Admin cua group duoc thuc hien.
+    /// </summary>
+    Task<DTOs.RoomDto> UpdateGroupRoomAsync(Guid requesterId, Guid groupId, Guid roomId, DTOs.UpdateRoomRequest request);
+
+    /// <summary>
+    /// Soft delete phong text thuoc group. Khong ap dung cho DM hoac Voice room.
+    /// </summary>
+    Task DeleteGroupTextRoomAsync(Guid requesterId, Guid groupId, Guid roomId);
+
+    /// <summary>
     /// Thêm một User vào bảng RoomMembers của tất cả các phòng Public trong một Group.
     /// Được gọi khi User vừa tham gia Group qua Invite Code.
     /// </summary>

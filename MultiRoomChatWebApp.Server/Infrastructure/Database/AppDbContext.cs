@@ -35,6 +35,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Modules.Group.Core.Entities.Group>()
                     .HasQueryFilter(g => g.DeletedAt == null);
 
+        modelBuilder.Entity<Room>()
+                    .HasQueryFilter(r => r.DeletedAt == null);
+
         modelBuilder.Entity<ReadReceipt>(entity =>
         {
             entity.HasKey(e => new { e.UserId, e.RoomId });
@@ -216,6 +219,7 @@ public class AppDbContext : DbContext
             
             entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Name).HasMaxLength(100);
+            entity.Property(e => e.DeletedAt);
             
             entity.HasOne(d => d.Creator)
                   .WithMany(p => p.CreatedRooms)

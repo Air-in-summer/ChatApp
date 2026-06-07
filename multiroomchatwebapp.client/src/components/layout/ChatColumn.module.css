@@ -39,7 +39,7 @@
 }
 
 .addMemberBtn {
-  margin-left: auto;
+  margin-left: 0;
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -57,6 +57,181 @@
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
   opacity: 1;
+}
+
+.pinnedMessagesButton {
+  min-width: 36px;
+  height: 36px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.pinnedMessagesButton:hover,
+.pinnedMessagesButtonActive {
+  border-color: var(--glass-border);
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+}
+
+.pinnedMessagesButton span {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.pinnedPanel {
+  flex: 0 0 auto;
+  max-height: min(42vh, 420px);
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(15, 23, 42, 0.96);
+  overflow: hidden;
+  z-index: 9;
+}
+
+.pinnedPanelHeader {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.pinnedPanelHeader > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pinnedPanelHeader strong {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.pinnedPanelHeader span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.pinnedPanelCloseButton,
+.pinnedMessageUnpinButton {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.pinnedPanelCloseButton:hover,
+.pinnedMessageUnpinButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.pinnedPanelState,
+.pinnedPanelError {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.pinnedPanelError {
+  color: #fca5a5;
+}
+
+.pinnedPanelError button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  cursor: pointer;
+}
+
+.pinnedMessageList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+}
+
+.pinnedMessageItem {
+  position: relative;
+  min-width: 0;
+  padding: 10px 44px 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pinnedMessageMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pinnedMessageMeta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinnedMessageMeta span {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.pinnedMessageItem p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pinnedMessageUnpinButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.pinnedMessageUnpinButton:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .avatar {
@@ -146,6 +321,7 @@
 
 /* Container bọc bubble + status row + read receipt */
 .messageColumn {
+  position: relative;
   display: flex;
   flex-direction: column;
   max-width: 70%;
@@ -175,6 +351,75 @@
   white-space: nowrap;
 }
 
+.messageActions {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: var(--transition-fast);
+  z-index: 2;
+}
+
+.mine .messageActions {
+  right: calc(100% + 6px);
+}
+
+.theirs .messageActions {
+  left: calc(100% + 6px);
+}
+
+.messageWrapper:hover .messageActions,
+.messageWrapper:focus-within .messageActions {
+  opacity: 1;
+}
+
+.messageActionButton {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.messageActionButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+}
+
+.messageActionButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.deleteMessageAction:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+
+.pinMessageActionActive {
+  color: #fbbf24;
+}
+
+.pinMessageActionActive:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fcd34d;
+}
+
+@media (hover: none) {
+  .messageActions {
+    opacity: 1;
+  }
+}
+
 .mine .bubble {
   background: var(--accent-primary);
   color: white;
@@ -195,6 +440,164 @@
 }
 
 /* Dòng trạng thái tin nhắn dưới bubble */
+.mine .deletedBubble,
+.theirs .deletedBubble {
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  box-shadow: none;
+  font-style: italic;
+}
+
+.inlineEditForm {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inlineEditForm textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--border-radius-md);
+  background: rgba(15, 23, 42, 0.88);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.4;
+  outline: none;
+}
+
+.inlineEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.inlineEditActions button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.inlineEditActions button[type='submit'] {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  color: white;
+}
+
+.inlineEditActions button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.editedLabel {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.pinnedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  color: #fbbf24;
+  font-size: 0.7rem;
+}
+
+.messageReactionPicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.messageReactionPickerButton {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.messageReactionPickerButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.messageReactionPickerButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.messageReactionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.mine .messageReactionRow {
+  justify-content: flex-end;
+}
+
+.theirs .messageReactionRow {
+  justify-content: flex-start;
+}
+
+.messageReactionChip {
+  min-width: 42px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.messageReactionChip:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.messageReactionChipActive {
+  border-color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+}
+
+.messageReactionChip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .attachmentStack {
   display: flex;
   flex-direction: column;

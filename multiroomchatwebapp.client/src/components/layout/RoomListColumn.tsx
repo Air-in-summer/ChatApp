@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type MouseEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
-import { getGroupRooms, getGroupMembers, createGroupChannel, leaveGroup } from '../../api/groupApi';
+import { getGroupRooms, getGroupMembers, createGroupChannel, leaveGroup, updateGroupRoom, deleteGroupRoom } from '../../api/groupApi';
 import { UserSearchModal } from '../discovery/UserSearchModal';
 import { GroupSettingsModal } from '../group/GroupSettingsModal';
 import { CreateChannelModal } from '../group/CreateChannelModal';
@@ -25,7 +25,8 @@ interface RoomListColumnProps {
   /** Phòng chat đang được chọn */
   activeChat: ActiveChat | null;
   /** Callback khi chọn một phòng mới */
-  onSelectChat: (chat: ActiveChat) => void;
+  onSelectChat: (chat: ActiveChat | null) => void;
+  onGroupUpdated?: (group: GroupDto) => void;
   /** Class CSS từ cha (Layout) để định hình cột */
   className?: string;
 }
@@ -66,7 +67,7 @@ const DmRoomAvatar = ({ room }: { room: RoomDto }) => {
  * 4. Tự động tải lại danh sách khi có phòng mới được tạo hoặc có tin nhắn chưa đọc từ phòng lạ.
  * 5. Render giao diện khác nhau tùy thuộc vào ngữ cảnh DM (phong cách Messenger) hay Group (phong cách Discord).
  */
-export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectChat, className }: RoomListColumnProps) => {
+export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectChat, onGroupUpdated, className }: RoomListColumnProps) => {
   const { accessToken, user } = useAuth();
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -330,6 +331,66 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     }
   };
 
+  const handleRenameGroupRoom = async (
+    room: RoomDto,
+    event: MouseEvent<HTMLButtonElement>
+  ) => {
+    event.stopPropagation();
+    if (!accessToken || !group) return;
+
+    const nextName = window.prompt('Nhập tên phòng mới', room.name || '');
+    if (nextName === null) return;
+
+    const normalizedName = nextName.trim();
+    if (!normalizedName) {
+      toast.error('Tên phòng không được bỏ trống.');
+      return;
+    }
+
+    try {
+      const updatedRoom = await updateGroupRoom(accessToken, group.id, room.id, { name: normalizedName });
+      setRooms(currentRooms =>
+        currentRooms.map(currentRoom =>
+          currentRoom.id === updatedRoom.id ? { ...currentRoom, ...updatedRoom } : currentRoom
+        )
+      );
+
+      if (activeChat?.type === 'real' && activeChat.room.id === updatedRoom.id) {
+        onSelectChat({ type: 'real', room: { ...activeChat.room, ...updatedRoom } });
+      }
+
+      toast.success('Đã đổi tên phòng.');
+      void refreshRooms();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Không thể đổi tên phòng.';
+      toast.error(errorMsg);
+    }
+  };
+
+  const handleDeleteTextRoom = async (room: RoomDto, event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!accessToken || !group) return;
+
+    if (!window.confirm(`Xoa phong #${room.name || 'khong ten'}? Tin nhan cu se khong bi xoa vat ly.`)) {
+      return;
+    }
+
+    try {
+      await deleteGroupRoom(accessToken, group.id, room.id);
+      setRooms(currentRooms => currentRooms.filter(currentRoom => currentRoom.id !== room.id));
+
+      if (activeChat?.type === 'real' && activeChat.room.id === room.id) {
+        onSelectChat(null);
+      }
+
+      toast.success('Da xoa phong.');
+      void refreshRooms();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Khong the xoa phong.';
+      toast.error(errorMsg);
+    }
+  };
+
   // [Nhánh Render: Ngữ cảnh Group]
   // Hiển thị danh sách kênh của một Server (Discord style)
   // Phân tách kênh Text và Voice ra 2 section riêng biệt
@@ -357,8 +418,9 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
   if (context === 'group') {
     // Tách danh sách rooms thành Text channels và Voice channels
-    const textRooms = rooms.filter(r => r.type !== 'Voice');
+    const textRooms = rooms.filter(r => r.type === 'Text');
     const voiceRooms = rooms.filter(r => r.type === 'Voice');
+    const canManageGroupRooms = currentUserRole === 'Owner' || currentUserRole === 'Admin';
     const blockedUserIds = new Set(blockedUsers.map(blockedUser => blockedUser.user.id));
     const sharedGroupBlockedMembers = groupMembers.filter(
       member => member.profile.id !== user?.userId && blockedUserIds.has(member.profile.id)
@@ -445,13 +507,20 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
             <>
               {/* Danh sách Text Channels */}
               {textRooms.map(room => (
-                <button
+                <div
                   key={room.id}
+                  role="button"
+                  tabIndex={0}
                   className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
                     ? styles.active
                     : ''
                     }`}
                   onClick={() => {
+                    void handleSelectRoom(room);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
                     void handleSelectRoom(room);
                   }}
                 >
@@ -467,7 +536,36 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                       {unreadCount[room.id]}
                     </div>
                   )}
-                </button>
+                  {canManageGroupRooms && (
+                    <div className={styles.roomActions} onClick={(event) => event.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={styles.roomActionBtn}
+                        title="Đổi tên phòng"
+                        onClick={(event) => void handleRenameGroupRoom(room, event)}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          <path d="m15 5 4 4" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.roomActionBtn} ${styles.deleteRoomActionBtn}`}
+                        title="Xoa phong"
+                        onClick={(event) => void handleDeleteTextRoom(room, event)}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 16H6L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
 
               {/* === Section: Kênh thoại (Voice Channels) === */}
@@ -477,13 +575,20 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                     <span className={styles.sectionTitle}>Kênh thoại</span>
                   </div>
                   {voiceRooms.map(room => (
-                    <button
+                    <div
                       key={room.id}
+                      role="button"
+                      tabIndex={0}
                       className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
                         ? styles.active
                         : ''
                         }`}
                       onClick={() => {
+                        void handleSelectRoom(room);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
                         void handleSelectRoom(room);
                       }}
                     >
@@ -500,7 +605,22 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                           {room.name || 'Unknown Voice Channel'}
                         </span>
                       </div>
-                    </button>
+                      {canManageGroupRooms && (
+                        <div className={styles.roomActions} onClick={(event) => event.stopPropagation()}>
+                          <button
+                            type="button"
+                            className={styles.roomActionBtn}
+                            title="Đổi tên phòng"
+                            onClick={(event) => void handleRenameGroupRoom(room, event)}
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                              <path d="m15 5 4 4" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </>
               )}
@@ -518,6 +638,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
             group={group}
             onClose={() => setIsSettingsOpen(false)}
             onLeaveSuccess={onBack}
+            onGroupUpdated={onGroupUpdated}
           />
         )}
 

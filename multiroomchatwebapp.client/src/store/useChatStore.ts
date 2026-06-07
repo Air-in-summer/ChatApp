@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import type { MessageDto, MessageStatus } from '../types/chat';
+import type {
+  MessageDeletedDto,
+  MessageDto,
+  MessageEditedDto,
+  MessagePinnedDto,
+  MessageReactionUpdatedDto,
+  MessageStatus,
+  MessageUnpinnedDto,
+} from '../types/chat';
 import { buildMessagePreview } from '../utils/chatMessagePreview';
 
 type MessageStatusTransition =
@@ -119,16 +127,35 @@ const mergeMessage = (
   currentMessage: MessageDto,
   nextMessage: MessageDto,
   transition: MessageStatusTransition = 'merge'
-): MessageDto => ({
-  ...currentMessage,
-  ...nextMessage,
-  status: resolveMessageStatus(
-    currentMessage.status,
-    nextMessage.status,
-    transition
-  ),
-  attachments: mergeAttachments(currentMessage, nextMessage),
-});
+): MessageDto => {
+  if (currentMessage.deletedAt && !nextMessage.deletedAt) {
+    return currentMessage;
+  }
+
+  const mergedMessage = {
+    ...currentMessage,
+    ...nextMessage,
+    status: resolveMessageStatus(
+      currentMessage.status,
+      nextMessage.status,
+      transition
+    ),
+    attachments: mergeAttachments(currentMessage, nextMessage),
+  };
+
+  if (!mergedMessage.deletedAt) {
+    return mergedMessage;
+  }
+
+  return {
+    ...mergedMessage,
+    content: '',
+    attachments: null,
+    reactions: [],
+    pinnedAt: null,
+    pinnedBy: null,
+  };
+};
 
 const upsertMessageList = (
   currentMessages: MessageDto[],
@@ -161,6 +188,69 @@ const mergeMessageLists = (
       upsertMessageList(mergedMessages, message, 'merge'),
     [...currentMessages]
   );
+
+const applyMutationOverlays = (
+  messages: MessageDto[],
+  edits: Record<string, MessageEditedDto>,
+  deletions: Record<string, MessageDeletedDto>,
+  reactionUpdates: Record<string, MessageReactionUpdatedDto>,
+  pinUpdates: Record<string, MessagePinnedDto>,
+  unpinUpdates: Record<string, MessageUnpinnedDto>
+): MessageDto[] =>
+  messages.map((message) => {
+    const deletion = deletions[message.id];
+    if (deletion) {
+      return {
+        ...message,
+        content: '',
+        attachments: null,
+        reactions: [],
+        pinnedAt: null,
+        pinnedBy: null,
+        deletedAt: deletion.deletedAtUtc,
+        deletedBy: deletion.deletedBy,
+        updatedAt: deletion.deletedAtUtc,
+      };
+    }
+
+    const edit = edits[message.id];
+    const reactionUpdate = reactionUpdates[message.id];
+    let updatedMessage = message;
+
+    if (edit && !updatedMessage.deletedAt) {
+      updatedMessage = {
+        ...updatedMessage,
+        content: edit.content,
+        editedAt: edit.editedAtUtc,
+        updatedAt: edit.updatedAtUtc,
+      };
+    }
+
+    if (reactionUpdate && !updatedMessage.deletedAt) {
+      updatedMessage = {
+        ...updatedMessage,
+        reactions: reactionUpdate.reactions,
+      };
+    }
+
+    const pinUpdate = pinUpdates[message.id];
+    const unpinUpdate = unpinUpdates[message.id];
+    if (unpinUpdate && !updatedMessage.deletedAt) {
+      updatedMessage = {
+        ...updatedMessage,
+        pinnedAt: null,
+        pinnedBy: null,
+      };
+    } else if (pinUpdate && !updatedMessage.deletedAt) {
+      updatedMessage = {
+        ...updatedMessage,
+        pinnedAt: pinUpdate.pinnedAtUtc,
+        pinnedBy: pinUpdate.pinnedBy,
+      };
+    }
+
+    return updatedMessage;
+  });
 
 interface ChatState {
   // Map lưu trữ tin nhắn theo từng RoomId: Record<RoomId, MessageDto[]>
@@ -198,6 +288,13 @@ interface ChatState {
    * Cấu trúc: Record<roomId, { lastMessageContent, lastMessageTimestamp }>
    */
   roomMetadata: Record<string, { lastMessageContent: string; lastMessageTimestamp: string }>;
+  pendingMessageEdits: Record<string, Record<string, MessageEditedDto>>;
+  pendingMessageDeletions: Record<string, Record<string, MessageDeletedDto>>;
+  pendingReactionUpdates: Record<string, Record<string, MessageReactionUpdatedDto>>;
+  pendingMessagePins: Record<string, Record<string, MessagePinnedDto>>;
+  pendingMessageUnpins: Record<string, Record<string, MessageUnpinnedDto>>;
+  pinnedMessagesByRoom: Record<string, MessageDto[]>;
+  pinnedMessagesRevision: Record<string, number>;
 
   // Actions
   addMessage: (roomId: string, message: MessageDto) => void;
@@ -218,6 +315,12 @@ interface ChatState {
     messageId: string,
     clientMessageId?: string | null
   ) => void;
+  editMessage: (payload: MessageEditedDto) => void;
+  markMessageDeleted: (payload: MessageDeletedDto) => void;
+  applyReactionUpdate: (payload: MessageReactionUpdatedDto) => void;
+  setPinnedMessages: (roomId: string, messages: MessageDto[]) => void;
+  applyMessagePinned: (payload: MessagePinnedDto) => void;
+  applyMessageUnpinned: (payload: MessageUnpinnedDto) => void;
   
   setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
   setHasMore: (roomId: string, hasMore: boolean) => void;
@@ -260,15 +363,30 @@ export const useChatStore = create<ChatState>((set) => ({
   readReceipts: {},
   myLastReadMessageIds: {},
   roomMetadata: {},
+  pendingMessageEdits: {},
+  pendingMessageDeletions: {},
+  pendingReactionUpdates: {},
+  pendingMessagePins: {},
+  pendingMessageUnpins: {},
+  pinnedMessagesByRoom: {},
+  pinnedMessagesRevision: {},
 
   addMessage: (roomId, message) =>
     set((state) => {
       const roomMsgs = state.messages[roomId] || [];
+      const nextMessages = upsertMessageList(roomMsgs, message);
       // Tránh duplicate nếu nhận lại chính tin nhắn mình vừa gửi
       return {
         messages: {
           ...state.messages,
-          [roomId]: upsertMessageList(roomMsgs, message),
+          [roomId]: applyMutationOverlays(
+            nextMessages,
+            state.pendingMessageEdits[roomId] || {},
+            state.pendingMessageDeletions[roomId] || {},
+            state.pendingReactionUpdates[roomId] || {},
+            state.pendingMessagePins[roomId] || {},
+            state.pendingMessageUnpins[roomId] || {}
+          ),
         },
       };
     }),
@@ -280,7 +398,14 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messages: {
           ...state.messages,
-          [roomId]: mergeMessageLists(currentMsgs, messages),
+          [roomId]: applyMutationOverlays(
+            mergeMessageLists(currentMsgs, messages),
+            state.pendingMessageEdits[roomId] || {},
+            state.pendingMessageDeletions[roomId] || {},
+            state.pendingReactionUpdates[roomId] || {},
+            state.pendingMessagePins[roomId] || {},
+            state.pendingMessageUnpins[roomId] || {}
+          ),
         },
       };
     }),
@@ -293,7 +418,14 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messages: {
           ...state.messages,
-          [roomId]: mergeMessageLists(newOldMessages, currentMsgs),
+          [roomId]: applyMutationOverlays(
+            mergeMessageLists(newOldMessages, currentMsgs),
+            state.pendingMessageEdits[roomId] || {},
+            state.pendingMessageDeletions[roomId] || {},
+            state.pendingReactionUpdates[roomId] || {},
+            state.pendingMessagePins[roomId] || {},
+            state.pendingMessageUnpins[roomId] || {}
+          ),
         },
       };
     }),
@@ -333,10 +465,17 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messages: {
           ...state.messages,
-          [roomId]: upsertMessageList(
-            roomMsgs,
-            resolvedMessage,
-            transition
+          [roomId]: applyMutationOverlays(
+            upsertMessageList(
+              roomMsgs,
+              resolvedMessage,
+              transition
+            ),
+            state.pendingMessageEdits[roomId] || {},
+            state.pendingMessageDeletions[roomId] || {},
+            state.pendingReactionUpdates[roomId] || {},
+            state.pendingMessagePins[roomId] || {},
+            state.pendingMessageUnpins[roomId] || {}
           ),
         },
         ...(shouldUpdateMoc && {
@@ -383,6 +522,376 @@ export const useChatStore = create<ChatState>((set) => ({
           [roomId]: nextMsgs,
         },
         roomMetadata: nextRoomMetadata,
+      };
+    }),
+
+  editMessage: (payload) =>
+    set((state) => {
+      if (state.pendingMessageDeletions[payload.roomId]?.[payload.messageId]) {
+        return state;
+      }
+
+      const roomMsgs = state.messages[payload.roomId] || [];
+      const messageIndex = roomMsgs.findIndex(
+        (message) => message.id === payload.messageId
+      );
+      if (messageIndex >= 0 && roomMsgs[messageIndex].deletedAt) {
+        return state;
+      }
+
+      const nextMsgs = messageIndex < 0
+        ? roomMsgs
+        : roomMsgs.map((message, index) =>
+            index === messageIndex
+              ? {
+                  ...message,
+                  content: payload.content,
+                  editedAt: payload.editedAtUtc,
+                  updatedAt: payload.updatedAtUtc,
+                }
+              : message
+          );
+      const latestMessage = nextMsgs.at(-1);
+      const nextPinnedMessages = (state.pinnedMessagesByRoom[payload.roomId] || [])
+        .map((message) =>
+          message.id === payload.messageId
+            ? {
+                ...message,
+                content: payload.content,
+                editedAt: payload.editedAtUtc,
+                updatedAt: payload.updatedAtUtc,
+              }
+            : message
+        );
+
+      return {
+        pendingMessageEdits: {
+          ...state.pendingMessageEdits,
+          [payload.roomId]: {
+            ...(state.pendingMessageEdits[payload.roomId] || {}),
+            [payload.messageId]: payload,
+          },
+        },
+        messages: {
+          ...state.messages,
+          [payload.roomId]: nextMsgs,
+        },
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [payload.roomId]: nextPinnedMessages,
+        },
+        ...(latestMessage?.id === payload.messageId && {
+          roomMetadata: {
+            ...state.roomMetadata,
+            [payload.roomId]: {
+              lastMessageContent: buildMessagePreview(latestMessage),
+              lastMessageTimestamp: latestMessage.createdAt,
+            },
+          },
+        }),
+      };
+    }),
+
+  markMessageDeleted: (payload) =>
+    set((state) => {
+      const roomMsgs = state.messages[payload.roomId] || [];
+      const messageIndex = roomMsgs.findIndex(
+        (message) => message.id === payload.messageId
+      );
+      const nextMsgs = messageIndex < 0
+        ? roomMsgs
+        : roomMsgs.map((message, index) =>
+            index === messageIndex
+              ? {
+                  ...message,
+                  content: '',
+                  attachments: null,
+                  reactions: [],
+                  pinnedAt: null,
+                  pinnedBy: null,
+                  deletedAt: payload.deletedAtUtc,
+                  deletedBy: payload.deletedBy,
+                  updatedAt: payload.deletedAtUtc,
+                }
+              : message
+          );
+      const latestMessage = nextMsgs.at(-1);
+      const nextRoomEdits = {
+        ...(state.pendingMessageEdits[payload.roomId] || {}),
+      };
+      delete nextRoomEdits[payload.messageId];
+      const nextRoomReactionUpdates = {
+        ...(state.pendingReactionUpdates[payload.roomId] || {}),
+      };
+      delete nextRoomReactionUpdates[payload.messageId];
+      const nextRoomPins = {
+        ...(state.pendingMessagePins[payload.roomId] || {}),
+      };
+      delete nextRoomPins[payload.messageId];
+      const nextRoomUnpins = {
+        ...(state.pendingMessageUnpins[payload.roomId] || {}),
+      };
+      delete nextRoomUnpins[payload.messageId];
+
+      return {
+        pendingMessageEdits: {
+          ...state.pendingMessageEdits,
+          [payload.roomId]: nextRoomEdits,
+        },
+        pendingMessageDeletions: {
+          ...state.pendingMessageDeletions,
+          [payload.roomId]: {
+            ...(state.pendingMessageDeletions[payload.roomId] || {}),
+            [payload.messageId]: payload,
+          },
+        },
+        pendingReactionUpdates: {
+          ...state.pendingReactionUpdates,
+          [payload.roomId]: nextRoomReactionUpdates,
+        },
+        pendingMessagePins: {
+          ...state.pendingMessagePins,
+          [payload.roomId]: nextRoomPins,
+        },
+        pendingMessageUnpins: {
+          ...state.pendingMessageUnpins,
+          [payload.roomId]: nextRoomUnpins,
+        },
+        messages: {
+          ...state.messages,
+          [payload.roomId]: nextMsgs,
+        },
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [payload.roomId]: (state.pinnedMessagesByRoom[payload.roomId] || [])
+            .filter((message) => message.id !== payload.messageId),
+        },
+        pinnedMessagesRevision: {
+          ...state.pinnedMessagesRevision,
+          [payload.roomId]:
+            (state.pinnedMessagesRevision[payload.roomId] || 0) + 1,
+        },
+        ...(latestMessage?.id === payload.messageId && {
+          roomMetadata: {
+            ...state.roomMetadata,
+            [payload.roomId]: {
+              lastMessageContent: buildMessagePreview(latestMessage),
+              lastMessageTimestamp: latestMessage.createdAt,
+            },
+          },
+        }),
+      };
+    }),
+
+  applyReactionUpdate: (payload) =>
+    set((state) => {
+      if (state.pendingMessageDeletions[payload.roomId]?.[payload.messageId]) {
+        return state;
+      }
+
+      const roomMsgs = state.messages[payload.roomId] || [];
+      const messageIndex = roomMsgs.findIndex(
+        (message) => message.id === payload.messageId
+      );
+      if (messageIndex >= 0 && roomMsgs[messageIndex].deletedAt) {
+        return state;
+      }
+
+      const nextMsgs = messageIndex < 0
+        ? roomMsgs
+        : roomMsgs.map((message, index) =>
+            index === messageIndex
+              ? {
+                  ...message,
+                  reactions: payload.reactions,
+                }
+              : message
+          );
+      const nextPinnedMessages = (state.pinnedMessagesByRoom[payload.roomId] || [])
+        .map((message) =>
+          message.id === payload.messageId
+            ? {
+                ...message,
+                reactions: payload.reactions,
+              }
+            : message
+        );
+
+      return {
+        pendingReactionUpdates: {
+          ...state.pendingReactionUpdates,
+          [payload.roomId]: {
+            ...(state.pendingReactionUpdates[payload.roomId] || {}),
+            [payload.messageId]: payload,
+          },
+        },
+        messages: {
+          ...state.messages,
+          [payload.roomId]: nextMsgs,
+        },
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [payload.roomId]: nextPinnedMessages,
+        },
+      };
+    }),
+
+  setPinnedMessages: (roomId, messages) =>
+    set((state) => {
+      const resolvedMessages = applyMutationOverlays(
+        messages,
+        state.pendingMessageEdits[roomId] || {},
+        state.pendingMessageDeletions[roomId] || {},
+        state.pendingReactionUpdates[roomId] || {},
+        state.pendingMessagePins[roomId] || {},
+        state.pendingMessageUnpins[roomId] || {}
+      )
+        .filter((message) => !message.deletedAt && Boolean(message.pinnedAt))
+        .sort((left, right) =>
+          Date.parse(right.pinnedAt ?? '') - Date.parse(left.pinnedAt ?? '')
+        );
+
+      return {
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [roomId]: resolvedMessages,
+        },
+      };
+    }),
+
+  applyMessagePinned: (payload) =>
+    set((state) => {
+      if (state.pendingMessageDeletions[payload.roomId]?.[payload.messageId]) {
+        return state;
+      }
+      const currentPin =
+        state.pendingMessagePins[payload.roomId]?.[payload.messageId];
+      if (
+        currentPin?.pinnedAtUtc === payload.pinnedAtUtc &&
+        currentPin.pinnedBy === payload.pinnedBy
+      ) {
+        return state;
+      }
+
+      const roomMessages = state.messages[payload.roomId] || [];
+      const messageIndex = roomMessages.findIndex(
+        (message) => message.id === payload.messageId
+      );
+      if (messageIndex >= 0 && roomMessages[messageIndex].deletedAt) {
+        return state;
+      }
+
+      const nextMessages = messageIndex < 0
+        ? roomMessages
+        : roomMessages.map((message, index) =>
+            index === messageIndex
+              ? {
+                  ...message,
+                  pinnedAt: payload.pinnedAtUtc,
+                  pinnedBy: payload.pinnedBy,
+                }
+              : message
+          );
+      const fullMessage = nextMessages.find(
+        (message) => message.id === payload.messageId
+      ) ?? (state.pinnedMessagesByRoom[payload.roomId] || [])
+        .find((message) => message.id === payload.messageId);
+      const currentPinnedMessages =
+        state.pinnedMessagesByRoom[payload.roomId] || [];
+      const nextPinnedMessages = fullMessage
+        ? [
+            ...currentPinnedMessages.filter(
+              (message) => message.id !== payload.messageId
+            ),
+            {
+              ...fullMessage,
+              pinnedAt: payload.pinnedAtUtc,
+              pinnedBy: payload.pinnedBy,
+            },
+          ].sort((left, right) =>
+            Date.parse(right.pinnedAt ?? '') - Date.parse(left.pinnedAt ?? '')
+          )
+        : currentPinnedMessages;
+      const nextRoomUnpins = {
+        ...(state.pendingMessageUnpins[payload.roomId] || {}),
+      };
+      delete nextRoomUnpins[payload.messageId];
+
+      return {
+        pendingMessagePins: {
+          ...state.pendingMessagePins,
+          [payload.roomId]: {
+            ...(state.pendingMessagePins[payload.roomId] || {}),
+            [payload.messageId]: payload,
+          },
+        },
+        pendingMessageUnpins: {
+          ...state.pendingMessageUnpins,
+          [payload.roomId]: nextRoomUnpins,
+        },
+        messages: {
+          ...state.messages,
+          [payload.roomId]: nextMessages,
+        },
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [payload.roomId]: nextPinnedMessages,
+        },
+        pinnedMessagesRevision: {
+          ...state.pinnedMessagesRevision,
+          [payload.roomId]:
+            (state.pinnedMessagesRevision[payload.roomId] || 0) + 1,
+        },
+      };
+    }),
+
+  applyMessageUnpinned: (payload) =>
+    set((state) => {
+      if (state.pendingMessageUnpins[payload.roomId]?.[payload.messageId]) {
+        return state;
+      }
+
+      const roomMessages = state.messages[payload.roomId] || [];
+      const nextMessages = roomMessages.map((message) =>
+        message.id === payload.messageId && !message.deletedAt
+          ? {
+              ...message,
+              pinnedAt: null,
+              pinnedBy: null,
+            }
+          : message
+      );
+      const nextRoomPins = {
+        ...(state.pendingMessagePins[payload.roomId] || {}),
+      };
+      delete nextRoomPins[payload.messageId];
+
+      return {
+        pendingMessagePins: {
+          ...state.pendingMessagePins,
+          [payload.roomId]: nextRoomPins,
+        },
+        pendingMessageUnpins: {
+          ...state.pendingMessageUnpins,
+          [payload.roomId]: {
+            ...(state.pendingMessageUnpins[payload.roomId] || {}),
+            [payload.messageId]: payload,
+          },
+        },
+        messages: {
+          ...state.messages,
+          [payload.roomId]: nextMessages,
+        },
+        pinnedMessagesByRoom: {
+          ...state.pinnedMessagesByRoom,
+          [payload.roomId]: (state.pinnedMessagesByRoom[payload.roomId] || [])
+            .filter((message) => message.id !== payload.messageId),
+        },
+        pinnedMessagesRevision: {
+          ...state.pinnedMessagesRevision,
+          [payload.roomId]:
+            (state.pinnedMessagesRevision[payload.roomId] || 0) + 1,
+        },
       };
     }),
 

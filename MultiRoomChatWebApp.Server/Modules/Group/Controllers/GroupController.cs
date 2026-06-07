@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Group.Controllers;
@@ -245,8 +246,126 @@ public class GroupController : ControllerBase
         var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
 
-        var updatedGroup = await _groupService.UpdateGroupAsync(userId, id, request);
-        return Ok(updatedGroup);
+        try
+        {
+            var updatedGroup = await _groupService.UpdateGroupAsync(userId, id, request);
+            return Ok(updatedGroup);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Du lieu cap nhat khong hop le",
+                Detail = ex.Message
+            });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Khong tim thay Server",
+                Detail = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// [PATCH] /api/v1/groups/{id}/rooms/{roomId} - Doi ten phong van ban trong Server.
+    /// </summary>
+    [HttpPatch("{id}/rooms/{roomId}")]
+    [ProducesResponseType(typeof(RoomDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateGroupRoom(Guid id, Guid roomId, [FromBody] UpdateRoomRequest request)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+
+        try
+        {
+            var updatedRoom = await _roomService.UpdateGroupRoomAsync(userId, id, roomId, request);
+            return Ok(updatedRoom);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Du lieu cap nhat phong khong hop le",
+                Detail = ex.Message
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Khong the cap nhat phong",
+                Detail = ex.Message
+            });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Khong tim thay phong",
+                Detail = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// [DELETE] /api/v1/groups/{id}/rooms/{roomId} - Xoa mem phong van ban trong Server.
+    /// </summary>
+    [HttpDelete("{id}/rooms/{roomId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteGroupRoom(Guid id, Guid roomId)
+    {
+        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+
+        try
+        {
+            await _roomService.DeleteGroupTextRoomAsync(userId, id, roomId);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Khong the xoa phong",
+                Detail = ex.Message
+            });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Khong tim thay phong",
+                Detail = ex.Message
+            });
+        }
     }
 
     /// <summary>
@@ -456,5 +575,3 @@ public class GroupController : ControllerBase
         return Ok(memberIds);
     }
 }
-
-

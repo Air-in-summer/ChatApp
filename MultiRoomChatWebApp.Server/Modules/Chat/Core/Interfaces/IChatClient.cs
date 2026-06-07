@@ -56,6 +56,31 @@ public interface IChatClient
 
     Task MessageRetracted(MessageRetractedDto payload);
 
+    /// <summary>
+    /// Dong bo noi dung tin nhan sau khi tac gia sua.
+    /// </summary>
+    Task MessageEdited(MessageEditedDto payload);
+
+    /// <summary>
+    /// Dong bo tombstone sau khi tin nhan bi xoa voi moi nguoi.
+    /// </summary>
+    Task MessageDeleted(MessageDeletedDto payload);
+
+    /// <summary>
+    /// Dong bo snapshot reaction moi nhat cua tin nhan.
+    /// </summary>
+    Task MessageReactionUpdated(MessageReactionUpdatedDto payload);
+
+    /// <summary>
+    /// Dong bo trang thai tin nhan vua duoc ghim.
+    /// </summary>
+    Task MessagePinned(MessagePinnedDto payload);
+
+    /// <summary>
+    /// Dong bo trang thai tin nhan vua duoc bo ghim.
+    /// </summary>
+    Task MessageUnpinned(MessageUnpinnedDto payload);
+
     // === NOTIFICATION SIGNALS ===
 
     /// <summary>

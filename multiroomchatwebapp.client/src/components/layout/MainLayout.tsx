@@ -143,6 +143,10 @@ export const MainLayout = () => {
     setActiveChat(null); // Reset chat cũ khi vào Server mới
   };
 
+  const handleGroupUpdated = (group: GroupDto) => {
+    setSelectedGroup(group);
+  };
+
   /** Quay lại danh sách Server (MS Teams style) */
   const handleBackToGroupList = () => {
     setSelectedGroup(null);
@@ -201,6 +205,7 @@ export const MainLayout = () => {
             onBack={handleBackToGroupList}
             activeChat={activeChat}
             onSelectChat={setActiveChat}
+            onGroupUpdated={handleGroupUpdated}
             className={styles.roomListColumn}
           />
           {/* Routing Voice ↔ Text: nếu room là Voice → hiện VoiceRoomPanel, ngược lại → ChatColumn */}

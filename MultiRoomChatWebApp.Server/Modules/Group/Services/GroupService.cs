@@ -336,7 +336,7 @@ public class GroupService : IGroupService
         // EF Core sẽ biên dịch thành SQL INNER JOIN cực kỳ hiệu quả, tận dụng Composite Index.
         return await _context.RoomMembers
             .AsNoTracking()
-            .Where(rm => rm.UserId == userId && rm.Room.GroupId == groupId)
+            .Where(rm => rm.UserId == userId && rm.Room.GroupId == groupId && rm.Room.DeletedAt == null)
             .OrderBy(rm => rm.Room.CreatedAt)
             .Select(rm => new RoomDto
             {
@@ -399,6 +399,27 @@ public class GroupService : IGroupService
     /// </remarks>
     public async Task<GroupDto> UpdateGroupAsync(Guid userId, Guid groupId, UpdateGroupRequest request)
     {
+        var normalizedName = request.Name?.Trim();
+        if (request.Name != null && string.IsNullOrWhiteSpace(normalizedName))
+        {
+            throw new ArgumentException("Ten Server khong duoc bo trong.", nameof(request));
+        }
+
+        if (normalizedName != null && normalizedName.Length > 100)
+        {
+            throw new ArgumentException("Ten Server khong duoc vuot qua 100 ky tu.", nameof(request));
+        }
+
+        if (request.Description != null && request.Description.Length > 255)
+        {
+            throw new ArgumentException("Mo ta Server khong duoc vuot qua 255 ky tu.", nameof(request));
+        }
+
+        if (request.IconUrl != null && request.IconUrl.Length > 2048)
+        {
+            throw new ArgumentException("Duong dan anh Server khong duoc vuot qua 2048 ky tu.", nameof(request));
+        }
+
         // 1. Kiểm tra quyền Owner
         var role = await _permissionsCache.GetMemberRoleAsync(groupId, userId);
         if (role != GroupRole.Owner)
@@ -410,7 +431,7 @@ public class GroupService : IGroupService
         var group = await _context.Groups.FindAsync(groupId);
         if (group == null) throw new KeyNotFoundException("Không tìm thấy Server.");
 
-        if (!string.IsNullOrWhiteSpace(request.Name)) group.Name = request.Name;
+        if (!string.IsNullOrWhiteSpace(normalizedName)) group.Name = normalizedName;
         if (request.Description != null) group.Description = request.Description;
         if (request.IconUrl != null) group.IconUrl = request.IconUrl;
         
@@ -678,6 +699,17 @@ public class GroupService : IGroupService
 
         // 2. Soft Delete trong SQL
         group.DeletedAt = DateTime.UtcNow;
+        group.UpdatedAt = group.DeletedAt;
+
+        var rooms = await _context.Rooms
+            .Where(r => r.GroupId == groupId && r.DeletedAt == null)
+            .ToListAsync();
+        foreach (var room in rooms)
+        {
+            room.DeletedAt = group.DeletedAt;
+            room.UpdatedAt = group.DeletedAt;
+        }
+
         await _context.SaveChangesAsync();
 
         // 3. Xóa sạch Cache
@@ -691,6 +723,3 @@ public class GroupService : IGroupService
         _logger.LogWarning("Server {GroupId} was DELETED (Soft Delete) by Owner {OwnerId}", groupId, ownerId);
     }
 }
-
-
-

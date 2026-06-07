@@ -19,6 +19,12 @@ export interface CreateGroupRequest {
   description?: string;
 }
 
+export interface UpdateGroupRequest {
+  name?: string;
+  description?: string;
+  iconUrl?: string;
+}
+
 /**
  * Các vai trò trong một Server
  */
@@ -44,4 +50,8 @@ export interface CreateGroupChannelRequest {
   name: string;
   type: 'Text' | 'Voice';
   isPrivate: boolean;
+}
+
+export interface UpdateRoomRequest {
+  name?: string;
 }

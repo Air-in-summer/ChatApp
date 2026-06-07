@@ -48,6 +48,23 @@ public class Message
     [BsonElement("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
+    [BsonElement("edited_at")]
+    public DateTime? EditedAt { get; set; }
+
     [BsonElement("deleted_at")]
     public DateTime? DeletedAt { get; set; }
+
+    [BsonElement("deleted_by")]
+    [BsonRepresentation(BsonType.String)]
+    public Guid? DeletedBy { get; set; }
+
+    [BsonElement("reactions")]
+    public List<MessageReaction> Reactions { get; set; } = [];
+
+    [BsonElement("pinned_at")]
+    public DateTime? PinnedAt { get; set; }
+
+    [BsonElement("pinned_by")]
+    [BsonRepresentation(BsonType.String)]
+    public Guid? PinnedBy { get; set; }
 }

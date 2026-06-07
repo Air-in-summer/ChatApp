@@ -13,15 +13,18 @@ public class GroupDeletedHandler : INotificationHandler<GroupDeletedEvent>
 {
     private readonly AppDbContext _context;
     private readonly IRoomPermissionsCache _permissionsCache;
+    private readonly IRoomMetadataCache _metadataCache;
     private readonly ILogger<GroupDeletedHandler> _logger;
 
     public GroupDeletedHandler(
         AppDbContext context, 
-        IRoomPermissionsCache permissionsCache, 
+        IRoomPermissionsCache permissionsCache,
+        IRoomMetadataCache metadataCache,
         ILogger<GroupDeletedHandler> logger)
     {
         _context = context;
         _permissionsCache = permissionsCache;
+        _metadataCache = metadataCache;
         _logger = logger;
     }
 
@@ -31,6 +34,7 @@ public class GroupDeletedHandler : INotificationHandler<GroupDeletedEvent>
 
         // 1. Tìm tất cả các Room Id thuộc Group này (bao gồm cả các phòng đã bị soft-delete nếu cần, nhưng thường chỉ cần active rooms)
         var roomIds = await _context.Rooms
+            .IgnoreQueryFilters()
             .Where(r => r.GroupId == notification.GroupId)
             .Select(r => r.Id)
             .ToListAsync(cancellationToken);
@@ -38,7 +42,11 @@ public class GroupDeletedHandler : INotificationHandler<GroupDeletedEvent>
         if (!roomIds.Any()) return;
 
         // 2. Xóa sập Cache của tất cả các phòng này
-        var cleanupTasks = roomIds.Select(roomId => _permissionsCache.InvalidateRoomCacheAsync(roomId));
+        var cleanupTasks = roomIds.Select(async roomId =>
+        {
+            await _permissionsCache.InvalidateRoomCacheAsync(roomId);
+            await _metadataCache.InvalidateRoomMetadataAsync(roomId);
+        });
         await Task.WhenAll(cleanupTasks);
 
         _logger.LogInformation("Invalidated {Count} room caches for Deleted Group {GroupId}", roomIds.Count, notification.GroupId);

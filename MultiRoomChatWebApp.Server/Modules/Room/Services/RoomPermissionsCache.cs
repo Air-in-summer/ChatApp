@@ -55,7 +55,7 @@ public class RoomPermissionsCache : IRoomPermissionsCache
         // 3. Cache Miss: Đi xuống kho đĩa PostgreSQL nạp dữ liệu lên Memory
         var memberIds = await _dbContext.RoomMembers
             .AsNoTracking()
-            .Where(rm => rm.RoomId == roomId)
+            .Where(rm => rm.RoomId == roomId && rm.Room.DeletedAt == null)
             .Select(rm => rm.UserId.ToString())
             .ToListAsync();
 
@@ -149,7 +149,7 @@ public class RoomPermissionsCache : IRoomPermissionsCache
         // 2. Cache Miss: Query SQL một lần duy nhất cho toàn bộ member
         var memberIds = await _dbContext.RoomMembers
             .AsNoTracking()
-            .Where(rm => rm.RoomId == roomId)
+            .Where(rm => rm.RoomId == roomId && rm.Room.DeletedAt == null)
             .Select(rm => rm.UserId)
             .ToListAsync();
 

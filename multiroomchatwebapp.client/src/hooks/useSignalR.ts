@@ -8,10 +8,15 @@ import { useVoiceStore } from '../store/useVoiceStore';
 import type { VoiceCallIncomingDto, VoiceCallStatusChangedDto } from '../api/voiceApi';
 import type {
   MessageAcceptedResult,
+  MessageDeletedDto,
   MessageDto,
+  MessageEditedDto,
+  MessagePinnedDto,
   MessagePersistedDto,
   MessagePersistenceFailedDto,
+  MessageReactionUpdatedDto,
   MessageRetractedDto,
+  MessageUnpinnedDto,
 } from '../types/chat';
 import { buildMessagePreview } from '../utils/chatMessagePreview';
 
@@ -61,6 +66,11 @@ export const useSignalR = () => {
   const addMessage = useChatStore((state) => state.addMessage);
   const updateMessageStatus = useChatStore((state) => state.updateMessageStatus);
   const retractMessage = useChatStore((state) => state.retractMessage);
+  const editStoredMessage = useChatStore((state) => state.editMessage);
+  const markMessageDeleted = useChatStore((state) => state.markMessageDeleted);
+  const applyReactionUpdate = useChatStore((state) => state.applyReactionUpdate);
+  const applyMessagePinned = useChatStore((state) => state.applyMessagePinned);
+  const applyMessageUnpinned = useChatStore((state) => state.applyMessageUnpinned);
   const setTyping = useChatStore((state) => state.setTyping);
   const setReadReceipt = useChatStore((state) => state.setReadReceipt);
   const updateRoomMetadata = useChatStore((state) => state.updateRoomMetadata);
@@ -243,6 +253,26 @@ export const useSignalR = () => {
         payload.messageId,
         payload.clientMessageId
       );
+    });
+
+    newConnection.on('MessageEdited', (payload: MessageEditedDto) => {
+      editStoredMessage(payload);
+    });
+
+    newConnection.on('MessageDeleted', (payload: MessageDeletedDto) => {
+      markMessageDeleted(payload);
+    });
+
+    newConnection.on('MessageReactionUpdated', (payload: MessageReactionUpdatedDto) => {
+      applyReactionUpdate(payload);
+    });
+
+    newConnection.on('MessagePinned', (payload: MessagePinnedDto) => {
+      applyMessagePinned(payload);
+    });
+
+    newConnection.on('MessageUnpinned', (payload: MessageUnpinnedDto) => {
+      applyMessageUnpinned(payload);
     });
 
     newConnection.on('ReceiveTyping', (userId: string, roomId: string) => {

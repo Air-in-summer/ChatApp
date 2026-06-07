@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { deleteGroup, getGroupMembers, kickMember, leaveGroup } from '../../api/groupApi';
+import { deleteGroup, getGroupMembers, kickMember, leaveGroup, updateGroup } from '../../api/groupApi';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { UserActionMenu } from '../user/UserActionMenu';
 import type { GroupDto, GroupMemberDto } from '../../types/group';
@@ -13,6 +13,7 @@ interface GroupSettingsModalProps {
   onClose: () => void;
   /** Callback gọi khi user rời nhóm hoặc giải tán thành công */
   onLeaveSuccess?: () => void;
+  onGroupUpdated?: (group: GroupDto) => void;
 }
 
 /**
@@ -29,12 +30,16 @@ interface GroupSettingsModalProps {
  * Bước 14.6: Chức năng Rời Nhóm.
  * Bước 14.7: Chức năng Giải tán (Xóa) Server - Chỉ dành cho Owner.
  */
-export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSettingsModalProps) => {
+export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpdated }: GroupSettingsModalProps) => {
   const { accessToken, user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'members'>('overview');
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editName, setEditName] = useState(group.name);
+  const [editDescription, setEditDescription] = useState(group.description || '');
+  const [editIconUrl, setEditIconUrl] = useState(group.iconUrl || '');
+  const [isSavingOverview, setIsSavingOverview] = useState(false);
   const friends = useUserRelationshipsStore(state => state.friends);
   const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
   const presenceByUserId = useUserRelationshipsStore(state => state.presenceByUserId);
@@ -65,6 +70,12 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
     }
   }, [accessToken, group.id, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
+  useEffect(() => {
+    setEditName(group.name);
+    setEditDescription(group.description || '');
+    setEditIconUrl(group.iconUrl || '');
+  }, [group.id, group.name, group.description, group.iconUrl]);
+
   /** Xác định vai trò của người dùng hiện tại trong Server */
   const currentUserRole = useMemo(() => {
     if (!user) return 'Member';
@@ -74,6 +85,34 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
     const me = members.find(m => m.profile.id === user.userId);
     return me?.role || 'Member';
   }, [members, user, group.ownerId]);
+
+  const handleSaveOverview = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!accessToken || currentUserRole !== 'Owner') return;
+
+    const normalizedName = editName.trim();
+    if (!normalizedName) {
+      alert('Ten Server khong duoc bo trong.');
+      return;
+    }
+
+    setIsSavingOverview(true);
+    try {
+      const updatedGroup = await updateGroup(accessToken, group.id, {
+        name: normalizedName,
+        description: editDescription,
+        iconUrl: editIconUrl,
+      });
+      onGroupUpdated?.(updatedGroup);
+      alert('Da cap nhat thong tin Server.');
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Khong the cap nhat thong tin Server.';
+      alert(errorMsg);
+      console.error('Update group failed:', error);
+    } finally {
+      setIsSavingOverview(false);
+    }
+  };
 
   /** Xử lý copy mã mời vào clipboard */
   const handleCopyInvite = () => {
@@ -252,6 +291,43 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess }: GroupSett
                   <p>{group.description || 'Không có mô tả.'}</p>
                 </div>
               </div>
+
+              {currentUserRole === 'Owner' && (
+                <form className={styles.editForm} onSubmit={handleSaveOverview}>
+                  <label className={styles.formField}>
+                    <span>Ten Server</span>
+                    <input
+                      value={editName}
+                      maxLength={100}
+                      onChange={(event) => setEditName(event.target.value)}
+                    />
+                  </label>
+                  <label className={styles.formField}>
+                    <span>Mo ta</span>
+                    <textarea
+                      value={editDescription}
+                      maxLength={255}
+                      rows={3}
+                      onChange={(event) => setEditDescription(event.target.value)}
+                    />
+                  </label>
+                  <label className={styles.formField}>
+                    <span>Icon URL</span>
+                    <input
+                      value={editIconUrl}
+                      maxLength={2048}
+                      onChange={(event) => setEditIconUrl(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className={styles.saveBtn}
+                    disabled={isSavingOverview}
+                  >
+                    {isSavingOverview ? 'Dang luu...' : 'Luu thay doi'}
+                  </button>
+                </form>
+              )}
 
               <div style={{ marginTop: 'var(--spacing-xl)' }}>
                 <div className={styles.inviteCard}>

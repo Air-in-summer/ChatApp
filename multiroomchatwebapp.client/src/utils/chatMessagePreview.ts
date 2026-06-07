@@ -13,7 +13,13 @@ export const getAttachmentLabel = (kind?: AttachmentKind | string | null): strin
   }
 };
 
-export const buildMessagePreview = (message: Pick<MessageDto, 'content' | 'attachments'>): string => {
+export const buildMessagePreview = (
+  message: Pick<MessageDto, 'content' | 'attachments' | 'deletedAt'>
+): string => {
+  if (message.deletedAt) {
+    return 'Tin nhan da bi xoa';
+  }
+
   const text = message.content?.trim() ?? '';
   const firstAttachment = message.attachments?.[0];
 

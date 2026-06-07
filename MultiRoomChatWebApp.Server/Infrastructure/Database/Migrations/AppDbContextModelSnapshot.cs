@@ -297,6 +297,9 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("GroupId")
                         .HasColumnType("uuid");
 

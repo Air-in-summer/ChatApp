@@ -2,6 +2,15 @@ import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 're
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { createAuthClient } from '../../api/apiClient';
+import {
+  addMessageReaction,
+  deleteMessage,
+  editMessage,
+  getPinnedMessages,
+  pinMessage,
+  removeMessageReaction,
+  unpinMessage,
+} from '../../api/chatApi';
 import { getGroupMembers } from '../../api/groupApi';
 import { cancelPendingChatMedia, getMediaAccessUrl, getMediaContentBlob, uploadChatMedia } from '../../api/mediaApi';
 import { useChatStore } from '../../store/useChatStore';
@@ -15,9 +24,10 @@ import type {
   GetMessagesResponse,
   MessageAcceptedResult,
   MessageAttachmentDto,
+  MessageReactionDto,
 } from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
-import { determineMessageType } from '../../utils/chatMessagePreview';
+import { buildMessagePreview, determineMessageType } from '../../utils/chatMessagePreview';
 import { DirectCallButton } from '../call/DirectCallButton';
 import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
 import { UserActionMenu } from '../user/UserActionMenu';
@@ -69,11 +79,61 @@ const BASIC_EMOJI_GROUPS = [
   },
 ];
 
+const MESSAGE_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+const EMPTY_MESSAGES: MessageDto[] = [];
+
+interface MessageReactionSummary {
+  emoji: string;
+  count: number;
+  currentUserReacted: boolean;
+}
+
+const summarizeMessageReactions = (
+  reactions: MessageReactionDto[] | undefined,
+  currentUserId: string | undefined
+): MessageReactionSummary[] => {
+  const summaries = new Map<string, MessageReactionSummary>();
+
+  for (const reaction of reactions ?? []) {
+    const current = summaries.get(reaction.emoji);
+    if (current) {
+      current.count += 1;
+      current.currentUserReacted ||= reaction.userId === currentUserId;
+      continue;
+    }
+
+    summaries.set(reaction.emoji, {
+      emoji: reaction.emoji,
+      count: 1,
+      currentUserReacted: reaction.userId === currentUserId,
+    });
+  }
+
+  return Array.from(summaries.values());
+};
+
+const formatPinnedAt = (value: string | null | undefined): string => {
+  if (!value) return '';
+
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? ''
+    : new Date(timestamp).toLocaleString('vi-VN');
+};
+
 const CHAT_MEDIA_LIMITS: Record<AttachmentKind, number> = {
   Image: 10 * 1024 * 1024,
   Audio: 25 * 1024 * 1024,
   Video: 100 * 1024 * 1024,
   File: 25 * 1024 * 1024,
+};
+
+const getRequestErrorMessage = (error: unknown, fallback: string): string => {
+  const response = (error as {
+    response?: { data?: { detail?: string; message?: string } };
+  })?.response;
+
+  return response?.data?.detail ?? response?.data?.message ?? fallback;
 };
 
 type PendingAttachmentStatus = 'uploading' | 'ready' | 'failed' | 'removing';
@@ -387,6 +447,18 @@ export const ChatColumn = ({
   const setHasMore = useChatStore(state => state.setHasMore);
   const setHistoryCursor = useChatStore(state => state.setHistoryCursor);
   const updateMessageStatus = useChatStore(state => state.updateMessageStatus);
+  const editStoredMessage = useChatStore(state => state.editMessage);
+  const markMessageDeleted = useChatStore(state => state.markMessageDeleted);
+  const applyReactionUpdate = useChatStore(state => state.applyReactionUpdate);
+  const pinnedMessages = useChatStore(
+    state => roomId ? state.pinnedMessagesByRoom[roomId] || EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
+  const pinnedMessagesRevision = useChatStore(
+    state => roomId ? state.pinnedMessagesRevision[roomId] || 0 : 0
+  );
+  const setPinnedMessages = useChatStore(state => state.setPinnedMessages);
+  const applyMessagePinned = useChatStore(state => state.applyMessagePinned);
+  const applyMessageUnpinned = useChatStore(state => state.applyMessageUnpinned);
   const trimRoom = useChatStore(state => state.trimRoom);
   const realtimeSyncVersion = useNotificationStore(state => state.realtimeSyncVersion);
 
@@ -400,6 +472,14 @@ export const ChatColumn = ({
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [retryingMessageIds, setRetryingMessageIds] = useState<Set<string>>(new Set());
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [isPinnedPanelOpen, setIsPinnedPanelOpen] = useState(false);
+  const [isLoadingPinnedMessages, setIsLoadingPinnedMessages] = useState(false);
+  const [pinnedMessagesError, setPinnedMessagesError] = useState<string | null>(null);
+  const [pinnedRefreshRequest, setPinnedRefreshRequest] = useState(0);
+  const [mutatingMessageIds, setMutatingMessageIds] = useState<Set<string>>(new Set());
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
@@ -453,6 +533,12 @@ export const ChatColumn = ({
   useEffect(() => {
     setInputText('');
     setIsEmojiPickerOpen(false);
+    setEditingMessageId(null);
+    setEditingContent('');
+    setReactionPickerMessageId(null);
+    setIsPinnedPanelOpen(false);
+    setPinnedMessagesError(null);
+    setMutatingMessageIds(new Set());
     setPendingAttachments((current) => {
       current.forEach((attachment) => {
         releaseLocalAttachmentUrl(attachment.localPreviewUrl);
@@ -490,6 +576,46 @@ export const ChatColumn = ({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [isEmojiPickerOpen]);
 
+  useEffect(() => {
+    if (!isPinnedPanelOpen || !roomId || !accessToken) {
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingPinnedMessages(true);
+    setPinnedMessagesError(null);
+
+    getPinnedMessages(accessToken, roomId)
+      .then((messages) => {
+        if (!isCancelled) {
+          setPinnedMessages(roomId, messages);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setPinnedMessagesError(
+            getRequestErrorMessage(error, 'Không thể tải danh sách tin nhắn đã ghim.')
+          );
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoadingPinnedMessages(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    accessToken,
+    isPinnedPanelOpen,
+    pinnedMessagesRevision,
+    pinnedRefreshRequest,
+    roomId,
+    setPinnedMessages,
+  ]);
+
   // Hook: JoinRoom SignalR Group khi chọn phòng — BẮT BUỘC để nhận broadcast
   useEffect(() => {
     if (roomId) {
@@ -505,9 +631,9 @@ export const ChatColumn = ({
           const members = await getGroupMembers(accessToken, activeChat.room.groupId!);
           setGroupMembers(members);
 
-          if (activeChat.room.isPrivate && userId) {
+          if (userId) {
             const me = members.find(m => m.profile.id === userId);
-            if (me) setCurrentUserRole(me.role);
+            setCurrentUserRole(me?.role ?? null);
           } else {
             setCurrentUserRole(null);
           }
@@ -1071,6 +1197,168 @@ export const ChatColumn = ({
     }
   };
 
+  const handleStartEditingMessage = (message: MessageDto) => {
+    setEditingMessageId(message.id);
+    setEditingContent(message.content);
+  };
+
+  const handleCancelEditingMessage = () => {
+    setEditingMessageId(null);
+    setEditingContent('');
+  };
+
+  const handleEditMessage = async (
+    event: React.FormEvent<HTMLFormElement>,
+    message: MessageDto
+  ) => {
+    event.preventDefault();
+    if (!accessToken || mutatingMessageIds.has(message.id)) return;
+
+    const normalizedContent = editingContent.trim();
+    if (!normalizedContent && !message.attachments?.length) {
+      toast.error('Noi dung tin nhan khong duoc de trong.');
+      return;
+    }
+
+    setMutatingMessageIds((current) => new Set(current).add(message.id));
+    try {
+      const payload = await editMessage(
+        accessToken,
+        message.roomId,
+        message.id,
+        { content: normalizedContent }
+      );
+      editStoredMessage(payload);
+      handleCancelEditingMessage();
+    } catch (error) {
+      toast.error(getRequestErrorMessage(error, 'Khong the sua tin nhan.'));
+    } finally {
+      setMutatingMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
+  const handleDeleteMessage = async (message: MessageDto) => {
+    if (!accessToken || mutatingMessageIds.has(message.id)) return;
+    if (!window.confirm('Xoa tin nhan nay voi moi nguoi?')) return;
+
+    setMutatingMessageIds((current) => new Set(current).add(message.id));
+    try {
+      const payload = await deleteMessage(
+        accessToken,
+        message.roomId,
+        message.id
+      );
+      markMessageDeleted(payload);
+      if (editingMessageId === message.id) {
+        handleCancelEditingMessage();
+      }
+    } catch (error) {
+      toast.error(getRequestErrorMessage(error, 'Khong the xoa tin nhan.'));
+    } finally {
+      setMutatingMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
+  const handleToggleReaction = async (
+    message: MessageDto,
+    emoji: string
+  ) => {
+    if (
+      !accessToken ||
+      !userId ||
+      message.deletedAt ||
+      mutatingMessageIds.has(message.id)
+    ) {
+      return;
+    }
+
+    const currentUserReacted = message.reactions?.some(
+      (reaction) =>
+        reaction.emoji === emoji &&
+        reaction.userId === userId
+    ) ?? false;
+
+    setMutatingMessageIds((current) => new Set(current).add(message.id));
+    try {
+      const payload = currentUserReacted
+        ? await removeMessageReaction(
+            accessToken,
+            message.roomId,
+            message.id,
+            { emoji }
+          )
+        : await addMessageReaction(
+            accessToken,
+            message.roomId,
+            message.id,
+            { emoji }
+          );
+
+      applyReactionUpdate(payload);
+      setReactionPickerMessageId(null);
+    } catch (error) {
+      toast.error(getRequestErrorMessage(error, 'Khong the cap nhat reaction.'));
+    } finally {
+      setMutatingMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
+  const handleTogglePin = async (message: MessageDto) => {
+    if (
+      !accessToken ||
+      message.deletedAt ||
+      mutatingMessageIds.has(message.id)
+    ) {
+      return;
+    }
+
+    setMutatingMessageIds((current) => new Set(current).add(message.id));
+    try {
+      if (message.pinnedAt) {
+        const payload = await unpinMessage(
+          accessToken,
+          message.roomId,
+          message.id
+        );
+        applyMessageUnpinned(payload);
+      } else {
+        const payload = await pinMessage(
+          accessToken,
+          message.roomId,
+          message.id
+        );
+        applyMessagePinned(payload);
+      }
+    } catch (error) {
+      toast.error(
+        getRequestErrorMessage(
+          error,
+          message.pinnedAt
+            ? 'Không thể bỏ ghim tin nhắn.'
+            : 'Không thể ghim tin nhắn.'
+        )
+      );
+    } finally {
+      setMutatingMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
 
@@ -1137,11 +1425,36 @@ export const ChatColumn = ({
     activeChat.type === 'real' &&
     activeChat.room.type === 'DirectMessage' &&
     !inlineDirectCallSession;
+  const canManageRoomPins =
+    activeChat.type === 'real' &&
+    (
+      activeChat.room.type === 'DirectMessage' ||
+      currentUserRole === 'Owner' ||
+      currentUserRole === 'Admin'
+    );
+  const canViewPinnedMessages =
+    activeChat.type === 'real' &&
+    activeChat.room.type !== 'Voice';
   const groupMemberByUserId = new Map(groupMembers.map(member => [member.profile.id, member]));
   const getMessageAuthorTarget = (message: MessageDto) => {
     if (message.senderId === userId) return null;
     const member = groupMemberByUserId.get(message.senderId);
     return member?.profile ?? null;
+  };
+  const getPinnedMessageAuthorName = (message: MessageDto): string => {
+    if (message.senderId === userId) return 'Bạn';
+
+    const groupMember = groupMemberByUserId.get(message.senderId);
+    if (groupMember) return groupMember.profile.displayName;
+
+    if (
+      activeChat.type === 'real' &&
+      activeChat.room.type === 'DirectMessage'
+    ) {
+      return activeChat.room.otherUserDisplayName ?? 'Người dùng';
+    }
+
+    return 'Người dùng';
   };
   const hasReadyAttachments = pendingAttachments.some(attachment => attachment.status === 'ready');
   const hasBusyAttachments = pendingAttachments.some(
@@ -1168,6 +1481,27 @@ export const ChatColumn = ({
           </h2>
           {isVirtual && <span className={styles.badge}>Chưa có cuộc hội thoại nào</span>}
         </div>
+
+        {canViewPinnedMessages && (
+          <button
+            type="button"
+            className={`${styles.pinnedMessagesButton} ${
+              isPinnedPanelOpen ? styles.pinnedMessagesButtonActive : ''
+            }`}
+            title="Tin nhắn đã ghim"
+            aria-label="Tin nhắn đã ghim"
+            aria-expanded={isPinnedPanelOpen}
+            onClick={() => setIsPinnedPanelOpen((current) => !current)}
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 17v5" />
+              <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
+            </svg>
+            {pinnedMessages.length > 0 && (
+              <span>{pinnedMessages.length}</span>
+            )}
+          </button>
+        )}
 
         {canStartDirectCall && (
           <DirectCallButton
@@ -1199,6 +1533,80 @@ export const ChatColumn = ({
           </button>
         )}
       </div>
+
+      {isPinnedPanelOpen && activeChat.type === 'real' && (
+        <aside className={styles.pinnedPanel} aria-label="Danh sách tin nhắn đã ghim">
+          <div className={styles.pinnedPanelHeader}>
+            <div>
+              <strong>Tin nhắn đã ghim</strong>
+              <span>Tối đa 50 tin mới nhất</span>
+            </div>
+            <button
+              type="button"
+              className={styles.pinnedPanelCloseButton}
+              title="Đóng danh sách"
+              aria-label="Đóng danh sách tin nhắn đã ghim"
+              onClick={() => setIsPinnedPanelOpen(false)}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {isLoadingPinnedMessages && (
+            <div className={styles.pinnedPanelState}>Đang tải...</div>
+          )}
+
+          {!isLoadingPinnedMessages && pinnedMessagesError && (
+            <div className={styles.pinnedPanelError}>
+              <span>{pinnedMessagesError}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPinnedMessagesError(null);
+                  setPinnedRefreshRequest((current) => current + 1);
+                }}
+              >
+                Thử lại
+              </button>
+            </div>
+          )}
+
+          {!isLoadingPinnedMessages && !pinnedMessagesError && pinnedMessages.length === 0 && (
+            <div className={styles.pinnedPanelState}>Chưa có tin nhắn nào được ghim.</div>
+          )}
+
+          {!isLoadingPinnedMessages && !pinnedMessagesError && pinnedMessages.length > 0 && (
+            <div className={styles.pinnedMessageList}>
+              {pinnedMessages.map((message) => (
+                <div key={message.id} className={styles.pinnedMessageItem}>
+                  <div className={styles.pinnedMessageMeta}>
+                    <strong>{getPinnedMessageAuthorName(message)}</strong>
+                    <span>{formatPinnedAt(message.pinnedAt)}</span>
+                  </div>
+                  <p>{buildMessagePreview(message) || '[Tin nhắn không có nội dung]'}</p>
+                  {canManageRoomPins && (
+                    <button
+                      type="button"
+                      className={styles.pinnedMessageUnpinButton}
+                      title="Bỏ ghim"
+                      disabled={mutatingMessageIds.has(message.id)}
+                      onClick={() => void handleTogglePin(message)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 17v5" />
+                        <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
+      )}
 
       {inlineDirectCallSession && (
         <section className={styles.inlineCallDock} aria-label="Cuộc gọi trực tiếp đang diễn ra">
@@ -1257,6 +1665,31 @@ export const ChatColumn = ({
             Boolean(msg.clientMessageId);
           const retryKey = msg.clientMessageId ?? msg.id;
           const isRetryingMessage = retryingMessageIds.has(retryKey);
+          const isDeleted = Boolean(msg.deletedAt);
+          const isPersisted = ['Sent', 'Delivered', 'Read'].includes(msg.status);
+          const isMutatingMessage = mutatingMessageIds.has(msg.id);
+          const isEditingMessage = editingMessageId === msg.id;
+          const isGroupModerator =
+            Boolean(activeChat.type === 'real' && activeChat.room.groupId) &&
+            (currentUserRole === 'Owner' || currentUserRole === 'Admin');
+          const canEditMessage =
+            isMine &&
+            isPersisted &&
+            !isDeleted &&
+            Boolean(msg.content.trim());
+          const canDeleteMessage =
+            isPersisted &&
+            !isDeleted &&
+            (isMine || isGroupModerator);
+          const canReactMessage = isPersisted && !isDeleted;
+          const canManagePinMessage =
+            isPersisted &&
+            !isDeleted &&
+            canManageRoomPins;
+          const reactionSummaries = summarizeMessageReactions(
+            msg.reactions,
+            userId
+          );
 
           const hasStatusText = showSending || showFailed || showSent;
 
@@ -1275,7 +1708,7 @@ export const ChatColumn = ({
               )}
               <div className={`${styles.messageWrapper} ${isMine ? styles.mine : styles.theirs}`}>
                 <div className={styles.messageColumn}>
-                  {!isMine && getMessageAuthorTarget(msg) && (
+                  {!isDeleted && !isMine && getMessageAuthorTarget(msg) && (
                     <div className={styles.authorActionRow}>
                       <span className={styles.authorName}>
                         {getMessageAuthorTarget(msg)?.displayName}
@@ -1287,7 +1720,74 @@ export const ChatColumn = ({
                     </div>
                   )}
                   {/* Bubble tin nhắn */}
-                  {msg.attachments && msg.attachments.length > 0 && (
+                  {(canReactMessage || canEditMessage || canDeleteMessage || canManagePinMessage) && (
+                    <div className={styles.messageActions}>
+                      {canReactMessage && (
+                        <button
+                          type="button"
+                          className={styles.messageActionButton}
+                          title="Them reaction"
+                          aria-label="Them reaction"
+                          aria-expanded={reactionPickerMessageId === msg.id}
+                          disabled={isMutatingMessage}
+                          onClick={() => setReactionPickerMessageId((current) =>
+                            current === msg.id ? null : msg.id
+                          )}
+                        >
+                          <span aria-hidden="true">☺</span>
+                        </button>
+                      )}
+                      {canEditMessage && (
+                        <button
+                          type="button"
+                          className={styles.messageActionButton}
+                          title="Sua tin nhan"
+                          disabled={isMutatingMessage}
+                          onClick={() => handleStartEditingMessage(msg)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                            <path d="m15 5 4 4" />
+                          </svg>
+                        </button>
+                      )}
+                      {canManagePinMessage && (
+                        <button
+                          type="button"
+                          className={`${styles.messageActionButton} ${
+                            msg.pinnedAt ? styles.pinMessageActionActive : ''
+                          }`}
+                          title={msg.pinnedAt ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn'}
+                          aria-label={msg.pinnedAt ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn'}
+                          disabled={isMutatingMessage}
+                          onClick={() => void handleTogglePin(msg)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M12 17v5" />
+                            <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
+                          </svg>
+                        </button>
+                      )}
+                      {canDeleteMessage && (
+                        <button
+                          type="button"
+                          className={`${styles.messageActionButton} ${styles.deleteMessageAction}`}
+                          title="Xoa tin nhan"
+                          disabled={isMutatingMessage}
+                          onClick={() => void handleDeleteMessage(msg)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="M19 6l-1 16H6L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!isDeleted && msg.attachments && msg.attachments.length > 0 && (
                     <div className={styles.attachmentStack}>
                       {msg.attachments.map((attachment, attachmentIndex) => (
                         <MessageAttachmentRenderer
@@ -1299,14 +1799,109 @@ export const ChatColumn = ({
                     </div>
                   )}
 
-                  {msg.content && (
+                  {isDeleted ? (
+                    <div className={`${styles.bubble} ${styles.deletedBubble}`}>
+                      Tin nhan da bi xoa
+                    </div>
+                  ) : isEditingMessage ? (
+                    <form
+                      className={styles.inlineEditForm}
+                      onSubmit={(event) => void handleEditMessage(event, msg)}
+                    >
+                      <textarea
+                        value={editingContent}
+                        maxLength={4000}
+                        rows={3}
+                        autoFocus
+                        disabled={isMutatingMessage}
+                        onChange={(event) => setEditingContent(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            handleCancelEditingMessage();
+                          }
+                        }}
+                      />
+                      <div className={styles.inlineEditActions}>
+                        <button
+                          type="button"
+                          disabled={isMutatingMessage}
+                          onClick={handleCancelEditingMessage}
+                        >
+                          Huy
+                        </button>
+                        <button type="submit" disabled={isMutatingMessage}>
+                          {isMutatingMessage ? 'Dang luu...' : 'Luu'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : msg.content ? (
                     <div className={`${styles.bubble} ${msg.status === 'Failed' ? styles.bubbleFailed : ''}`}>
                       {msg.content}
+                    </div>
+                  ) : null}
+
+                  {!isDeleted && msg.editedAt && !isEditingMessage && (
+                    <span className={styles.editedLabel}>Da chinh sua</span>
+                  )}
+
+                  {!isDeleted && msg.pinnedAt && (
+                    <span className={styles.pinnedLabel}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 17v5" />
+                        <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
+                      </svg>
+                      Đã ghim
+                    </span>
+                  )}
+
+                  {!isDeleted && reactionPickerMessageId === msg.id && (
+                    <div
+                      className={styles.messageReactionPicker}
+                      role="group"
+                      aria-label="Chon reaction"
+                    >
+                      {MESSAGE_REACTION_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={styles.messageReactionPickerButton}
+                          disabled={isMutatingMessage}
+                          onClick={() => void handleToggleReaction(msg, emoji)}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {!isDeleted && reactionSummaries.length > 0 && (
+                    <div className={styles.messageReactionRow}>
+                      {reactionSummaries.map((reaction) => (
+                        <button
+                          key={reaction.emoji}
+                          type="button"
+                          className={`${styles.messageReactionChip} ${
+                            reaction.currentUserReacted
+                              ? styles.messageReactionChipActive
+                              : ''
+                          }`}
+                          title={
+                            reaction.currentUserReacted
+                              ? 'Go reaction'
+                              : 'Them reaction'
+                          }
+                          disabled={isMutatingMessage}
+                          onClick={() => void handleToggleReaction(msg, reaction.emoji)}
+                        >
+                          <span>{reaction.emoji}</span>
+                          <span>{reaction.count}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
 
                   {/* Trạng thái tin nhắn — chỉ hiện phía người gửi VÀ khi có status cần hiển thị */}
-                  {hasStatusText && (
+                  {!isDeleted && hasStatusText && (
                     <div className={styles.statusRow}>
                       {showSending && <span className={styles.statusSending}>⏳ Đang gửi...</span>}
                       {showFailed && <span className={styles.statusFailed}>✗ Gửi thất bại</span>}
