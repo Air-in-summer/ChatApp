@@ -12,6 +12,8 @@ public sealed class MediaAssetDto
     public MediaAssetStatus Status { get; init; }
     public Guid? RoomId { get; init; }
     public string? MessageId { get; init; }
+    public string? ReservedByMessageId { get; init; }
+    public DateTime? ReservedAt { get; init; }
     public string BucketName { get; init; } = string.Empty;
     public string StorageKey { get; init; } = string.Empty;
     public string OriginalFileName { get; init; } = string.Empty;

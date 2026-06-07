@@ -19,6 +19,10 @@ public class MediaAsset
 
     public string? MessageId { get; set; }
 
+    public string? ReservedByMessageId { get; set; }
+
+    public DateTime? ReservedAt { get; set; }
+
     public string BucketName { get; set; } = string.Empty;
 
     public string StorageKey { get; set; } = string.Empty;

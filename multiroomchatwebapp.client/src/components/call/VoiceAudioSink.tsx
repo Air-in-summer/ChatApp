@@ -37,6 +37,7 @@ const AudioTrackElement = ({ track }: AudioTrackElementProps) => {
  */
 export const VoiceAudioSink = () => {
   const liveKitRoom = useVoiceStore((s) => s.liveKitRoom);
+  const isDeafened = useVoiceStore((s) => s.isDeafened);
   const [, forceRender] = useState(0);
 
   useEffect(() => {
@@ -82,7 +83,7 @@ export const VoiceAudioSink = () => {
     };
   }, [liveKitRoom]);
 
-  if (!liveKitRoom) {
+  if (!liveKitRoom || isDeafened) {
     return null;
   }
 

@@ -18,6 +18,13 @@ public class Message
     [BsonRepresentation(BsonType.String)]
     public Guid SenderId { get; set; }
 
+    [BsonElement("client_message_id")]
+    [BsonRepresentation(BsonType.String)]
+    public Guid? ClientMessageId { get; set; }
+
+    [BsonElement("accepted_at")]
+    public DateTime? AcceptedAt { get; set; }
+
     [BsonElement("type")]
     [BsonRepresentation(BsonType.String)]
     public MessageType Type { get; set; } = MessageType.Text;

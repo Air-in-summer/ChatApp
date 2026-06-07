@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
@@ -33,13 +34,13 @@ public class ChatController : ControllerBase
     /// Lấy lịch sử tin nhắn của một phòng với tính năng Lazy Load (Cursor-based Pagination)
     /// </summary>
     /// <param name="roomId">ID của phòng</param>
-    /// <param name="cursor">ID của tin nhắn cũ nhất đang hiện trên màn hình (để lấy tin cũ hơn)</param>
+    /// <param name="cursor">Opaque cursor do lần tải lịch sử trước trả về</param>
     /// <param name="limit">Số lượng lấy</param>
     [HttpGet("rooms/{roomId:guid}/messages")]
     [ProducesResponseType(typeof(IEnumerable<Message>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetMessages(Guid roomId, [FromQuery] string? cursor = null, [FromQuery] int limit = 50)
+    public async Task<IActionResult> GetMessages(Guid roomId, [FromQuery] string? beforeMessageId = null, [FromQuery] int limit = 50)
     {
         if (limit <= 0 || limit > 100)
         {
@@ -73,14 +74,21 @@ public class ChatController : ControllerBase
             return Forbid();
         }
 
-        var messages = await _chatService.GetMessagesAsync(roomId, cursor, limit);
+        var messages = await _chatService.GetMessagesAsync(
+            roomId,
+            beforeMessageId,
+            limit);
+        var hasMore = messages.Count == limit;
 
         // Trả về kèm một cờ hasMore đơn giản (nếu số lượng lấy về đúng bằng limit thì có thể còn nữa)
         // Lưu ý: Cờ này mang tính tương đối để Frontend quyết định hiển thị nút Loading hay không.
         var response = new 
         {
             Data = messages,
-            HasMore = messages.Count() == limit
+            HasMore = hasMore,
+            NextCursor = hasMore && messages.Count > 0
+                ? messages[0].Id
+                : null
         };
 
         return Ok(response);

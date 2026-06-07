@@ -24,5 +24,6 @@ public sealed class MediaStorageOptions
     public long MaxFileBytes { get; set; } = 25 * 1024 * 1024;
     public int PendingCleanupIntervalMinutes { get; set; } = 30;
     public int PendingMediaTtlHours { get; set; } = 24;
+    public int ReservationTtlHours { get; set; } = 24;
     public int PendingCleanupBatchSize { get; set; } = 100;
 }

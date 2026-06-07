@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MongoDB.Driver;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
@@ -69,6 +71,13 @@ public sealed class PendingMediaCleanupWorker : BackgroundService
         var cutoff = DateTime.UtcNow.Subtract(ttl);
         var batchSize = Math.Clamp(options.PendingCleanupBatchSize, 1, 1000);
         var startedAt = DateTime.UtcNow;
+
+        await RecoverExpiredReservationsAsync(
+            serviceProvider,
+            dbContext,
+            options,
+            batchSize,
+            cancellationToken);
 
         var candidates = await dbContext.MediaAssets
             .AsNoTracking()
@@ -144,6 +153,83 @@ public sealed class PendingMediaCleanupWorker : BackgroundService
             (DateTime.UtcNow - startedAt).TotalMilliseconds);
     }
 
+    private async Task RecoverExpiredReservationsAsync(
+        IServiceProvider serviceProvider,
+        AppDbContext dbContext,
+        MediaStorageOptions options,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        var reservationCutoff = DateTime.UtcNow.Subtract(GetReservationTtl(options));
+        var candidates = await dbContext.MediaAssets
+            .AsNoTracking()
+            .Where(asset =>
+                asset.Scope == MediaScope.ChatAttachment &&
+                asset.Status == MediaAssetStatus.Reserved &&
+                asset.RoomId == null &&
+                asset.DeletedAt == null &&
+                asset.ReservedAt != null &&
+                asset.ReservedAt < reservationCutoff)
+            .OrderBy(asset => asset.ReservedAt)
+            .Select(asset => new ExpiredReservationCandidate(
+                asset.Id,
+                asset.ReservedByMessageId,
+                asset.ReservedAt!.Value))
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+            return;
+
+        var messageIds = candidates
+            .Select(candidate => candidate.MessageId)
+            .Where(messageId => !string.IsNullOrWhiteSpace(messageId))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var mongoClient = serviceProvider.GetRequiredService<IMongoClient>();
+        var messagesCollection = mongoClient
+            .GetDatabase("ChatAppDB_Mongo")
+            .GetCollection<Message>("messages");
+        var persistedMessages = messageIds.Count == 0
+            ? []
+            : await messagesCollection
+                .Find(message => messageIds.Contains(message.Id))
+                .ToListAsync(cancellationToken);
+        var persistedById = persistedMessages
+            .ToDictionary(message => message.Id, StringComparer.Ordinal);
+        var repairedCount = 0;
+        var releasedCount = 0;
+
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!string.IsNullOrWhiteSpace(candidate.MessageId) &&
+                persistedById.TryGetValue(candidate.MessageId, out var persistedMessage))
+            {
+                repairedCount += await RepairPersistedReservationAsync(
+                    dbContext,
+                    candidate,
+                    persistedMessage,
+                    cancellationToken);
+                continue;
+            }
+
+            releasedCount += await ReleaseExpiredReservationAsync(
+                dbContext,
+                candidate,
+                reservationCutoff,
+                cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Reservation cleanup hoan tat. Candidate={CandidateCount}; Repaired={RepairedCount}; Released={ReleasedCount}",
+            candidates.Count,
+            repairedCount,
+            releasedCount);
+    }
+
     private static async Task<bool> TryClaimPendingMediaAsync(
         AppDbContext dbContext,
         Guid mediaId,
@@ -208,9 +294,68 @@ public sealed class PendingMediaCleanupWorker : BackgroundService
         return TimeSpan.FromHours(Math.Max(1, options.PendingMediaTtlHours));
     }
 
+    private static TimeSpan GetReservationTtl(MediaStorageOptions options)
+    {
+        return TimeSpan.FromHours(Math.Max(1, options.ReservationTtlHours));
+    }
+
+    private static Task<int> RepairPersistedReservationAsync(
+        AppDbContext dbContext,
+        ExpiredReservationCandidate candidate,
+        Message persistedMessage,
+        CancellationToken cancellationToken)
+    {
+        var attachedAt = persistedMessage.AcceptedAt ?? persistedMessage.CreatedAt;
+        return dbContext.MediaAssets
+            .Where(asset =>
+                asset.Id == candidate.Id &&
+                asset.Scope == MediaScope.ChatAttachment &&
+                asset.Status == MediaAssetStatus.Reserved &&
+                asset.ReservedByMessageId == candidate.MessageId &&
+                asset.RoomId == null &&
+                asset.DeletedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(asset => asset.Status, MediaAssetStatus.Attached)
+                    .SetProperty(asset => asset.RoomId, persistedMessage.RoomId)
+                    .SetProperty(asset => asset.MessageId, persistedMessage.Id)
+                    .SetProperty(asset => asset.AttachedAt, attachedAt)
+                    .SetProperty(asset => asset.ReservedByMessageId, (string?)null)
+                    .SetProperty(asset => asset.ReservedAt, (DateTime?)null),
+                cancellationToken);
+    }
+
+    private static Task<int> ReleaseExpiredReservationAsync(
+        AppDbContext dbContext,
+        ExpiredReservationCandidate candidate,
+        DateTime reservationCutoff,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.MediaAssets
+            .Where(asset =>
+                asset.Id == candidate.Id &&
+                asset.Scope == MediaScope.ChatAttachment &&
+                asset.Status == MediaAssetStatus.Reserved &&
+                asset.ReservedByMessageId == candidate.MessageId &&
+                asset.RoomId == null &&
+                asset.DeletedAt == null &&
+                asset.ReservedAt < reservationCutoff)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(asset => asset.Status, MediaAssetStatus.Pending)
+                    .SetProperty(asset => asset.ReservedByMessageId, (string?)null)
+                    .SetProperty(asset => asset.ReservedAt, (DateTime?)null),
+                cancellationToken);
+    }
+
     private sealed record PendingMediaCleanupCandidate(
         Guid Id,
         string BucketName,
         string StorageKey,
         DateTime CreatedAt);
+
+    private sealed record ExpiredReservationCandidate(
+        Guid Id,
+        string? MessageId,
+        DateTime ReservedAt);
 }

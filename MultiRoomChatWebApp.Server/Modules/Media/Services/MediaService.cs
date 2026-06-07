@@ -78,9 +78,23 @@ public sealed class MediaService : IMediaService
         if (mediaAsset.Status == MediaAssetStatus.Deleted)
             throw new InvalidOperationException("Deleted media asset cannot be attached.");
 
+        if (mediaAsset.Status == MediaAssetStatus.Reserved &&
+            mediaAsset.ReservedByMessageId != messageId)
+        {
+            throw new InvalidOperationException("Media asset is reserved by another message.");
+        }
+
+        if (mediaAsset.Status == MediaAssetStatus.Attached &&
+            mediaAsset.MessageId != messageId)
+        {
+            throw new InvalidOperationException("Media asset is already attached to another message.");
+        }
+
         mediaAsset.Status = MediaAssetStatus.Attached;
         mediaAsset.MessageId = messageId;
         mediaAsset.AttachedAt ??= DateTime.UtcNow;
+        mediaAsset.ReservedByMessageId = null;
+        mediaAsset.ReservedAt = null;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return ToDto(mediaAsset);
@@ -113,6 +127,8 @@ public sealed class MediaService : IMediaService
             Status = mediaAsset.Status,
             RoomId = mediaAsset.RoomId,
             MessageId = mediaAsset.MessageId,
+            ReservedByMessageId = mediaAsset.ReservedByMessageId,
+            ReservedAt = mediaAsset.ReservedAt,
             BucketName = mediaAsset.BucketName,
             StorageKey = mediaAsset.StorageKey,
             OriginalFileName = mediaAsset.OriginalFileName,

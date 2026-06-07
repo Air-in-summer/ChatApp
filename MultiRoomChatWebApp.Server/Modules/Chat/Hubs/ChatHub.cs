@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using StackExchange.Redis;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Exceptions;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
@@ -9,13 +11,19 @@ using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Hubs;
 
-/// <summary>
-/// Hub xử lý Websocket kết nối thời gian thực cho tính năng Chat.
-/// Được gắn [Authorize] đảm bảo chỉ User gửi JWT token lên mới chui lọt.
-/// </summary>
 [Authorize]
 public class ChatHub : Hub<IChatClient>
 {
+    private const string UpdateLegacyReceiptScript = """
+        local currentMessageId = redis.call('HGET', KEYS[1], ARGV[1])
+        if currentMessageId and currentMessageId >= ARGV[2] then
+            return 0
+        end
+
+        redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+        return 1
+        """;
+
     private readonly IPresenceTracker _tracker;
     private readonly MediatR.IMediator _mediator;
     private readonly StackExchange.Redis.IConnectionMultiplexer _redis;
@@ -42,44 +50,29 @@ public class ChatHub : Hub<IChatClient>
         _userPresenceService = userPresenceService;
     }
 
-    /// <summary>
-    /// Kích hoạt tự động khi 1 kết nối Websocket được thiết lập thành công.
-    /// Ghi nhận Connection và tung tin báo hiệu lên luồng chung.
-    /// </summary>
     public override async Task OnConnectedAsync()
     {
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userIdString, out Guid currentUserId))
+        if (Guid.TryParse(userIdString, out var currentUserId))
         {
-            // Báo vào Tracker. Trả về True nếu đây là cửa sổ đầu tiên user này truy cập
-            bool isOnline = await _tracker.UserConnected(currentUserId, Context.ConnectionId);
-
+            var isOnline = await _tracker.UserConnected(currentUserId, Context.ConnectionId);
             if (isOnline)
             {
-                // Báo cho MỌI NGƯỜI KHÁC biết ổng vừa lên mạng
-                // Ở quy mô cực lớn có thể bị lag broadcast, lúc đó ta mới tối ưu báo cho list bạn bè thôi.
                 await NotifyPresenceAudienceAsync(currentUserId, isOnline: true);
             }
         }
 
-        // Bắt buộc gọi base method của Microsoft
         await base.OnConnectedAsync();
     }
 
-    /// <summary>
-    /// Kích hoạt khi tab trình duyệt đóng, user crash mạng, hoặc connection bị ngắt chủ động.
-    /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userIdString, out Guid currentUserId))
+        if (Guid.TryParse(userIdString, out var currentUserId))
         {
-            // Mất 1 kết nối (có thể user này tắt 1 tab nhưng vẫn đang mở tab khác)
-            bool isOffline = await _tracker.UserDisconnected(currentUserId, Context.ConnectionId);
-
+            var isOffline = await _tracker.UserDisconnected(currentUserId, Context.ConnectionId);
             if (isOffline)
             {
-                // Nếu đây là cái phao cuối cùng -> Rụng hoàn toàn -> Broadcast cho all biết ổng sụp rồi
                 await _userPresenceService.MarkOfflineAsync(currentUserId, DateTime.UtcNow);
                 await NotifyPresenceAudienceAsync(currentUserId, isOnline: false);
             }
@@ -88,9 +81,6 @@ public class ChatHub : Hub<IChatClient>
         await base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>
-    /// Client gọi định kỳ để gia hạn TTL connection trong Redis presence.
-    /// </summary>
     public async Task Heartbeat()
     {
         var currentUserId = GetCurrentUserIdOrThrow();
@@ -102,10 +92,6 @@ public class ChatHub : Hub<IChatClient>
         }
     }
 
-    /// <summary>
-    /// Tham gia kênh tín hiệu riêng (SignalR Group) để chỉ nhận tin của phòng đó.
-    /// Frontend gọi method này ngay khi mở cửa sổ Chat với 1 Room.
-    /// </summary>
     public async Task JoinRoom(Guid roomId)
     {
         var currentUserId = GetCurrentUserIdOrThrow();
@@ -113,17 +99,14 @@ public class ChatHub : Hub<IChatClient>
         await Groups.AddToGroupAsync(Context.ConnectionId, roomId.ToString());
     }
 
-    /// <summary>
-    /// Ném lệnh đi. Trả Thread lại ngay lập tức.
-    /// </summary>
-    /// <param name="request">Payload gui tin nhan, gom room/content/tempId va mediaIds pending neu co.</param>
-    public async Task SendMessage(SendMessageRequest request)
+    public async Task<MessageAcceptedResult> SendMessage(SendMessageRequest request)
     {
-        if (request == null) return;
+        if (request == null)
+        {
+            throw new HubException("Yeu cau gui tin khong hop le.");
+        }
 
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid currentUserId)) return;
-
+        var currentUserId = GetCurrentUserIdOrThrow();
         var mediaIds = (request.MediaIds ?? [])
             .Where(mediaId => mediaId != Guid.Empty)
             .Distinct()
@@ -134,62 +117,66 @@ public class ChatHub : Hub<IChatClient>
             RoomId = request.RoomId,
             SenderId = currentUserId,
             Content = request.Content ?? string.Empty,
-            TempId = request.TempId ?? string.Empty,
+            ClientMessageId = request.ClientMessageId,
             MediaIds = mediaIds
         };
 
-        // Giao việc cho MediatR Handler
-        await _mediator.Send(command);
+        try
+        {
+            return await _mediator.Send(command);
+        }
+        catch (MessageAdmissionException ex)
+        {
+            throw new HubException(FormatAdmissionHubMessage(ex.Error));
+        }
     }
 
-    /// <summary>
-    /// Bắn sự kiện đang gõ phím cho mọi người trong phòng biết.
-    /// Không lưu DB. Chỉ bay trên RAM.
-    /// </summary>
     public async Task TypingStarted(Guid roomId)
     {
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid currentUserId)) return;
+        if (!Guid.TryParse(userIdString, out var currentUserId))
+        {
+            return;
+        }
 
         await Clients.OthersInGroup(roomId.ToString()).ReceiveTyping(currentUserId, roomId);
     }
 
-    /// <summary>
-    /// Bắn sự kiện ngừng gõ phím.
-    /// </summary>
     public async Task TypingStopped(Guid roomId)
     {
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid currentUserId)) return;
+        if (!Guid.TryParse(userIdString, out var currentUserId))
+        {
+            return;
+        }
 
         await Clients.OthersInGroup(roomId.ToString()).ReceiveTypingStopped(currentUserId, roomId);
     }
 
     /// <summary>
-    /// Báo cáo đã xem tin nhắn.
-    /// Lưu Upsert cực nhanh vào Redis Hash (Ghi đè, không sinh rác).
-    /// Broadcast kèm roomId để Frontend cập nhật đúng phòng trong Zustand store.
+    /// Cap nhat moc da doc theo message ID cho client cu hoac message chua co sequence.
     /// </summary>
     public async Task MarkAsRead(Guid roomId, string lastReadMessageId)
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid currentUserId)) return;
+        var currentUserId = GetCurrentUserIdOrThrow();
+        if (string.IsNullOrWhiteSpace(lastReadMessageId))
+        {
+            return;
+        }
+
+        await EnsureRoomMembershipAsync(roomId, currentUserId);
 
         var db = _redis.GetDatabase();
-        var key = $"Room:{roomId}:ReadReceipts";
+        var messageIdKey = GetReadReceiptMessageIdKey(roomId);
+        var updated = (long)await db.ScriptEvaluateAsync(
+            UpdateLegacyReceiptScript,
+            [messageIdKey],
+            [currentUserId.ToString(), lastReadMessageId]);
 
-        // 1. Lấy ID tin nhắn đã đọc gần nhất từ Redis
-        var currentReadId = await db.HashGetAsync(key, currentUserId.ToString());
-
-        // 2. Chỉ xử lý nếu chưa có dữ liệu hoặc tin nhắn mới 'mới hơn' tin cũ
-        // So sánh chuỗi ObjectId (Ordinal) giúp xác định thứ tự thời gian chính xác
-        if (!currentReadId.HasValue || string.Compare(lastReadMessageId, currentReadId.ToString(), StringComparison.Ordinal) > 0)
+        if (updated == 1)
         {
-            // Ghi đè vào Redis Hash
-            await db.HashSetAsync(key, currentUserId.ToString(), lastReadMessageId);
-            
-            // 3. Chỉ gửi thông báo cho người khác nếu có sự thay đổi thực sự
-            await Clients.OthersInGroup(roomId.ToString()).ReceiveReadReceipt(currentUserId, roomId, lastReadMessageId);
+            await Clients.OthersInGroup(roomId.ToString())
+                .ReceiveReadReceipt(currentUserId, roomId, lastReadMessageId);
         }
     }
 
@@ -198,7 +185,24 @@ public class ChatHub : Hub<IChatClient>
         var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(userIdString, out var currentUserId)
             ? currentUserId
-            : throw new HubException("Phiên đăng nhập không hợp lệ.");
+            : throw new HubException("Phien dang nhap khong hop le.");
+    }
+
+    private static RedisKey GetReadReceiptMessageIdKey(Guid roomId) =>
+        $"Room:{roomId}:ReadReceipts";
+
+    private async Task EnsureRoomMembershipAsync(Guid roomId, Guid currentUserId)
+    {
+        var memberIds = await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId);
+        if (!memberIds.Contains(currentUserId))
+        {
+            throw new HubException("Ban khong co quyen cap nhat trang thai doc cua phong nay.");
+        }
+    }
+
+    private static string FormatAdmissionHubMessage(MessageAdmissionError error)
+    {
+        return $"{error.Code}|{error.ClientMessage}|retryable={error.IsRetryable.ToString().ToLowerInvariant()}";
     }
 
     private async Task NotifyPresenceAudienceAsync(Guid changedUserId, bool isOnline)
@@ -223,20 +227,28 @@ public class ChatHub : Hub<IChatClient>
     {
         var roomMetadata = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
         if (roomMetadata == null)
-            throw new HubException("Phòng chat không tồn tại.");
+        {
+            throw new HubException("Phong chat khong ton tai.");
+        }
 
         if (roomMetadata.Value.Type != RoomType.DirectMessage)
+        {
             return;
+        }
 
         var memberIds = (await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId))
             .Distinct()
             .ToList();
 
         if (memberIds.Count != 2 || !memberIds.Contains(currentUserId))
-            throw new HubException("Bạn không có quyền vào phòng này.");
+        {
+            throw new HubException("Ban khong co quyen vao phong nay.");
+        }
 
         var otherUserId = memberIds.First(id => id != currentUserId);
         if (!await _relationshipGraphService.CanDirectMessageAsync(currentUserId, otherUserId))
-            throw new HubException("Không thể mở cuộc trò chuyện này.");
+        {
+            throw new HubException("Khong the mo cuoc tro chuyen nay.");
+        }
     }
 }

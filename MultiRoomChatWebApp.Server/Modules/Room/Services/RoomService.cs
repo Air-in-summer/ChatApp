@@ -209,7 +209,6 @@ public class RoomService : IRoomService
         // [BƯỚC 1: TRUY VẤN DATABASE BẰNG PROJECTION]
         // Thay vì dùng .Include() kéo toàn bộ Entity Room và hàng ngàn RoomMember vào RAM,
         // ta dùng .Select() để chỉ định chính xác những cột cần lấy.
-        // EF Core sẽ dịch đoạn này thành 1 câu SQL cực kỳ tối ưu.
         var roomProjections = await _dbContext.RoomMembers
             .AsNoTracking()
             .Where(rm => rm.UserId == userId)
@@ -235,7 +234,7 @@ public class RoomService : IRoomService
 
         // [BƯỚC 2: TẠO DANH SÁCH CÁC TASK GỌI REDIS SONG SONG]
         // Chuẩn bị một danh sách chứa các Task (chưa chạy await ngay lập tức)
-        var hydrationTasks = new List<Task<Core.DTOs.RoomDto>>();
+        /*var hydrationTasks = new List<Task<Core.DTOs.RoomDto>>();
 
         foreach (var projection in roomProjections)
         {
@@ -274,7 +273,34 @@ public class RoomService : IRoomService
         // Tổng thời gian chờ chỉ bằng thời gian của request chậm nhất (VD: 2ms thay vì 100ms).
         var result = await Task.WhenAll(hydrationTasks);
 
-        return result;
+        return result;*/
+        var rooms = new List<Core.DTOs.RoomDto>(roomProjections.Count);
+
+        foreach (var projection in roomProjections)
+        {
+            var dto = new Core.DTOs.RoomDto
+            {
+                Id = projection.RoomId,
+                Type = projection.Type,
+                Name = projection.Name,
+                OtherUserId = projection.OtherUserId,
+                IsPrivate = projection.IsPrivate,
+                GroupId = projection.GroupId
+            };
+
+            if (projection.Type == RoomType.DirectMessage && projection.OtherUserId.HasValue)
+            {
+                var otherUser = await _userCacheService.GetUserAsync(projection.OtherUserId.Value);
+
+                dto.OtherUserDisplayName = otherUser?.DisplayName ?? "Unknown";
+                dto.OtherUserUsername = otherUser?.Username ?? "unknown";
+                dto.OtherUserAvatarUrl = otherUser?.AvatarUrl;
+            }
+
+            rooms.Add(dto);
+        }
+
+        return rooms;
     }
 
     /// <summary>

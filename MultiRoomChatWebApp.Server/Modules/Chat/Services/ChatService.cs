@@ -38,28 +38,29 @@ public class ChatService : IChatService
     /// </summary>
     /// <remarks>
     /// Luồng xử lý:
-    /// 1. Lọc theo RoomId
-    /// 2. Nếu có cursor, lọc thêm điều kiện Id < cursor (lấy tin nhắn cũ hơn)
-    /// 3. Sắp xếp giảm dần theo Id (từ mới đến cũ)
+    /// 1. Lọc theo RoomId.
+    /// 2. Nếu có beforeMessageId, lấy các message cũ hơn mốc đó.
+    /// 3. Sắp xếp giảm dần theo ObjectId.
     /// 4. Giới hạn số lượng (limit)
     /// 5. Đảo ngược mảng kết quả để trả về đúng thứ tự thời gian (từ cũ đến mới) cho Frontend hiển thị.
     /// </remarks>
-    public async Task<IEnumerable<Message>> GetMessagesAsync(Guid roomId, string? cursor, int limit = 50)
+    public async Task<IReadOnlyList<Message>> GetMessagesAsync(Guid roomId, string? beforeMessageId, int limit = 50)
     {
         var filterBuilder = Builders<Message>.Filter;
         var filter = filterBuilder.Eq(x => x.RoomId, roomId);
 
-        if (!string.IsNullOrEmpty(cursor))
+        if (!string.IsNullOrWhiteSpace(beforeMessageId))
         {
-            // Cursor-based: ObjectId lưu thời gian, tìm Id nhỏ hơn đồng nghĩa với tìm record cũ hơn
-            filter &= filterBuilder.Lt(x => x.Id, cursor);
+            filter &= filterBuilder.Lt(x => x.Id, beforeMessageId);
         }
 
-        // Tối ưu hoá với Compound Index { room_id: 1, _id: -1 } đã tạo
-        var messages = await _messagesCollection.Find(filter)
+        var messages = await _messagesCollection
+            .Find(filter)
             .SortByDescending(x => x.Id)
             .Limit(limit)
             .ToListAsync();
+
+            // Cursor-based: ObjectId lưu thời gian, tìm Id nhỏ hơn đồng nghĩa với tìm record cũ hơn
 
         // MongoDB trả về danh sách từ Mới nhất -> Cũ nhất.
         // Cần đảo ngược lại để UI render từ Cũ nhất -> Mới nhất (từ trên xuống dưới)
@@ -74,27 +75,38 @@ public class ChatService : IChatService
         var result = new Dictionary<Guid, (Message?, int, string?)>();
         if (roomIds == null || !roomIds.Any()) return result;
 
-        // 1. Lấy ReadReceipts từ PostgreSQL làm base
-        var readReceipts = await _dbContext.ReadReceipts
+        // PostgreSQL là mốc bền vững; Redis ghi đè bằng trạng thái mới chưa được worker flush.
+        var persistedReceipts = await _dbContext.ReadReceipts
+            .AsNoTracking()
             .Where(r => r.UserId == userId && roomIds.Contains(r.RoomId))
-            .ToDictionaryAsync(r => r.RoomId, r => r.LastReadMessageId);
-
-        // Đọc đè từ Redis (vì Redis chứa state mới nhất, chưa flush xuống DB)
-        var redisDb = _redis.GetDatabase();
-        foreach (var roomId in roomIds)
-        {
-            var key = $"Room:{roomId}:ReadReceipts";
-            var redisVal = await redisDb.HashGetAsync(key, userId.ToString());
-            if (redisVal.HasValue)
+            .Select(r => new
             {
-                readReceipts[roomId] = redisVal.ToString();
-            }
+                r.RoomId,
+                r.LastReadMessageId
+            })
+            .ToListAsync();
+
+        var readReceipts = persistedReceipts.ToDictionary(
+            receipt => receipt.RoomId,
+            receipt => receipt.LastReadMessageId);
+
+        var redisDb = _redis.GetDatabase();
+        var redisReceiptTasks = roomIds.Select(async roomId =>
+        {
+            var value = await redisDb.HashGetAsync(
+                $"Room:{roomId}:ReadReceipts",
+                userId.ToString());
+            return (RoomId: roomId, Value: value);
+        });
+
+        var redisReceipts = await Task.WhenAll(redisReceiptTasks);
+        foreach (var redisReceipt in redisReceipts.Where(receipt => receipt.Value.HasValue))
+        {
+            readReceipts[redisReceipt.RoomId] = redisReceipt.Value.ToString();
         }
 
-        // 2. Query MongoDB song song cho mỗi phòng
         var tasks = roomIds.Select(async roomId =>
         {
-            // Lấy tin nhắn cuối cùng (mới nhất)
             var lastMessage = await _messagesCollection
                 .Find(m => m.RoomId == roomId)
                 .SortByDescending(m => m.Id)
@@ -103,30 +115,37 @@ public class ChatService : IChatService
             int unreadCount = 0;
             if (lastMessage != null)
             {
-                // Nếu chưa có read receipt, tất cả tin nhắn đều là unread?
-                // Thường thì chỉ đếm những tin mới nhất từ khi join. Tạm thời đếm tất cả tin có Id > LastReadMessageId
-                if (readReceipts.TryGetValue(roomId, out var lastReadId) && !string.IsNullOrEmpty(lastReadId))
+                readReceipts.TryGetValue(roomId, out var lastReadMessageId);
+                if (!string.IsNullOrEmpty(lastReadMessageId))
                 {
+                    // Receipt cũ chưa có sequence tiếp tục dùng ObjectId đến khi được backfill.
                     var filter = Builders<Message>.Filter.And(
                         Builders<Message>.Filter.Eq(m => m.RoomId, roomId),
                         Builders<Message>.Filter.Ne(m => m.SenderId, userId),
-                        Builders<Message>.Filter.Gt(m => m.Id, lastReadId)
+                        Builders<Message>.Filter.Gt(
+                            m => m.Id,
+                            lastReadMessageId)
                     );
-                    unreadCount = (int)await _messagesCollection.CountDocumentsAsync(filter);
+                    unreadCount = ToUnreadCount(
+                        await _messagesCollection.CountDocumentsAsync(filter));
                 }
                 else
                 {
-                    // Nếu chưa từng đọc, đếm các tin do người khác gửi (tối đa 50)
                     var filter = Builders<Message>.Filter.And(
                         Builders<Message>.Filter.Eq(m => m.RoomId, roomId),
                         Builders<Message>.Filter.Ne(m => m.SenderId, userId)
                     );
-                    unreadCount = (int)await _messagesCollection.Find(filter).Limit(50).CountDocumentsAsync();
+                    unreadCount = ToUnreadCount(
+                        await _messagesCollection.CountDocumentsAsync(filter));
                 }
             }
 
             readReceipts.TryGetValue(roomId, out var lastReadIdForRoom);
-            return (roomId, lastMessage, unreadCount, lastReadIdForRoom);
+            return (
+                roomId: roomId,
+                lastMessage: lastMessage,
+                unreadCount: unreadCount,
+                lastReadIdForRoom);
         });
 
         var overviews = await Task.WhenAll(tasks);
@@ -137,6 +156,9 @@ public class ChatService : IChatService
 
         return result;
     }
+
+    private static int ToUnreadCount(long count) =>
+        count >= int.MaxValue ? int.MaxValue : (int)count;
 
     private async Task EnrichAttachmentUrlsAsync(List<Message> messages)
     {

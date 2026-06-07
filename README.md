@@ -150,7 +150,7 @@ git clone <repo-url>
 cd Solution
 
 # 2. Start infrastructure (Docker)
-docker-compose up -d postgres mongodb redis
+docker-compose up -d postgres mongodb redis redis-broker
 
 # 3. Backend setup
 cd Backend

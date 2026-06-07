@@ -241,6 +241,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
   // Hiệu ứng 3 (Notification): Re-fetch khi Backend báo có phòng mới được tạo trong Group đang mở
   const roomRefetchGroupId = useNotificationStore(s => s.roomRefetchGroupId);
+  const realtimeSyncVersion = useNotificationStore(s => s.realtimeSyncVersion);
   const clearRoomRefetch = useNotificationStore(s => s.clearRoomRefetch);
 
   useEffect(() => {
@@ -250,6 +251,12 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       clearRoomRefetch();
     }
   }, [roomRefetchGroupId, context, group, refreshRooms, clearRoomRefetch]);
+
+  useEffect(() => {
+    if (!accessToken || realtimeSyncVersion === 0) return;
+
+    refreshRooms();
+  }, [accessToken, realtimeSyncVersion, refreshRooms]);
 
   /** Xử lý chọn phòng chat */
   const handleSelectRoom = async (room: RoomDto) => {

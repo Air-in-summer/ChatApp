@@ -6,5 +6,6 @@ public enum MediaAssetStatus
     Attached = 1,
     Active = 2,
     Deleted = 3,
-    CleanupInProgress = 4
+    CleanupInProgress = 4,
+    Reserved = 5
 }

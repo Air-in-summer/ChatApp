@@ -4,6 +4,8 @@ interface NotificationState {
   // Cờ báo hiệu GroupId nào vừa có thay đổi về Room và cần refetch danh sách
   roomRefetchGroupId: string | null;
 
+  realtimeSyncVersion: number;
+
   // Trạng thái khi User bị kick khỏi một Group
   kickedFromGroup: { groupId: string; groupName: string } | null;
 
@@ -13,6 +15,7 @@ interface NotificationState {
   // Actions
   triggerRoomRefetch: (groupId: string) => void;
   clearRoomRefetch: () => void;
+  triggerRealtimeSync: () => void;
   
   handleKicked: (groupId: string, groupName: string) => void;
   clearKicked: () => void;
@@ -27,11 +30,14 @@ interface NotificationState {
  */
 export const useNotificationStore = create<NotificationState>((set) => ({
   roomRefetchGroupId: null,
+  realtimeSyncVersion: 0,
   kickedFromGroup: null,
   deletedGroup: null,
 
   triggerRoomRefetch: (groupId) => set({ roomRefetchGroupId: groupId }),
   clearRoomRefetch: () => set({ roomRefetchGroupId: null }),
+  triggerRealtimeSync: () =>
+    set((state) => ({ realtimeSyncVersion: state.realtimeSyncVersion + 1 })),
 
   handleKicked: (groupId, groupName) => set({ kickedFromGroup: { groupId, groupName } }),
   clearKicked: () => set({ kickedFromGroup: null }),

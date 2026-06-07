@@ -1,11 +1,12 @@
 using MediatR;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
 
 /// <summary>
 /// Gói dữ liệu chuyển tiếp (DTO) từ SignalR Hub đẩy vào hàng chờ MediatR.
 /// </summary>
-public class SendMessageCommand : IRequest<bool>
+public class SendMessageCommand : IRequest<MessageAcceptedResult>
 {
     public Guid RoomId { get; set; }
     
@@ -16,8 +17,7 @@ public class SendMessageCommand : IRequest<bool>
     public List<Guid> MediaIds { get; set; } = [];
 
     /// <summary>
-    /// ID tạm do Frontend tự gán (ví dụ: "temp-1745808000000").
-    /// Worker sẽ dùng để gọi lại MessageStatusUpdated đúng tin tạm sau khi MongoDB Insert thành công.
+    /// UUID do frontend tạo một lần cho một thao tác gửi logic và giữ nguyên khi retry.
     /// </summary>
-    public string TempId { get; set; } = string.Empty;
+    public Guid ClientMessageId { get; set; }
 }

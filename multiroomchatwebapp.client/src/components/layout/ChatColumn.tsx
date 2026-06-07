@@ -5,6 +5,7 @@ import { createAuthClient } from '../../api/apiClient';
 import { getGroupMembers } from '../../api/groupApi';
 import { cancelPendingChatMedia, getMediaAccessUrl, getMediaContentBlob, uploadChatMedia } from '../../api/mediaApi';
 import { useChatStore } from '../../store/useChatStore';
+import { useNotificationStore } from '../../store/useNotificationStore';
 import { useVoiceStore } from '../../store/useVoiceStore';
 import type {
   ActiveChat,
@@ -12,6 +13,7 @@ import type {
   RoomDto,
   MessageDto,
   GetMessagesResponse,
+  MessageAcceptedResult,
   MessageAttachmentDto,
 } from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
@@ -337,10 +339,18 @@ interface ChatColumnProps {
   /** Callback trả ngược về Layout để update Cột 2 (VD: đang ảo gõ enter -> thành room thật) */
   onChatEvolvedToReal: (realRoom: RoomDto) => void;
   // Các hàm từ useSignalR truyền xuống
-  sendMessage: (roomId: string, content: string, tempId: string, mediaIds?: string[]) => Promise<void>;
+  sendMessage: (
+    roomId: string,
+    content: string,
+    clientMessageId: string,
+    mediaIds?: string[]
+  ) => Promise<MessageAcceptedResult>;
   sendTyping: (roomId: string) => Promise<void>;
   stopTyping: (roomId: string) => Promise<void>;
-  markAsRead: (roomId: string, messageId: string) => Promise<void>;
+  markAsRead: (
+    roomId: string,
+    messageId: string
+  ) => Promise<void>;
   joinRoom: (roomId: string) => Promise<void>;
   /** Class CSS từ cha (Layout) để định hình cột */
   className?: string;
@@ -370,12 +380,15 @@ export const ChatColumn = ({
 
   const storeHasMore = useChatStore(state => roomId ? state.hasMore[roomId] : undefined);
   const hasMore = storeHasMore ?? true;
+  const historyCursor = useChatStore(state => roomId ? state.historyCursor[roomId] : undefined);
   const addMessage = useChatStore(state => state.addMessage);
   const setMessages = useChatStore(state => state.setMessages);
   const prependMessages = useChatStore(state => state.prependMessages);
   const setHasMore = useChatStore(state => state.setHasMore);
+  const setHistoryCursor = useChatStore(state => state.setHistoryCursor);
   const updateMessageStatus = useChatStore(state => state.updateMessageStatus);
   const trimRoom = useChatStore(state => state.trimRoom);
+  const realtimeSyncVersion = useNotificationStore(state => state.realtimeSyncVersion);
 
   // Lấy readReceipts của phòng hiện tại để biết người kia đã đọc đến tin nào
   const roomReadReceipts = useChatStore(state => roomId ? state.readReceipts[roomId] : undefined) || {};
@@ -386,6 +399,7 @@ export const ChatColumn = ({
   const [isSendingFirstMessage, setIsSendingFirstMessage] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [retryingMessageIds, setRetryingMessageIds] = useState<Set<string>>(new Set());
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
@@ -393,6 +407,7 @@ export const ChatColumn = ({
   const composerRef = useRef<HTMLDivElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const localAttachmentUrlsRef = useRef<Set<string>>(new Set());
+  const lastHistorySyncVersionByRoomRef = useRef<Record<string, number>>({});
 
   const createLocalAttachmentUrl = (file: File): string => {
     const objectUrl = URL.createObjectURL(file);
@@ -537,7 +552,10 @@ export const ChatColumn = ({
 
     // Kiểm tra cache
     const existingMsgs = useChatStore.getState().messages[roomId] || [];
-    if (existingMsgs.length > 0) {
+    const shouldSyncAfterReconnect =
+      realtimeSyncVersion > 0 &&
+      lastHistorySyncVersionByRoomRef.current[roomId] !== realtimeSyncVersion;
+    if (existingMsgs.length > 0 && !shouldSyncAfterReconnect) {
       console.log(`[Cache Hit] Phòng ${roomId} đã có ${existingMsgs.length} tin nhắn. KHÔNG gọi API.`);
       setIsLoadingInitial(false);
       return;
@@ -554,12 +572,10 @@ export const ChatColumn = ({
         );
 
         const dbMessages = res.data.data;
-        const currentMsgs = useChatStore.getState().messages[roomId] || [];
-        const dbIds = new Set(dbMessages.map(m => m.id));
-        const notInDb = currentMsgs.filter(m => !dbIds.has(m.id));
-
-        setMessages(roomId, [...dbMessages, ...notInDb]);
+        setMessages(roomId, dbMessages);
         setHasMore(roomId, res.data.hasMore);
+        setHistoryCursor(roomId, res.data.nextCursor ?? null);
+        lastHistorySyncVersionByRoomRef.current[roomId] = realtimeSyncVersion;
         console.log(`[API Success] Đã nạp ${dbMessages.length} tin nhắn cho phòng ${roomId}`);
       } catch (err: any) {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
@@ -575,7 +591,7 @@ export const ChatColumn = ({
     return () => {
       controller.abort();
     };
-  }, [roomId, accessToken]); // Cố tình không đưa messages vào đây để tránh re-fetch
+  }, [roomId, accessToken, realtimeSyncVersion]); // Cố tình không đưa messages vào đây để tránh re-fetch
 
   /**
    * [CORE LOGIC] Xử lý Cuộn (Scroll Management)
@@ -626,7 +642,10 @@ export const ChatColumn = ({
       const lastMsg = messages[messages.length - 1];
 
       // Chỉ đánh dấu đã đọc nếu tin nhắn cuối không phải của mình VÀ tab đang được focus
-      if (lastMsg.senderId !== userId && document.visibilityState === 'visible') {
+      if (
+        lastMsg.senderId !== userId &&
+        document.visibilityState === 'visible'
+      ) {
         markAsRead(roomId, lastMsg.id).catch(e => console.error(e));
       }
     }
@@ -656,8 +675,8 @@ export const ChatColumn = ({
     const target = e.currentTarget;
     // Khi cuộn lên sát đỉnh (sai số 5px cho mượt)
     if (target.scrollTop <= 5) {
-      const firstMessageId = messages[0]?.id;
-      if (!firstMessageId) return;
+      const cursor = historyCursor;
+      if (!cursor) return;
 
       setIsLoadingMore(true);
       // Ghi nhớ vị trí cuộn hiện tại để giữ nguyên khung nhìn
@@ -665,10 +684,13 @@ export const ChatColumn = ({
 
       try {
         const authClient = createAuthClient(accessToken);
-        const res = await authClient.get<GetMessagesResponse>(`/api/v1/chat/rooms/${roomId}/messages?cursor=${firstMessageId}`);
+        const res = await authClient.get<GetMessagesResponse>(
+          `/api/v1/chat/rooms/${roomId}/messages?beforeMessageId=${encodeURIComponent(cursor)}`
+        );
 
         prependMessages(roomId, res.data.data);
         setHasMore(roomId, res.data.hasMore);
+        setHistoryCursor(roomId, res.data.nextCursor ?? null);
 
         // Khôi phục thanh cuộn
         requestAnimationFrame(() => {
@@ -854,13 +876,14 @@ export const ChatColumn = ({
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     if (roomId) stopTyping(roomId).catch(e => console.error(e));
 
-    // Tạo tempId duy nhất để Worker có thể callback đúng tin tạm này
-    const tempId = `temp-${Date.now()}`;
+    // UUID này là khóa đối chiếu ổn định cho toàn bộ vòng đời gửi và retry.
+    const clientMessageId = crypto.randomUUID();
 
     // Xóa vạch Unread ngay khi A nhắn tin (chỉ UI, không gọi API)
     initialLastReadIdRef.current = undefined;
 
     let optimisticRoomId = roomId;
+    let optimisticMessageAdded = false;
 
     try {
       if (activeChat.type === 'virtual') {
@@ -878,8 +901,9 @@ export const ChatColumn = ({
         onChatEvolvedToReal(realRoom);
 
         // Hiển thị ngay lập tức (Optimistic UI) với status Sending
-        const tempMsg: MessageDto = {
-          id: tempId,
+        const optimisticMessage: MessageDto = {
+          id: clientMessageId,
+          clientMessageId,
           roomId: realRoom.id,
           senderId: userId || '',
           content: contentToSend,
@@ -889,14 +913,27 @@ export const ChatColumn = ({
           attachments: optimisticAttachments,
         };
         optimisticRoomId = realRoom.id;
-        addMessage(realRoom.id, tempMsg);
+        addMessage(realRoom.id, optimisticMessage);
+        optimisticMessageAdded = true;
 
-        // Phát sóng bằng SignalR kèm tempId để Worker callback đúng
-        await sendMessage(realRoom.id, contentToSend, tempId, mediaIds);
+        const acceptedResult = await sendMessage(
+          realRoom.id,
+          contentToSend,
+          clientMessageId,
+          mediaIds
+        );
+        updateMessageStatus(realRoom.id, clientMessageId, {
+          ...optimisticMessage,
+          id: acceptedResult.messageId,
+          clientMessageId: acceptedResult.clientMessageId,
+          status: 'Accepted',
+          acceptedAtUtc: acceptedResult.acceptedAtUtc,
+        }, 'accepted');
       } else {
         // Hiển thị Optimistic UI với status Sending
-        const tempMsg: MessageDto = {
-          id: tempId,
+        const optimisticMessage: MessageDto = {
+          id: clientMessageId,
+          clientMessageId,
           roomId: roomId!,
           senderId: userId || '',
           content: contentToSend,
@@ -905,18 +942,35 @@ export const ChatColumn = ({
           createdAt: new Date().toISOString(),
           attachments: optimisticAttachments,
         };
-        addMessage(roomId!, tempMsg);
+        addMessage(roomId!, optimisticMessage);
+        optimisticMessageAdded = true;
 
         // Luồng chat bình thường, phòng đã tồn tại
-        await sendMessage(roomId!, contentToSend, tempId, mediaIds);
+        const acceptedResult = await sendMessage(
+          roomId!,
+          contentToSend,
+          clientMessageId,
+          mediaIds
+        );
+        updateMessageStatus(roomId!, clientMessageId, {
+          ...optimisticMessage,
+          id: acceptedResult.messageId,
+          clientMessageId: acceptedResult.clientMessageId,
+          status: 'Accepted',
+          acceptedAtUtc: acceptedResult.acceptedAtUtc,
+        }, 'accepted');
       }
     } catch (error) {
-      setPendingAttachments(readyAttachments);
+      if (!optimisticMessageAdded) {
+        setInputText(contentToSend);
+        setPendingAttachments(readyAttachments);
+      }
       console.error("Gửi tin thất bại", error);
       // Đánh dấu tin tạm là Failed nếu Hub invoke thất bại
       if (optimisticRoomId) {
         const failedMsg: MessageDto = {
-          id: tempId,
+          id: clientMessageId,
+          clientMessageId,
           roomId: optimisticRoomId,
           senderId: userId || '',
           content: contentToSend,
@@ -925,10 +979,95 @@ export const ChatColumn = ({
           createdAt: new Date().toISOString(),
           attachments: optimisticAttachments,
         };
-        updateMessageStatus(optimisticRoomId, tempId, failedMsg);
+        updateMessageStatus(
+          optimisticRoomId,
+          clientMessageId,
+          failedMsg,
+          'rejected'
+        );
       }
     } finally {
       setIsSendingFirstMessage(false);
+    }
+  };
+
+  const handleRetryMessage = async (message: MessageDto) => {
+    if (!accessToken || !message.clientMessageId) {
+      return;
+    }
+
+    if (message.status === 'Accepted' || message.status === 'Sent') {
+      toast.error('Tin nhắn này đã được hệ thống tiếp nhận, không thể gửi lại từ giao diện.');
+      return;
+    }
+
+    const retryKey = message.clientMessageId;
+    if (retryingMessageIds.has(retryKey)) {
+      return;
+    }
+
+    const attachments = message.attachments ?? [];
+    const hasAttachmentWithoutMediaId = attachments.some(
+      (attachment) => !attachment.mediaId
+    );
+    if (hasAttachmentWithoutMediaId) {
+      toast.error('Không thể gửi lại vì thiếu mã tệp đính kèm.');
+      return;
+    }
+
+    const mediaIds = attachments
+      .map((attachment) => attachment.mediaId)
+      .filter((mediaId): mediaId is string => Boolean(mediaId));
+
+    setRetryingMessageIds((current) => new Set(current).add(retryKey));
+    updateMessageStatus(
+      message.roomId,
+      message.clientMessageId,
+      {
+        ...message,
+        status: 'Sending',
+      },
+      'retrying'
+    );
+
+    try {
+      const acceptedResult = await sendMessage(
+        message.roomId,
+        message.content,
+        message.clientMessageId,
+        mediaIds
+      );
+
+      updateMessageStatus(
+        message.roomId,
+        message.clientMessageId,
+        {
+          ...message,
+          id: acceptedResult.messageId,
+          clientMessageId: acceptedResult.clientMessageId,
+          status: 'Accepted',
+          acceptedAtUtc: acceptedResult.acceptedAtUtc,
+        },
+        'accepted'
+      );
+    } catch (error) {
+      console.error('Gửi lại tin nhắn thất bại', error);
+      toast.error('Chưa gửi lại được tin nhắn.');
+      updateMessageStatus(
+        message.roomId,
+        message.clientMessageId,
+        {
+          ...message,
+          status: 'Failed',
+        },
+        'rejected'
+      );
+    } finally {
+      setRetryingMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(retryKey);
+        return next;
+      });
     }
   };
 
@@ -1110,9 +1249,14 @@ export const ChatColumn = ({
             )
             : [];
 
-          const showSending = isMine && msg.status === 'Sending';
+          const showSending = isMine && (msg.status === 'Sending' || msg.status === 'Accepted');
           const showFailed = isMine && msg.status === 'Failed';
           const showSent = isMine && isLastMine && (msg.status === 'Sent' || msg.status === 'Delivered') && readByOthers.length === 0;
+          const canRetryMessage =
+            showFailed &&
+            Boolean(msg.clientMessageId);
+          const retryKey = msg.clientMessageId ?? msg.id;
+          const isRetryingMessage = retryingMessageIds.has(retryKey);
 
           const hasStatusText = showSending || showFailed || showSent;
 
@@ -1166,6 +1310,16 @@ export const ChatColumn = ({
                     <div className={styles.statusRow}>
                       {showSending && <span className={styles.statusSending}>⏳ Đang gửi...</span>}
                       {showFailed && <span className={styles.statusFailed}>✗ Gửi thất bại</span>}
+                      {canRetryMessage && (
+                        <button
+                          type="button"
+                          className={styles.retryButton}
+                          disabled={isRetryingMessage}
+                          onClick={() => handleRetryMessage(msg)}
+                        >
+                          {isRetryingMessage ? 'Đang gửi lại...' : 'Gửi lại'}
+                        </button>
+                      )}
                       {showSent && <span className={styles.statusSent}>✓ Đã gửi</span>}
                     </div>
                   )}

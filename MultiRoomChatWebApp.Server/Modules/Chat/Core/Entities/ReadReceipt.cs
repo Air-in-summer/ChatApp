@@ -21,5 +21,9 @@ public class ReadReceipt
     /// </summary>
     public string LastReadMessageId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Sequence cua tin nhan moi nhat ma nguoi dung da doc.
+    /// Gia tri nullable de receipt cu tiep tuc hoat dong cho den khi duoc backfill.
+    /// </summary>
     public DateTime UpdatedAt { get; set; }
 }

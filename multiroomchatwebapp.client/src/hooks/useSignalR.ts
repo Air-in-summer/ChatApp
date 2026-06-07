@@ -6,7 +6,13 @@ import { useNotificationStore } from '../store/useNotificationStore';
 import { useUserRelationshipsStore } from '../store/useUserRelationshipsStore';
 import { useVoiceStore } from '../store/useVoiceStore';
 import type { VoiceCallIncomingDto, VoiceCallStatusChangedDto } from '../api/voiceApi';
-import type { MessageDto } from '../types/chat';
+import type {
+  MessageAcceptedResult,
+  MessageDto,
+  MessagePersistedDto,
+  MessagePersistenceFailedDto,
+  MessageRetractedDto,
+} from '../types/chat';
 import { buildMessagePreview } from '../utils/chatMessagePreview';
 
 const PRESENCE_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -28,14 +34,13 @@ const cleanupActiveDirectCallIfMatches = (
       });
   }
 };
-
 /**
  * Hook quản lý kết nối SignalR (Singleton lifecycle gắn với MainLayout).
  *
  * @remarks
  * Luồng xử lý:
  * 1. Khởi tạo kết nối khi có accessToken.
- * 2. Đăng ký các sự kiện lắng nghe: ReceiveMessage, ReceiveTyping, ReceiveReadReceipt, MessageStatusUpdated.
+ * 2. Đăng ký các sự kiện lắng nghe: ReceiveMessage, ReceiveTyping, ReceiveReadReceipt và typed message events.
  * 3. Expose các method gửi lệnh lên Backend.
  * 4. Cleanup khi unmount.
  *
@@ -44,7 +49,7 @@ const cleanupActiveDirectCallIfMatches = (
  *   có thể là `roomId` hoặc `room_id` tùy cấu hình. Hook này map lại cho đúng.
  * - Khi ReceiveMessage, cần kiểm tra xem tin nhắn có phải do chính user này gửi không.
  *   Nếu đúng → thay thế tin tạm (Optimistic) bằng tin thật. Nếu không → thêm mới.
- * - MessageStatusUpdated: Chỉ người gửi nhận được event này từ Worker để update Sent status.
+ * - MessagePersisted/MessagePersistenceFailed/MessageRetracted là nguồn reconcile trạng thái V2.
  */
 export const useSignalR = () => {
   const { accessToken, user } = useAuth();
@@ -55,6 +60,7 @@ export const useSignalR = () => {
   // Lấy actions từ Zustand Store (chỉ lấy function, không gây re-render)
   const addMessage = useChatStore((state) => state.addMessage);
   const updateMessageStatus = useChatStore((state) => state.updateMessageStatus);
+  const retractMessage = useChatStore((state) => state.retractMessage);
   const setTyping = useChatStore((state) => state.setTyping);
   const setReadReceipt = useChatStore((state) => state.setReadReceipt);
   const updateRoomMetadata = useChatStore((state) => state.updateRoomMetadata);
@@ -94,6 +100,25 @@ export const useSignalR = () => {
       heartbeatTimer = undefined;
     };
 
+    newConnection.onreconnecting(() => {
+      setIsConnected(false);
+      stopPresenceHeartbeat();
+    });
+
+    newConnection.onreconnected(() => {
+      setIsConnected(true);
+      startPresenceHeartbeat();
+      newConnection.invoke('Heartbeat').catch((error) => {
+        console.error('Lỗi Heartbeat sau reconnect SignalR:', error);
+      });
+      useNotificationStore.getState().triggerRealtimeSync();
+    });
+
+    newConnection.onclose(() => {
+      setIsConnected(false);
+      stopPresenceHeartbeat();
+    });
+
     // 2. Đăng ký các sự kiện lắng nghe từ Backend
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -103,12 +128,22 @@ export const useSignalR = () => {
       // Map field name từ C# Entity (camelCase convention) sang MessageDto Frontend
       const message: MessageDto = {
         id: raw.id ?? raw.Id ?? '',
+        clientMessageId:
+          raw.clientMessageId ??
+          raw.ClientMessageId ??
+          raw.client_message_id ??
+          null,
         roomId: raw.roomId ?? raw.RoomId ?? raw.room_id ?? '',
         senderId: raw.senderId ?? raw.SenderId ?? raw.sender_id ?? '',
         type: raw.type ?? raw.Type ?? 'Text',
         content: raw.content ?? raw.Content ?? '',
         status: raw.status ?? raw.Status ?? 'Sent',
         createdAt: raw.createdAt ?? raw.CreatedAt ?? raw.created_at ?? new Date().toISOString(),
+        acceptedAtUtc:
+          raw.acceptedAtUtc ??
+          raw.AcceptedAtUtc ??
+          raw.accepted_at ??
+          null,
         attachments: Array.isArray(raw.attachments ?? raw.Attachments)
           ? (raw.attachments ?? raw.Attachments).map((attachment: any) => ({
               mediaId: attachment.mediaId ?? attachment.MediaId ?? attachment.media_id ?? null,
@@ -128,21 +163,14 @@ export const useSignalR = () => {
         return;
       }
 
-      // Nếu chính user này gửi → thay thế tin tạm (Optimistic) bằng tin thật
-      // Lưu ý: MessageStatusUpdated sẽ làm việc này chính xác hơn (dùng tempId).
-      // ReceiveMessage vẫn giữ logic dự phòng này cho trường hợp không có TempId (API test).
-      if (message.senderId === currentUserId) {
-        const roomMsgs = useChatStore.getState().messages[message.roomId] || [];
-        const tempMsg = roomMsgs.find(
-          (m) => m.id.startsWith('temp-') && m.content === message.content
+      // Tin do chính user gửi được đối chiếu chính xác bằng clientMessageId.
+      if (message.senderId === currentUserId && message.clientMessageId) {
+        updateMessageStatus(
+          message.roomId,
+          message.clientMessageId,
+          message,
+          'accepted'
         );
-
-        if (tempMsg) {
-          // Dự phòng: thay thế nếu chưa được MessageStatusUpdated xử lý
-          updateMessageStatus(message.roomId, tempMsg.id, message);
-          console.log(`✅ [ReceiveMessage fallback] Đã thay thế tin tạm ${tempMsg.id} → ${message.id}`);
-          // Không return sớm: vẫn cần chạy updateRoomMetadata bên dưới
-        }
       } else {
         // Tin của người khác: kiểm tra xem có đang mở phòng này không
         const { activeRoomId, incrementUnread } = useChatStore.getState();
@@ -154,34 +182,67 @@ export const useSignalR = () => {
       // Fix #1+#2+#4: Luôn update metadata để phòng lên đầu danh sách (cả khi A gửi lẫn khi nhận)
       updateRoomMetadata(message.roomId, buildMessagePreview(message), message.createdAt);
 
-      // Thêm mới tin nhắn vào store (addMessage tự check duplicate nếu tempId đã được thế)
+      // addMessage chống trùng theo cả messageId và clientMessageId.
       addMessage(message.roomId, message);
     });
 
-    /**
-     * Worker callback: Tin nhắn đã được lưu MongoDB thành công.
-     * Chỉ người GỬI nhận được event này.
-     * Dùng tempId để tìm đúng tin tạm trong store và thay bằng finalMessage (với status Sent).
-     */
-    newConnection.on('MessageStatusUpdated', (tempId: string, finalMessageId: string, status: string) => {
-      console.log(`🔔 MessageStatusUpdated: tempId=${tempId} → finalId=${finalMessageId}, status=${status}`);
+    newConnection.on('MessagePersisted', (payload: MessagePersistedDto) => {
+      const messages = useChatStore.getState().messages[payload.roomId] ?? [];
+      const optimisticMessage = messages.find(
+        (message) =>
+          message.clientMessageId === payload.clientMessageId ||
+          message.id === payload.messageId
+      );
 
-      // Tìm tin tạm trong toàn bộ store (không biết roomId ở đây, nên phải scan)
-      const allMessages = useChatStore.getState().messages;
-      for (const [roomId, msgs] of Object.entries(allMessages)) {
-        const tempMsg = msgs.find((m) => m.id === tempId);
-        if (tempMsg) {
-          // Tạo finalMessage từ tin tạm, chỉ thay id và status
-          const finalMessage: MessageDto = {
-            ...tempMsg,
-            id: finalMessageId,
-            status: status as MessageDto['status'],
-          };
-          updateMessageStatus(roomId, tempId, finalMessage);
-          console.log(`✅ MessageStatusUpdated: Room=${roomId}, ${tempId} → ${finalMessageId} (${status})`);
-          break;
-        }
+      if (!optimisticMessage) {
+        return;
       }
+
+      updateMessageStatus(payload.roomId, payload.clientMessageId, {
+        ...optimisticMessage,
+        id: payload.messageId,
+        clientMessageId: payload.clientMessageId,
+        status: payload.status,
+      }, 'persisted');
+    });
+
+    newConnection.on('MessagePersistenceFailed', (payload: MessagePersistenceFailedDto) => {
+      const messages = useChatStore.getState().messages[payload.roomId] ?? [];
+      const optimisticMessage = messages.find(
+        (message) =>
+          message.clientMessageId === payload.clientMessageId ||
+          message.id === payload.messageId
+      );
+
+      if (!optimisticMessage) {
+        return;
+      }
+
+      updateMessageStatus(payload.roomId, payload.clientMessageId, {
+        ...optimisticMessage,
+        id: payload.messageId,
+        clientMessageId: payload.clientMessageId,
+        status: 'Failed',
+      }, 'permanent-failed');
+    });
+
+    newConnection.on('MessageRetracted', (payload: MessageRetractedDto) => {
+      const messages = useChatStore.getState().messages[payload.roomId] ?? [];
+      const existingMessage = messages.find(
+        (message) =>
+          message.clientMessageId === payload.clientMessageId ||
+          message.id === payload.messageId
+      );
+
+      if (existingMessage?.senderId === currentUserId) {
+        return;
+      }
+
+      retractMessage(
+        payload.roomId,
+        payload.messageId,
+        payload.clientMessageId
+      );
     });
 
     newConnection.on('ReceiveTyping', (userId: string, roomId: string) => {
@@ -319,22 +380,24 @@ export const useSignalR = () => {
    * Gửi tin nhắn lên Hub.
    * @param roomId - ID phòng
    * @param content - Nội dung tin nhắn
-   * @param tempId - ID tạm (temp-xxx) để Worker callback đúng tin tạm sau khi lưu xong
+   * @param clientMessageId - UUID ổn định cho một lần gửi logic
    */
   const sendMessage = useCallback(async (
     roomId: string,
     content: string,
-    tempId: string,
+    clientMessageId: string,
     mediaIds: string[] = []
-  ) => {
-    if (connectionRef.current?.state === signalR.HubConnectionState.Connected) {
-      await connectionRef.current.invoke('SendMessage', {
-        roomId,
-        content,
-        tempId,
-        mediaIds,
-      });
+  ): Promise<MessageAcceptedResult> => {
+    if (connectionRef.current?.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('Kết nối thời gian thực chưa sẵn sàng.');
     }
+
+    return connectionRef.current.invoke<MessageAcceptedResult>('SendMessage', {
+      roomId,
+      content,
+      clientMessageId,
+      mediaIds,
+    });
   }, []);
 
   const sendTyping = useCallback(async (roomId: string) => {
@@ -349,10 +412,17 @@ export const useSignalR = () => {
     }
   }, []);
 
-  const markAsRead = useCallback(async (roomId: string, messageId: string) => {
+  const markAsRead = useCallback(async (
+    roomId: string,
+    messageId: string
+  ) => {
     if (connectionRef.current?.state === signalR.HubConnectionState.Connected) {
       try {
-        await connectionRef.current.invoke('MarkAsRead', roomId, messageId);
+        await connectionRef.current.invoke(
+          'MarkAsRead',
+          roomId,
+          messageId
+        );
         // Đồng bộ mốc đọc của chính mình vào store ngay lập tức
         useChatStore.getState().setInitialLastReadIds({
           ...useChatStore.getState().myLastReadMessageIds,

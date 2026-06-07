@@ -226,7 +226,9 @@ public sealed class ChatMediaService : IChatMediaService
 
     private async Task EnsureCanAccessPrivateMediaAsync(MediaAsset mediaAsset, Guid currentUserId)
     {
-        if (mediaAsset.Status == MediaAssetStatus.Pending && mediaAsset.RoomId == null)
+        if ((mediaAsset.Status == MediaAssetStatus.Pending ||
+             mediaAsset.Status == MediaAssetStatus.Reserved) &&
+            mediaAsset.RoomId == null)
         {
             if (mediaAsset.OwnerUserId != currentUserId)
                 throw ApiException.Forbidden("media_not_owned", "Bạn không có quyền xem media này.");

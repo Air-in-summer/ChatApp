@@ -7,10 +7,12 @@ using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Options;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 using MultiRoomChatWebApp.Server.Shared.Middleware;
 using Serilog;
@@ -83,6 +85,15 @@ try
             options.JsonSerializerOptions.Converters.Add(
                 new System.Text.Json.Serialization.JsonStringEnumConverter());
         });
+
+    builder.Services.AddOptions<ChatBrokerOptions>()
+        .Bind(builder.Configuration.GetSection(ChatBrokerOptions.SectionName))
+        .Validate(
+            options => options.IsValid(out _),
+            "ChatBroker configuration is invalid.")
+        .ValidateOnStart();
+    builder.Services.AddHealthChecks()
+        .AddCheck<MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerHealthCheck>("chat_broker");
     
     // Register Entity Framework Core DbContext
     builder.Services.AddDbContext<MultiRoomChatWebApp.Server.Infrastructure.Database.AppDbContext>(options =>
@@ -116,6 +127,21 @@ try
     var redisMultiplexer = StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString);
     
     builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(redisMultiplexer);
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatBrokerConnection>(sp =>
+    {
+        var chatBrokerOptions = sp.GetRequiredService<IOptions<ChatBrokerOptions>>().Value;
+        var brokerConnectionString = builder.Configuration.GetConnectionString(chatBrokerOptions.ConnectionStringName)
+            ?? builder.Configuration.GetConnectionString("Redis")
+            ?? throw new InvalidOperationException(
+                $"Missing chat broker Redis config: ConnectionStrings:{chatBrokerOptions.ConnectionStringName}");
+        var brokerMultiplexer = StackExchange.Redis.ConnectionMultiplexer.Connect(brokerConnectionString);
+
+        return new MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisChatBrokerConnection(
+            brokerMultiplexer,
+            chatBrokerOptions.Database);
+    });
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatBrokerKeyProvider, MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerKeyProvider>();
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatBrokerConsumerIdentityProvider, MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerConsumerIdentityProvider>();
 
     // Register Media Storage foundation (S3-compatible; local/dev dùng MinIO trên D:\ChatAppData\minio)
     builder.Services.Configure<MediaStorageOptions>(
@@ -147,6 +173,7 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaValidationService, MultiRoomChatWebApp.Server.Modules.Media.Services.MediaValidationService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IAvatarMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.AvatarMediaService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IChatMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.ChatMediaService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IChatMediaReservationService, MultiRoomChatWebApp.Server.Modules.Media.Services.ChatMediaReservationService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.MediaStorageBootstrapService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.PendingMediaCleanupWorker>();
 
@@ -181,8 +208,16 @@ try
             options.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         });
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService, MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatService>();
-    // Đăng ký Worker nhồi dữ liệu từ Redis vào MongoDB chạy ngầm vô thời hạn
-    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessagePersistenceWorker>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageAdmissionService, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageAdmissionService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageDeliveryRecipientResolver, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageDeliveryRecipientResolver>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageDeliveryAttachmentResolver, MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageDeliveryAttachmentResolver>();
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IMessageIdentityService, MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisMessageIdentityService>();
+    builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatMessagePublisher, MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisChatMessagePublisher>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerBootstrapService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerMaintenanceWorker>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageMongoIndexBootstrapService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessagePersistenceWorkerV2>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.MessageDeliveryWorkerV2>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Chat.Services.ReadReceiptWorker>();
     // Tracker đếm số lượng người online/offline (Dùng Singleton để chia sẻ bộ nhớ cho toàn HTTP pipeline)
     builder.Services.AddSingleton<MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IPresenceTracker, MultiRoomChatWebApp.Server.Modules.Chat.Services.RedisPresenceTracker>();
@@ -472,6 +507,12 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    app.MapHealthChecks(
+        "/health/chat-broker",
+        new HealthCheckOptions
+        {
+            Predicate = registration => registration.Name == "chat_broker"
+        });
     app.MapHub<MultiRoomChatWebApp.Server.Modules.Chat.Hubs.ChatHub>("/hub/chat");
 
     app.MapFallbackToFile("/index.html");

@@ -186,6 +186,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAt });
             entity.HasIndex(e => new { e.RoomId, e.CreatedAt });
             entity.HasIndex(e => new { e.Status, e.CreatedAt });
+            entity.HasIndex(e => new { e.Status, e.ReservedAt });
             entity.HasIndex(e => new { e.Scope, e.OwnerUserId });
 
             entity.Property(e => e.Scope).HasConversion<string>().HasMaxLength(30);
@@ -199,6 +200,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ContentType).IsRequired().HasMaxLength(120);
             entity.Property(e => e.PublicUrl).HasMaxLength(2048);
             entity.Property(e => e.MessageId).HasMaxLength(64);
+            entity.Property(e => e.ReservedByMessageId).HasMaxLength(64);
 
             entity.HasOne(d => d.OwnerUser)
                   .WithMany()

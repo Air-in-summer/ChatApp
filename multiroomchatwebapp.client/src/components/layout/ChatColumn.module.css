@@ -333,6 +333,26 @@
   font-weight: 500;
 }
 
+.retryButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #93c5fd;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retryButton:hover:not(:disabled) {
+  color: #bfdbfe;
+  text-decoration: underline;
+}
+
+.retryButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* Hàng avatar nhỏ "Đã đọc" */
 .readReceiptRow {
   display: flex;

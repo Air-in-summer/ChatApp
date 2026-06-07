@@ -1,5 +1,166 @@
 import { create } from 'zustand';
-import type { MessageDto } from '../types/chat';
+import type { MessageDto, MessageStatus } from '../types/chat';
+import { buildMessagePreview } from '../utils/chatMessagePreview';
+
+type MessageStatusTransition =
+  | 'merge'
+  | 'accepted'
+  | 'persisted'
+  | 'retrying'
+  | 'rejected'
+  | 'permanent-failed';
+
+const MESSAGE_STATUS_PRIORITY: Record<MessageStatus, number> = {
+  Sending: 1,
+  Accepted: 2,
+  Failed: 3,
+  Sent: 4,
+  Delivered: 5,
+  Read: 6,
+};
+
+const resolveMessageStatus = (
+  currentStatus: MessageStatus | undefined,
+  nextStatus: MessageStatus,
+  transition: MessageStatusTransition
+): MessageStatus => {
+  if (!currentStatus) {
+    return nextStatus;
+  }
+
+  switch (transition) {
+    case 'accepted':
+      return ['Sent', 'Delivered', 'Read'].includes(currentStatus)
+        ? currentStatus
+        : 'Accepted';
+    case 'persisted':
+      return ['Delivered', 'Read'].includes(currentStatus)
+        ? currentStatus
+        : 'Sent';
+    case 'retrying':
+      return currentStatus === 'Failed' ? 'Sending' : currentStatus;
+    case 'rejected':
+      return currentStatus === 'Sending' ? 'Failed' : currentStatus;
+    case 'permanent-failed':
+      return 'Failed';
+    case 'merge':
+    default:
+      if (nextStatus === 'Accepted') {
+        return ['Sent', 'Delivered', 'Read'].includes(currentStatus)
+          ? currentStatus
+          : 'Accepted';
+      }
+
+      return MESSAGE_STATUS_PRIORITY[currentStatus] >
+        MESSAGE_STATUS_PRIORITY[nextStatus]
+        ? currentStatus
+        : nextStatus;
+  }
+};
+
+const getMessageTime = (message: MessageDto): number | null => {
+  const timestamp = Date.parse(message.createdAt);
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
+
+const sortMessagesChronologically = (messages: MessageDto[]): MessageDto[] =>
+  messages
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const leftTime = getMessageTime(left.message);
+      const rightTime = getMessageTime(right.message);
+      const leftHasTime = leftTime !== null;
+      const rightHasTime = rightTime !== null;
+
+      if (leftHasTime && rightHasTime && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+
+      if (leftHasTime !== rightHasTime) {
+        return leftHasTime ? -1 : 1;
+      }
+
+      if (
+        left.message.id &&
+        right.message.id &&
+        left.message.id !== right.message.id
+      ) {
+        return left.message.id < right.message.id ? -1 : 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+
+const isSameMessage = (left: MessageDto, right: MessageDto): boolean => {
+  if (left.id && right.id && left.id === right.id) {
+    return true;
+  }
+
+  const leftClientMessageId = left.clientMessageId?.trim();
+  const rightClientMessageId = right.clientMessageId?.trim();
+  return Boolean(leftClientMessageId) &&
+    Boolean(rightClientMessageId) &&
+    leftClientMessageId === rightClientMessageId;
+};
+
+const mergeAttachments = (
+  currentMessage: MessageDto,
+  nextMessage: MessageDto
+) =>
+  nextMessage.attachments?.map((attachment, attachmentIndex) => ({
+    ...attachment,
+    localPreviewUrl:
+      attachment.localPreviewUrl ??
+      currentMessage.attachments?.[attachmentIndex]?.localPreviewUrl,
+  })) ?? currentMessage.attachments;
+
+const mergeMessage = (
+  currentMessage: MessageDto,
+  nextMessage: MessageDto,
+  transition: MessageStatusTransition = 'merge'
+): MessageDto => ({
+  ...currentMessage,
+  ...nextMessage,
+  status: resolveMessageStatus(
+    currentMessage.status,
+    nextMessage.status,
+    transition
+  ),
+  attachments: mergeAttachments(currentMessage, nextMessage),
+});
+
+const upsertMessageList = (
+  currentMessages: MessageDto[],
+  nextMessage: MessageDto,
+  transition: MessageStatusTransition = 'merge'
+): MessageDto[] => {
+  const existingIndex = currentMessages.findIndex(
+    (currentMessage) => isSameMessage(currentMessage, nextMessage)
+  );
+
+  if (existingIndex < 0) {
+    return sortMessagesChronologically([...currentMessages, nextMessage]);
+  }
+
+  return sortMessagesChronologically(
+    currentMessages.map((currentMessage, index) =>
+      index === existingIndex
+        ? mergeMessage(currentMessage, nextMessage, transition)
+        : currentMessage
+    )
+  );
+};
+
+const mergeMessageLists = (
+  currentMessages: MessageDto[],
+  incomingMessages: MessageDto[]
+): MessageDto[] =>
+  incomingMessages.reduce(
+    (mergedMessages, message) =>
+      upsertMessageList(mergedMessages, message, 'merge'),
+    [...currentMessages]
+  );
 
 interface ChatState {
   // Map lưu trữ tin nhắn theo từng RoomId: Record<RoomId, MessageDto[]>
@@ -10,6 +171,7 @@ interface ChatState {
 
   // Cờ báo hiệu phòng nào còn tin nhắn cũ chưa load: Record<RoomId, boolean>
   hasMore: Record<string, boolean>;
+  historyCursor: Record<string, string | null>;
 
   // Quản lý tin nhắn chưa đọc: Record<RoomId, number>
   unreadCount: Record<string, number>;
@@ -42,13 +204,24 @@ interface ChatState {
   setMessages: (roomId: string, messages: MessageDto[]) => void;
   prependMessages: (roomId: string, messages: MessageDto[]) => void;
   /**
-   * Cập nhật 1 tin nhắn tạm (tempId → finalMessage) sau khi Worker xác nhận lưu thành công.
+   * Đối chiếu optimistic message bằng clientMessageId và cập nhật dữ liệu/trạng thái mới nhất.
    * Cũng dùng để update trạng thái Failed nếu gửi lỗi.
    */
-  updateMessageStatus: (roomId: string, tempId: string, finalMessage: MessageDto) => void;
+  updateMessageStatus: (
+    roomId: string,
+    clientMessageId: string,
+    finalMessage: MessageDto,
+    transition?: MessageStatusTransition
+  ) => void;
+  retractMessage: (
+    roomId: string,
+    messageId: string,
+    clientMessageId?: string | null
+  ) => void;
   
   setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
   setHasMore: (roomId: string, hasMore: boolean) => void;
+  setHistoryCursor: (roomId: string, cursor: string | null) => void;
   
   // Actions unread
   setActiveRoomId: (roomId: string | null) => void;
@@ -81,6 +254,7 @@ export const useChatStore = create<ChatState>((set) => ({
   messages: {},
   typingUsers: {},
   hasMore: {},
+  historyCursor: {},
   unreadCount: {},
   activeRoomId: null,
   readReceipts: {},
@@ -91,77 +265,124 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       const roomMsgs = state.messages[roomId] || [];
       // Tránh duplicate nếu nhận lại chính tin nhắn mình vừa gửi
-      const existingIndex = roomMsgs.findIndex((m) => m.id === message.id);
-      if (existingIndex >= 0) {
-        return {
-          messages: {
-            ...state.messages,
-            [roomId]: roomMsgs.map((currentMessage, index) =>
-              index === existingIndex
-                ? {
-                    ...currentMessage,
-                    ...message,
-                    attachments: message.attachments?.map((attachment, attachmentIndex) => ({
-                      ...attachment,
-                      localPreviewUrl: currentMessage.attachments?.[attachmentIndex]?.localPreviewUrl,
-                    })) ?? currentMessage.attachments,
-                  }
-                : currentMessage
-            ),
-          },
-        };
-      }
-
       return {
         messages: {
           ...state.messages,
-          [roomId]: [...roomMsgs, message],
+          [roomId]: upsertMessageList(roomMsgs, message),
         },
       };
     }),
 
   setMessages: (roomId, messages) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [roomId]: messages,
-      },
-    })),
+    set((state) => {
+      const currentMsgs = state.messages[roomId] || [];
+
+      return {
+        messages: {
+          ...state.messages,
+          [roomId]: mergeMessageLists(currentMsgs, messages),
+        },
+      };
+    }),
 
   prependMessages: (roomId, newOldMessages) =>
     set((state) => {
       const currentMsgs = state.messages[roomId] || [];
       // Tránh prepend trùng tin nhắn nếu lỡ bấm 2 lần
-      const existingIds = new Set(currentMsgs.map(m => m.id));
-      const filteredOldMsgs = newOldMessages.filter(m => !existingIds.has(m.id));
       
       return {
         messages: {
           ...state.messages,
-          [roomId]: [...filteredOldMsgs, ...currentMsgs],
+          [roomId]: mergeMessageLists(newOldMessages, currentMsgs),
         },
       };
     }),
 
-  updateMessageStatus: (roomId, tempId, finalMessage) =>
+  updateMessageStatus: (
+    roomId,
+    clientMessageId,
+    finalMessage,
+    transition = 'merge'
+  ) =>
     set((state) => {
       const roomMsgs = state.messages[roomId] || [];
+      const targetMessage = {
+        ...finalMessage,
+        clientMessageId: finalMessage.clientMessageId ?? clientMessageId,
+      };
+      const existingMessage = roomMsgs.find((message) =>
+        isSameMessage(message, targetMessage)
+      );
+      const resolvedStatus = resolveMessageStatus(
+        existingMessage?.status,
+        targetMessage.status,
+        transition
+      );
+      const resolvedMessage = {
+        ...targetMessage,
+        status: resolvedStatus,
+      };
+
       // Cập nhật mốc đọc của chính mình khi tin được confirm với ID thật
       // Giúp tránh vạch Divider sai khi chuyển phòng rồi quay lại
       const currentMoc = state.myLastReadMessageIds[roomId];
-      const shouldUpdateMoc = finalMessage.id && !finalMessage.id.startsWith('temp-') &&
-        (!currentMoc || finalMessage.id > currentMoc);
+      const shouldUpdateMoc =
+        ['Sent', 'Delivered', 'Read'].includes(resolvedMessage.status) &&
+        Boolean(resolvedMessage.id) &&
+        (!currentMoc || resolvedMessage.id > currentMoc);
       return {
         messages: {
           ...state.messages,
-          [roomId]: roomMsgs.map((m) => (m.id === tempId ? finalMessage : m)),
+          [roomId]: upsertMessageList(
+            roomMsgs,
+            resolvedMessage,
+            transition
+          ),
         },
         ...(shouldUpdateMoc && {
           myLastReadMessageIds: {
             ...state.myLastReadMessageIds,
-            [roomId]: finalMessage.id,
+            [roomId]: resolvedMessage.id,
           }
         }),
+      };
+    }),
+
+  retractMessage: (roomId, messageId, clientMessageId) =>
+    set((state) => {
+      const roomMsgs = state.messages[roomId] || [];
+      const nextMsgs = sortMessagesChronologically(
+        roomMsgs.filter(
+          (message) =>
+            message.id !== messageId &&
+            (
+              !clientMessageId ||
+              message.clientMessageId !== clientMessageId
+            )
+        )
+      );
+
+      if (nextMsgs.length === roomMsgs.length) {
+        return state;
+      }
+
+      const nextRoomMetadata = { ...state.roomMetadata };
+      const latestMessage = nextMsgs.at(-1);
+      if (latestMessage) {
+        nextRoomMetadata[roomId] = {
+          lastMessageContent: buildMessagePreview(latestMessage),
+          lastMessageTimestamp: latestMessage.createdAt,
+        };
+      } else {
+        delete nextRoomMetadata[roomId];
+      }
+
+      return {
+        messages: {
+          ...state.messages,
+          [roomId]: nextMsgs,
+        },
+        roomMetadata: nextRoomMetadata,
       };
     }),
 
@@ -187,6 +408,14 @@ export const useChatStore = create<ChatState>((set) => ({
       hasMore: {
         ...state.hasMore,
         [roomId]: hasMore,
+      },
+    })),
+
+  setHistoryCursor: (roomId, cursor) =>
+    set((state) => ({
+      historyCursor: {
+        ...state.historyCursor,
+        [roomId]: cursor,
       },
     })),
 

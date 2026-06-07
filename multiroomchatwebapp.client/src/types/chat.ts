@@ -52,7 +52,7 @@ export type ActiveChat =
 /**
  * Trạng thái của một tin nhắn để xử lý Optimistic UI
  */
-export type MessageStatus = 'Sending' | 'Sent' | 'Delivered' | 'Read' | 'Failed';
+export type MessageStatus = 'Sending' | 'Accepted' | 'Sent' | 'Delivered' | 'Read' | 'Failed';
 
 export type AttachmentKind = 'Image' | 'Audio' | 'Video' | 'File';
 
@@ -88,17 +88,51 @@ export interface MediaAccessUrlDto {
  * Dữ liệu tin nhắn trả về từ Backend hoặc tạo tạm ở Frontend
  */
 export interface MessageDto {
-  id: string; // ObjectId của MongoDB, hoặc ID tạm (ví dụ: temp-123) khi Sending
+  id: string; // MessageId chính thức, hoặc clientMessageId trước khi server trả Accepted
+  clientMessageId?: string | null;
   roomId: string;
   senderId: string;
   type: string;
   content: string;
   status: MessageStatus;
   createdAt: string; // ISO String
+  acceptedAtUtc?: string | null;
   attachments?: MessageAttachmentDto[] | null;
+}
+
+export interface MessageAcceptedResult {
+  clientMessageId: string;
+  messageId: string;
+  streamId: string;
+  acceptedAtUtc: string;
+}
+
+export interface MessagePersistedDto {
+  roomId: string;
+  clientMessageId: string;
+  messageId: string;
+  persistedAtUtc: string;
+  status: 'Sent';
+}
+
+export interface MessagePersistenceFailedDto {
+  roomId: string;
+  clientMessageId: string;
+  messageId: string;
+  code: string;
+  failedAtUtc: string;
+}
+
+export interface MessageRetractedDto {
+  roomId: string;
+  clientMessageId: string;
+  messageId: string;
+  code: string;
+  retractedAtUtc: string;
 }
 
 export interface GetMessagesResponse {
   data: MessageDto[];
   hasMore: boolean;
+  nextCursor?: string | null;
 }

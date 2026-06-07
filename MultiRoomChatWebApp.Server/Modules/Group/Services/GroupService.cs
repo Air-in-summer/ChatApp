@@ -305,13 +305,19 @@ public class GroupService : IGroupService
 
         if (!groupIds.Any()) return Enumerable.Empty<GroupDto>();
 
-        // 2. Hydration: Gọi Redis song song để lấy thông tin chi tiết từng Group
-        var hydrationTasks = groupIds.Select(id => _metadataCache.GetGroupMetadataAsync(id));
-        
-        var results = await Task.WhenAll(hydrationTasks);
+        // 2. Hydration tuần tự để tránh nhiều cache miss cùng dùng chung scoped DbContext.
+        var results = new List<GroupDto>();
+        foreach (var groupId in groupIds)
+        {
+            var group = await _metadataCache.GetGroupMetadataAsync(groupId);
+            if (group != null)
+            {
+                results.Add(group);
+            }
+        }
 
-        // 3. Lọc bỏ các kết quả null (phòng trường hợp DB có mà Cache lỗi hoặc Group bị xóa chưa sạch)
-        return results.Where(g => g != null)!;
+        // 3. Bỏ qua group null trong trường hợp SQL membership còn nhưng group đã bị xóa/cache lỗi.
+        return results;
     }
 
     /// <summary>
@@ -685,7 +691,6 @@ public class GroupService : IGroupService
         _logger.LogWarning("Server {GroupId} was DELETED (Soft Delete) by Owner {OwnerId}", groupId, ownerId);
     }
 }
-
 
 
 

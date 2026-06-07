@@ -1,4 +1,5 @@
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.DTOs;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 
@@ -21,7 +22,7 @@ public interface IChatClient
     /// <summary>
     /// Frontend sẽ lắng nghe sự kiện này để in chử ra màn hình.
     /// </summary>
-    Task ReceiveMessage(object message); 
+    Task ReceiveMessage(MessageDeliveryDto message);
 
     /// <summary>
     /// Nhận thông báo một user đang gõ phím.
@@ -41,9 +42,19 @@ public interface IChatClient
 
     /// <summary>
     /// Notify người gửi rằng tin nhắn của họ đã được Worker lưu thành công.
-    /// Payload: tempId để FE tìm đúng tin tạm cần update.
+    /// Payload: clientMessageId để frontend tìm đúng optimistic message cần cập nhật.
     /// </summary>
-    Task MessageStatusUpdated(string tempId, string finalMessageId, string status);
+    Task MessageStatusUpdated(Guid clientMessageId, string finalMessageId, string status);
+
+    /// <summary>
+    /// Notify only the sender after message history and attachment state are consistent.
+    /// Sent means persisted in history, not delivered to recipient devices.
+    /// </summary>
+    Task MessagePersisted(MessagePersistedDto payload);
+
+    Task MessagePersistenceFailed(MessagePersistenceFailedDto payload);
+
+    Task MessageRetracted(MessageRetractedDto payload);
 
     // === NOTIFICATION SIGNALS ===
 

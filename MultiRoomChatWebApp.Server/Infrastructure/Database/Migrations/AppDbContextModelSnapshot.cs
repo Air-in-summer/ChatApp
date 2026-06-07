@@ -60,7 +60,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.HasIndex("Provider", "ProviderUserId")
                         .IsUnique();
 
-                    b.ToTable("ExternalLogins");
+                    b.ToTable("ExternalLogins", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken", b =>
@@ -92,7 +92,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities.ReadReceipt", b =>
@@ -114,7 +114,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("RoomId");
 
-                    b.ToTable("ReadReceipts");
+                    b.ToTable("ReadReceipts", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.Group", b =>
@@ -159,7 +159,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("OwnerId");
 
-                    b.ToTable("Groups");
+                    b.ToTable("Groups", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Group.Core.Entities.GroupMember", b =>
@@ -182,7 +182,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("UserId", "GroupId");
 
-                    b.ToTable("GroupMembers");
+                    b.ToTable("GroupMembers", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Media.Core.Entities.MediaAsset", b =>
@@ -236,6 +236,13 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<DateTime?>("ReservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReservedByMessageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid?>("RoomId")
                         .HasColumnType("uuid");
 
@@ -269,6 +276,8 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.HasIndex("Scope", "OwnerUserId");
 
                     b.HasIndex("Status", "CreatedAt");
+
+                    b.HasIndex("Status", "ReservedAt");
 
                     b.ToTable("MediaAssets", null, t =>
                         {
@@ -315,7 +324,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("GroupId");
 
-                    b.ToTable("Rooms");
+                    b.ToTable("Rooms", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember", b =>
@@ -338,7 +347,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasIndex("UserId", "RoomId");
 
-                    b.ToTable("RoomMembers");
+                    b.ToTable("RoomMembers", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.FriendRequest", b =>
@@ -457,7 +466,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Username"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Username"), new[] { "gin_trgm_ops" });
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.UserBlock", b =>
@@ -494,7 +503,7 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
 
                     b.HasKey("UserId");
 
-                    b.ToTable("UserPresenceStates");
+                    b.ToTable("UserPresenceStates", (string)null);
                 });
 
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin", b =>

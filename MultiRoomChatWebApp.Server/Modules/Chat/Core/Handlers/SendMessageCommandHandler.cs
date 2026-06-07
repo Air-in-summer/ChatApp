@@ -1,218 +1,260 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
-using StackExchange.Redis;
-using MultiRoomChatWebApp.Server.Infrastructure.Database;
-using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
-using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
-using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
-using MultiRoomChatWebApp.Server.Modules.User.Core.Cache;
-using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Events;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Exceptions;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.Logging;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Entities;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
+using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
+using System.Text;
 using System.Text.Json;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Core.Handlers;
 
-/// <summary>
-/// Luồng xử lý cho SendMessageCommand.
-/// DM block policy đi qua Redis cache; chỉ fallback relationship graph khi cache miss, không query relationship SQL theo từng tin.
-/// </summary>
-public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, bool>
+public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, MessageAcceptedResult>
 {
-    private static readonly TimeSpan DirectMessageAllowPolicyTtl = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan DirectMessageBlockPolicyTtl = TimeSpan.FromDays(1);
-
-    private readonly IRoomPermissionsCache _roomPermissionsCache;
-    private readonly IRoomMetadataCache _roomMetadataCache;
-    private readonly Modules.Group.Core.Interfaces.IGroupPermissionsCache _groupPermissionsCache;
-    private readonly IUserRelationshipGraphService _relationshipGraphService;
-    private readonly AppDbContext _dbContext;
-    private readonly IConnectionMultiplexer _redis;
+    private readonly IMessageAdmissionService _messageAdmissionService;
+    private readonly IChatMediaReservationService _mediaReservationService;
+    private readonly IMessageIdentityService _messageIdentityService;
+    private readonly IChatMessagePublisher _messagePublisher;
     private readonly ILogger<SendMessageCommandHandler> _logger;
 
     public SendMessageCommandHandler(
-        IRoomPermissionsCache roomPermissionsCache, 
-        IRoomMetadataCache roomMetadataCache,
-        Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache,
-        IUserRelationshipGraphService relationshipGraphService,
-        AppDbContext dbContext,
-        IConnectionMultiplexer redis,
+        IMessageAdmissionService messageAdmissionService,
+        IChatMediaReservationService mediaReservationService,
+        IMessageIdentityService messageIdentityService,
+        IChatMessagePublisher messagePublisher,
         ILogger<SendMessageCommandHandler> logger)
     {
-        _roomPermissionsCache = roomPermissionsCache;
-        _roomMetadataCache = roomMetadataCache;
-        _groupPermissionsCache = groupPermissionsCache;
-        _relationshipGraphService = relationshipGraphService;
-        _dbContext = dbContext;
-        _redis = redis;
+        _messageAdmissionService = messageAdmissionService;
+        _mediaReservationService = mediaReservationService;
+        _messageIdentityService = messageIdentityService;
+        _messagePublisher = messagePublisher;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Xử lý gửi tin nhắn với cơ chế Phân tầng Bảo mật (Hierarchical Auth).
-    /// </summary>
-    public async Task<bool> Handle(SendMessageCommand request, CancellationToken cancellationToken)
-    {
-        request.Content = request.Content?.Trim() ?? string.Empty;
-        request.MediaIds = (request.MediaIds ?? [])
-            .Where(mediaId => mediaId != Guid.Empty)
-            .Distinct()
-            .ToList();
-
-        if (string.IsNullOrWhiteSpace(request.Content) && request.MediaIds.Count == 0)
-        {
-            _logger.LogWarning(
-                "Bao mat: User {UserId} gui message rong vao Room {RoomId}.",
-                request.SenderId,
-                request.RoomId);
-            return false;
-        }
-
-        // 1. Lấy Metadata của Phòng
-        var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(request.RoomId);
-        
-        if (roomMeta == null)
-        {
-            _logger.LogWarning("Phòng {RoomId} không tồn tại hoặc đã bị xóa.", request.RoomId);
-            return false;
-        }
-
-        // 2. DISPATCHER: Quyết định cách check quyền
-        bool isAuthorized = false;
-
-        if (roomMeta.Value.GroupId.HasValue && !roomMeta.Value.IsPrivate)
-        {
-            // TẦNG 1: PHÒNG PUBLIC TRONG GROUP -> Check Group Cache (Tránh nhồi 500 member vào Room Cache)
-            isAuthorized = await _groupPermissionsCache.IsUserInGroupAsync(roomMeta.Value.GroupId.Value, request.SenderId);
-        }
-        else
-        {
-            // TẦNG 2: PHÒNG PRIVATE HOẶC DM -> Check Room Cache (Tối ưu cho phòng ít người)
-            isAuthorized = await _roomPermissionsCache.IsUserInRoomAsync(request.RoomId, request.SenderId);
-        }
-
-        if (!isAuthorized)
-        {
-            _logger.LogWarning("Bảo mật: User {UserId} cố gắng nhắn tin vào Room {RoomId} mà không có quyền.", request.SenderId, request.RoomId);
-            return false; 
-        }
-
-        // 3. Đóng gói payload
-        if (roomMeta.Value.Type == RoomType.DirectMessage &&
-            !await IsDirectMessageAllowedAsync(request.RoomId, request.SenderId, cancellationToken))
-        {
-            _logger.LogWarning(
-                "Bao mat: User {UserId} bi chan gui tin DM vao Room {RoomId} boi relationship policy.",
-                request.SenderId,
-                request.RoomId);
-            return false;
-        }
-
-        if (request.MediaIds.Count > 0 &&
-            !await ArePendingMediaValidAsync(request.MediaIds, request.SenderId, request.RoomId, cancellationToken))
-        {
-            return false;
-        }
-
-        var messagePayload = JsonSerializer.Serialize(request);
-
-        // 4. Ném vào Redis Streams chờ Worker xử lý
-        var db = _redis.GetDatabase();
-        await db.StreamAddAsync("chat_messages_stream", "payload", messagePayload);
-
-        return true;
-    }
-
-    private async Task<bool> IsDirectMessageAllowedAsync(
-        Guid roomId,
-        Guid senderId,
+    public async Task<MessageAcceptedResult> Handle(
+        SendMessageCommand request,
         CancellationToken cancellationToken)
     {
-        var memberIds = (await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId))
-            .Distinct()
-            .ToList();
+        using var admissionScope = ChatMessageLogScope.Begin(
+            _logger,
+            messageId: null,
+            request.ClientMessageId,
+            streamId: null,
+            request.RoomId,
+            request.SenderId,
+            group: "admission",
+            consumer: "signalr",
+            attempt: 0,
+            correlationId: request.ClientMessageId);
 
-        if (memberIds.Count != 2 || !memberIds.Contains(senderId))
-            return false;
+        var admission = await _messageAdmissionService.AdmitAsync(request, cancellationToken);
+        if (!admission.IsAccepted || admission.Context is null)
+        {
+            _logger.LogWarning(
+                "Send message admission rejected. Code={Code}, Kind={Kind}, Retryable={IsRetryable}",
+                admission.Error?.Code,
+                admission.Error?.Kind,
+                admission.Error?.IsRetryable);
+            throw new MessageAdmissionException(
+                admission.Error
+                ?? MessageAdmissionError.Validation(
+                    "message_admission_rejected",
+                    "Tin nhan khong duoc he thong tiep nhan."));
+        }
 
-        var otherUserId = memberIds.First(userId => userId != senderId);
-        var blockKey = UserRelationshipCacheKeys.BlockBetween(senderId, otherUserId);
-        var allowKey = UserRelationshipCacheKeys.AllowBetween(senderId, otherUserId);
-        var db = _redis.GetDatabase();
+        var admitted = admission.Context;
+        var identity = await _messageIdentityService.ResolveAsync(
+            admitted.SenderId,
+            admitted.ClientMessageId);
+        using var identityScope = ChatMessageLogScope.Begin(
+            _logger,
+            identity.MessageId,
+            admitted.ClientMessageId,
+            streamId: null,
+            admitted.RoomId,
+            admitted.SenderId,
+            group: "admission",
+            consumer: "chat-v2",
+            attempt: 0,
+            correlationId: admitted.ClientMessageId);
 
-        if (await db.KeyExistsAsync(blockKey))
-            return false;
-
-        if (await db.KeyExistsAsync(allowKey))
-            return true;
-
-        var canDirectMessage = await _relationshipGraphService.CanDirectMessageAsync(
-            senderId,
-            otherUserId,
+        var reservation = await _mediaReservationService.ReserveAsync(
+            admitted.MediaIds,
+            admitted.SenderId,
+            admitted.RoomId,
+            identity.MessageId,
+            identity.AcceptedAtUtc,
             cancellationToken);
 
-        if (canDirectMessage)
-        {
-            await db.StringSetAsync(allowKey, "1", DirectMessageAllowPolicyTtl);
-            return true;
-        }
-
-        await db.StringSetAsync(blockKey, "1", DirectMessageBlockPolicyTtl);
-        await db.KeyDeleteAsync(allowKey);
-        return false;
-    }
-
-    private async Task<bool> ArePendingMediaValidAsync(
-        IReadOnlyCollection<Guid> mediaIds,
-        Guid senderId,
-        Guid roomId,
-        CancellationToken cancellationToken)
-    {
-        var mediaAssets = await _dbContext.MediaAssets
-            .AsNoTracking()
-            .Where(asset => mediaIds.Contains(asset.Id))
-            .Select(asset => new
-            {
-                asset.Id,
-                asset.OwnerUserId,
-                asset.Scope,
-                asset.Status,
-                asset.RoomId,
-                asset.DeletedAt
-            })
-            .ToListAsync(cancellationToken);
-
-        if (mediaAssets.Count != mediaIds.Count)
+        if (!reservation.IsSuccess)
         {
             _logger.LogWarning(
-                "Bao mat: User {UserId} gui media khong ton tai vao Room {RoomId}. Expected={Expected}; Actual={Actual}",
-                senderId,
-                roomId,
-                mediaIds.Count,
-                mediaAssets.Count);
-            return false;
+                "Khong reserve duoc attachment cho User {UserId}, Room {RoomId}, MessageId={MessageId}. Reason={Reason}",
+                admitted.SenderId,
+                admitted.RoomId,
+                identity.MessageId,
+                reservation.RejectionReason);
+            throw new MessageAdmissionException(
+                MessageAdmissionError.Conflict(
+                    "message_attachments_unavailable",
+                    "Mot hoac nhieu tep dinh kem khong con hop le de gui."));
         }
 
-        var invalidMedia = mediaAssets.FirstOrDefault(asset =>
-            asset.Scope != MediaScope.ChatAttachment ||
-            asset.OwnerUserId != senderId ||
-            asset.Status != MediaAssetStatus.Pending ||
-            asset.RoomId != null ||
-            asset.DeletedAt != null);
+        var mediaAssets = await _mediaReservationService.LoadForPersistenceAsync(
+            admitted.MediaIds,
+            admitted.SenderId,
+            admitted.RoomId,
+            identity.MessageId,
+            cancellationToken);
 
-        if (invalidMedia == null)
-            return true;
+        if (mediaAssets is null)
+        {
+            _logger.LogWarning(
+                "Khong load duoc attachment snapshot cho User {UserId}, Room {RoomId}, MessageId={MessageId}.",
+                admitted.SenderId,
+                admitted.RoomId,
+                identity.MessageId);
 
-        _logger.LogWarning(
-            "Bao mat: User {UserId} gui media {MediaId} khong hop le vao Room {RoomId}. Scope={Scope}; Status={Status}; RoomId={MediaRoomId}; Owner={OwnerUserId}; DeletedAt={DeletedAt}",
-            senderId,
-            invalidMedia.Id,
-            roomId,
-            invalidMedia.Scope,
-            invalidMedia.Status,
-            invalidMedia.RoomId,
-            invalidMedia.OwnerUserId,
-            invalidMedia.DeletedAt);
+            if (reservation.IsNewReservation)
+            {
+                await ReleaseReservationBestEffortAsync(admitted.MediaIds, identity.MessageId, cancellationToken);
+            }
 
-        return false;
+            throw new MessageAdmissionException(
+                MessageAdmissionError.Conflict(
+                    "message_attachment_snapshot_unavailable",
+                    "Khong the xac nhan tep dinh kem cua tin nhan."));
+        }
+
+        var acceptedEvent = new MessageAcceptedEventV1
+        {
+            CorrelationId = admitted.ClientMessageId,
+            MessageId = identity.MessageId,
+            ClientMessageId = admitted.ClientMessageId,
+            AcceptedAtUtc = identity.AcceptedAtUtc,
+            RoomId = admitted.RoomId,
+            SenderId = admitted.SenderId,
+            Content = admitted.Content,
+            MediaIds = admitted.MediaIds.ToList(),
+            Attachments = BuildAttachmentSnapshots(mediaAssets)
+        };
+        var messagePayload = JsonSerializer.Serialize(acceptedEvent);
+        var payloadBytes = Encoding.UTF8.GetByteCount(messagePayload);
+        if (payloadBytes > MessageAcceptedEventV1.MaxPayloadBytes)
+        {
+            _logger.LogWarning(
+                "Message event payload qua lon. MessageId={MessageId}, PayloadBytes={PayloadBytes}, MaxPayloadBytes={MaxPayloadBytes}",
+                identity.MessageId,
+                payloadBytes,
+                MessageAcceptedEventV1.MaxPayloadBytes);
+
+            if (reservation.IsNewReservation)
+            {
+                await ReleaseReservationBestEffortAsync(admitted.MediaIds, identity.MessageId, cancellationToken);
+            }
+
+            throw new MessageAdmissionException(
+                MessageAdmissionError.Validation(
+                    "message_payload_too_large",
+                    "Tin nhan vuot qua gioi han xu ly cua he thong."));
+        }
+
+        ChatMessagePublishResult publishResult;
+
+        try
+        {
+            publishResult = await _messagePublisher.PublishAsync(
+                acceptedEvent,
+                cancellationToken);
+        }
+        catch (Exception publishException)
+        {
+            if (reservation.IsNewReservation)
+            {
+                await ReleaseReservationBestEffortAsync(admitted.MediaIds, identity.MessageId, cancellationToken);
+            }
+
+            _logger.LogError(
+                publishException,
+                "Khong publish duoc message {MessageId} vao broker.",
+                identity.MessageId);
+            throw new MessageAdmissionException(
+                MessageAdmissionError.BrokerUnavailable(
+                    "message_broker_unavailable",
+                    "He thong chua the tiep nhan tin nhan luc nay, vui long thu lai."),
+                publishException);
+        }
+
+        using var publishedScope = ChatMessageLogScope.Begin(
+            _logger,
+            publishResult.MessageId,
+            admitted.ClientMessageId,
+            publishResult.StreamId,
+            admitted.RoomId,
+            admitted.SenderId,
+            group: "admission",
+            consumer: "chat-v2",
+            attempt: 0,
+            correlationId: admitted.ClientMessageId);
+
+        _logger.LogInformation(
+            "Message admission accepted. IsNewEvent={IsNewEvent}; MessageId={MessageId}; StreamId={StreamId}",
+            publishResult.IsNewEvent,
+            publishResult.MessageId,
+            publishResult.StreamId);
+
+        return new MessageAcceptedResult(
+            admitted.ClientMessageId,
+            publishResult.MessageId,
+            publishResult.StreamId,
+            publishResult.AcceptedAtUtc);
+    }
+
+    private static List<MessageAcceptedAttachmentV1> BuildAttachmentSnapshots(
+        IReadOnlyList<MediaAsset> mediaAssets)
+    {
+        if (mediaAssets.Count == 0)
+        {
+            return [];
+        }
+
+        return mediaAssets
+            .Select(asset => new MessageAcceptedAttachmentV1
+            {
+                MediaId = asset.Id,
+                Kind = asset.Kind,
+                AccessLevel = asset.AccessLevel,
+                BucketName = asset.BucketName,
+                StorageKey = asset.StorageKey,
+                Filename = asset.OriginalFileName,
+                Size = asset.SizeBytes,
+                MimeType = asset.ContentType,
+                PublicUrl = asset.AccessLevel == MediaAccessLevel.PublicRead
+                    ? asset.PublicUrl
+                    : null
+            })
+            .ToList();
+    }
+
+    private async Task ReleaseReservationBestEffortAsync(
+        IReadOnlyCollection<Guid> mediaIds,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _mediaReservationService.ReleaseAsync(mediaIds, messageId, cancellationToken);
+        }
+        catch (Exception releaseException)
+        {
+            _logger.LogError(
+                releaseException,
+                "Khong release duoc attachment reservation. MessageId={MessageId}",
+                messageId);
+        }
     }
 }
