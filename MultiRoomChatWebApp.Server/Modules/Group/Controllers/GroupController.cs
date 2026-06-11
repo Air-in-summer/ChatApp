@@ -1,6 +1,6 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.Enums;
@@ -14,15 +14,18 @@ namespace MultiRoomChatWebApp.Server.Modules.Group.Controllers;
 [Authorize]
 public class GroupController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IGroupService _groupService;
     private readonly IRoomService _roomService;
     private readonly IGroupPermissionsCache _permissionsCache;
 
     public GroupController(
+        ICurrentUserAccessor currentUser,
         IGroupService groupService,
         IRoomService roomService,
         IGroupPermissionsCache permissionsCache)
     {
+        _currentUser = currentUser;
         _groupService = groupService ?? throw new ArgumentNullException(nameof(groupService));
         _roomService = roomService ?? throw new ArgumentNullException(nameof(roomService));
         _permissionsCache = permissionsCache ?? throw new ArgumentNullException(nameof(permissionsCache));
@@ -36,11 +39,7 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<GroupDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyGroups()
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetCurrentUserId();
 
         var groups = await _groupService.GetMyGroupsAsync(userId);
         return Ok(groups);
@@ -89,11 +88,7 @@ public class GroupController : ControllerBase
             });
         }
 
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetCurrentUserId();
 
         var groupDto = await _groupService.CreateGroupAsync(userId, request);
 
@@ -134,11 +129,7 @@ public class GroupController : ControllerBase
             });
         }
 
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -185,11 +176,7 @@ public class GroupController : ControllerBase
             });
         }
 
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -214,11 +201,7 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs.RoomDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetGroupRooms(Guid id)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetCurrentUserId();
 
         var rooms = await _groupService.GetGroupRoomsAsync(id, userId);
         return Ok(rooms);
@@ -243,8 +226,7 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(GroupDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UpdateGroup(Guid id, [FromBody] UpdateGroupRequest request)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -285,8 +267,7 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateGroupRoom(Guid id, Guid roomId, [FromBody] UpdateRoomRequest request)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -336,8 +317,7 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteGroupRoom(Guid id, Guid roomId)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -374,8 +354,7 @@ public class GroupController : ControllerBase
     [HttpPatch("{id}/members/{targetUserId}/role")]
     public async Task<IActionResult> UpdateMemberRole(Guid id, Guid targetUserId, [FromBody] MultiRoomChatWebApp.Server.Modules.Group.Core.Enums.GroupRole newRole)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         await _groupService.UpdateMemberRoleAsync(userId, id, targetUserId, newRole);
         return NoContent();
@@ -387,8 +366,7 @@ public class GroupController : ControllerBase
     [HttpPost("{id}/transfer-ownership")]
     public async Task<IActionResult> TransferOwnership(Guid id, [FromBody] Guid newOwnerId)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         await _groupService.TransferOwnershipAsync(userId, id, newOwnerId);
         return NoContent();
@@ -400,8 +378,7 @@ public class GroupController : ControllerBase
     [HttpPost("{id}/leave")]
     public async Task<IActionResult> LeaveGroup(Guid id)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -425,8 +402,7 @@ public class GroupController : ControllerBase
     [HttpPost("{id}/kick/{userId}")]
     public async Task<IActionResult> KickMember(Guid id, Guid userId)
     {
-        var adminIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(adminIdString, out Guid adminId)) return Unauthorized();
+        var adminId = GetCurrentUserId();
 
         try
         {
@@ -454,8 +430,7 @@ public class GroupController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteGroup(Guid id)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out Guid userId)) return Unauthorized();
+        var userId = GetCurrentUserId();
 
         try
         {
@@ -499,8 +474,7 @@ public class GroupController : ControllerBase
             return BadRequest(new ProblemDetails { Detail = "Danh sách UserIds không được trống." });
         }
 
-        var requesterIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(requesterIdString, out Guid requesterId)) return Unauthorized();
+        var requesterId = GetCurrentUserId();
 
         // 1. Kiểm tra quyền của người gọi (Sử dụng Cache O(1))
         var requesterRole = await _permissionsCache.GetMemberRoleAsync(id, requesterId);
@@ -555,23 +529,12 @@ public class GroupController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetPrivateRoomMemberIds(Guid id, Guid roomId)
     {
-        /*var requesterIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(requesterIdString, out Guid requesterId)) return Unauthorized();
-
-        // 1. Kiểm tra quyền của người gọi (Sử dụng Cache O(1))
-        var requesterRole = await _permissionsCache.GetMemberRoleAsync(id, requesterId);
-        if (requesterRole != GroupRole.Owner && requesterRole != GroupRole.Admin)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new ProblemDetails
-            {
-                Status = StatusCodes.Status403Forbidden,
-                Title = "Không có quyền",
-                Detail = "Chỉ Owner hoặc Admin mới có quyền xem danh sách thành viên của phòng Private để quản lý."
-            });
-        }*/
-
-        // 2. Lấy dữ liệu (Từ Cache O(1))
         var memberIds = await _roomService.GetRoomMemberIdsAsync(roomId);
         return Ok(memberIds);
+    }
+
+    private Guid GetCurrentUserId()
+    {
+        return _currentUser.GetUserIdOrThrow();
     }
 }

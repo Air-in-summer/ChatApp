@@ -1,10 +1,9 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
-using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
 namespace MultiRoomChatWebApp.Server.Modules.User.Controllers;
 
@@ -16,13 +15,16 @@ namespace MultiRoomChatWebApp.Server.Modules.User.Controllers;
 [Authorize]
 public class UserRelationshipsController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IUserRelationshipService _relationshipService;
     private readonly IUserPresenceService _presenceService;
 
     public UserRelationshipsController(
+        ICurrentUserAccessor currentUser,
         IUserRelationshipService relationshipService,
         IUserPresenceService presenceService)
     {
+        _currentUser = currentUser;
         _relationshipService = relationshipService;
         _presenceService = presenceService;
     }
@@ -193,10 +195,6 @@ public class UserRelationshipsController : ControllerBase
 
     private Guid GetCurrentUserId()
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var currentUserId))
-            throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
-
-        return currentUserId;
+        return _currentUser.GetUserIdOrThrow();
     }
 }

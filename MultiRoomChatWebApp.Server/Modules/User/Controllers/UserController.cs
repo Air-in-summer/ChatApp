@@ -1,6 +1,6 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Shared.Exceptions;
@@ -12,10 +12,12 @@ namespace MultiRoomChatWebApp.Server.Modules.User.Controllers;
 [Authorize]
 public class UserController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IUserService _userService;
 
-    public UserController(IUserService userService)
+    public UserController(ICurrentUserAccessor currentUser, IUserService userService)
     {
+        _currentUser = currentUser;
         _userService = userService;
     }
 
@@ -106,7 +108,6 @@ public class UserController : ControllerBase
 
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdString, out currentUserId);
+        return _currentUser.TryGetUserId(out currentUserId);
     }
 }

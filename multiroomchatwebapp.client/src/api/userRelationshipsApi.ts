@@ -1,4 +1,4 @@
-import { createAuthClient } from './apiClient';
+import { apiClient } from './apiClient';
 import type {
   BlockedUserDto,
   BlockUserRequest,
@@ -10,95 +10,78 @@ import type {
 
 const RELATIONSHIPS_BASE_URL = '/api/v1/users/relationships';
 
-export const getFriends = async (token: string): Promise<FriendDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<FriendDto[]>(`${RELATIONSHIPS_BASE_URL}/friends`);
+export const getFriends = async (): Promise<FriendDto[]> => {
+  const response = await apiClient.get<FriendDto[]>(`${RELATIONSHIPS_BASE_URL}/friends`);
   return response.data;
 };
 
-export const removeFriend = async (token: string, userId: string): Promise<void> => {
-  const client = createAuthClient(token);
-  await client.delete(`${RELATIONSHIPS_BASE_URL}/friends/${userId}`);
+export const removeFriend = async (userId: string): Promise<void> => {
+  await apiClient.delete(`${RELATIONSHIPS_BASE_URL}/friends/${userId}`);
 };
 
-export const getIncomingFriendRequests = async (token: string): Promise<FriendRequestDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<FriendRequestDto[]>(`${RELATIONSHIPS_BASE_URL}/friend-requests/incoming`);
+export const getIncomingFriendRequests = async (): Promise<FriendRequestDto[]> => {
+  const response = await apiClient.get<FriendRequestDto[]>(`${RELATIONSHIPS_BASE_URL}/friend-requests/incoming`);
   return response.data;
 };
 
-export const getOutgoingFriendRequests = async (token: string): Promise<FriendRequestDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<FriendRequestDto[]>(`${RELATIONSHIPS_BASE_URL}/friend-requests/outgoing`);
+export const getOutgoingFriendRequests = async (): Promise<FriendRequestDto[]> => {
+  const response = await apiClient.get<FriendRequestDto[]>(`${RELATIONSHIPS_BASE_URL}/friend-requests/outgoing`);
   return response.data;
 };
 
 export const createFriendRequest = async (
-  token: string,
   receiverId: string,
 ): Promise<FriendRequestDto> => {
-  const client = createAuthClient(token);
   const request: CreateFriendRequestRequest = { receiverId };
-  const response = await client.post<FriendRequestDto>(`${RELATIONSHIPS_BASE_URL}/friend-requests`, request);
+  const response = await apiClient.post<FriendRequestDto>(`${RELATIONSHIPS_BASE_URL}/friend-requests`, request);
   return response.data;
 };
 
 export const acceptFriendRequest = async (
-  token: string,
   requestId: string,
 ): Promise<FriendRequestDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<FriendRequestDto>(
+  const response = await apiClient.post<FriendRequestDto>(
     `${RELATIONSHIPS_BASE_URL}/friend-requests/${requestId}/accept`,
   );
   return response.data;
 };
 
 export const declineFriendRequest = async (
-  token: string,
   requestId: string,
 ): Promise<FriendRequestDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<FriendRequestDto>(
+  const response = await apiClient.post<FriendRequestDto>(
     `${RELATIONSHIPS_BASE_URL}/friend-requests/${requestId}/decline`,
   );
   return response.data;
 };
 
 export const cancelFriendRequest = async (
-  token: string,
   requestId: string,
 ): Promise<FriendRequestDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<FriendRequestDto>(
+  const response = await apiClient.post<FriendRequestDto>(
     `${RELATIONSHIPS_BASE_URL}/friend-requests/${requestId}/cancel`,
   );
   return response.data;
 };
 
-export const getBlockedUsers = async (token: string): Promise<BlockedUserDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<BlockedUserDto[]>(`${RELATIONSHIPS_BASE_URL}/blocks`);
+export const getBlockedUsers = async (): Promise<BlockedUserDto[]> => {
+  const response = await apiClient.get<BlockedUserDto[]>(`${RELATIONSHIPS_BASE_URL}/blocks`);
   return response.data;
 };
 
 export const blockUser = async (
-  token: string,
   blockedUserId: string,
 ): Promise<BlockedUserDto> => {
-  const client = createAuthClient(token);
   const request: BlockUserRequest = { blockedUserId };
-  const response = await client.post<BlockedUserDto>(`${RELATIONSHIPS_BASE_URL}/blocks`, request);
+  const response = await apiClient.post<BlockedUserDto>(`${RELATIONSHIPS_BASE_URL}/blocks`, request);
   return response.data;
 };
 
-export const unblockUser = async (token: string, userId: string): Promise<void> => {
-  const client = createAuthClient(token);
-  await client.delete(`${RELATIONSHIPS_BASE_URL}/blocks/${userId}`);
+export const unblockUser = async (userId: string): Promise<void> => {
+  await apiClient.delete(`${RELATIONSHIPS_BASE_URL}/blocks/${userId}`);
 };
 
-export const getFriendsPresence = async (token: string): Promise<PresenceDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<PresenceDto[]>(`${RELATIONSHIPS_BASE_URL}/presence/friends`);
+export const getFriendsPresence = async (): Promise<PresenceDto[]> => {
+  const response = await apiClient.get<PresenceDto[]>(`${RELATIONSHIPS_BASE_URL}/presence/friends`);
   return response.data;
 };

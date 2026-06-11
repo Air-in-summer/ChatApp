@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createAuthClient } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { UserActionMenu } from '../user/UserActionMenu';
@@ -63,7 +63,7 @@ const SectionState = ({ children }: { children: string }) => (
 );
 
 export const FriendsPanel = () => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<FriendsTab>('friends');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
@@ -94,15 +94,15 @@ export const FriendsPanel = () => {
   } = useUserRelationshipsStore();
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
-    void loadFriends(accessToken).catch(() => undefined);
-    void loadIncomingRequests(accessToken).catch(() => undefined);
-    void loadOutgoingRequests(accessToken).catch(() => undefined);
-    void loadBlockedUsers(accessToken).catch(() => undefined);
-    void loadFriendsPresence(accessToken).catch(() => undefined);
+    void loadFriends().catch(() => undefined);
+    void loadIncomingRequests().catch(() => undefined);
+    void loadOutgoingRequests().catch(() => undefined);
+    void loadBlockedUsers().catch(() => undefined);
+    void loadFriendsPresence().catch(() => undefined);
   }, [
-    accessToken,
+    isAuthenticated,
     loadFriends,
     loadIncomingRequests,
     loadOutgoingRequests,
@@ -115,7 +115,7 @@ export const FriendsPanel = () => {
     searchRequestIdRef.current += 1;
     const requestId = searchRequestIdRef.current;
 
-    if (!accessToken || keyword.length < 2) {
+    if (!isAuthenticated || keyword.length < 2) {
       setSearchResults([]);
       setIsSearching(false);
       setSearchError(null);
@@ -127,8 +127,7 @@ export const FriendsPanel = () => {
 
     const timer = window.setTimeout(async () => {
       try {
-        const client = createAuthClient(accessToken);
-        const response = await client.get<UserSearchResult[]>(
+        const response = await apiClient.get<UserSearchResult[]>(
           `/api/v1/users/search?keyword=${encodeURIComponent(keyword)}`,
         );
 
@@ -147,7 +146,7 @@ export const FriendsPanel = () => {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [accessToken, isBlockedByCurrentUser, searchQuery]);
+  }, [isAuthenticated, isBlockedByCurrentUser, searchQuery]);
 
   const counts = useMemo(
     () => ({

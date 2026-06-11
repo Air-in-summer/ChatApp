@@ -1,30 +1,41 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
-import { apiClient, configureAuthInterceptors } from '../api/apiClient';
-import type { AuthUser, AuthClientResponse, UserProfile } from '../types/auth';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import {
+  apiClient,
+  configureBffUnauthorizedHandler,
+  resetBffCsrfToken,
+} from '../api/apiClient';
+import type { AuthUser, AuthClientResponse, AuthSessionResponse, UserProfile } from '../types/auth';
 
 /**
  * Định nghĩa contract của AuthContext.
- * accessToken chỉ tồn tại trong RAM, không bao giờ được persist.
+ * Contract xác thực frontend trong giai đoạn chuyển từ Bearer sang BFF session.
  */
 interface AuthContextType {
-  /** AccessToken ngắn hạn (15 phút). null = chưa đăng nhập. */
-  accessToken: string | null;
   /** Thông tin user đang đăng nhập. null = chưa đăng nhập. */
   user: AuthUser | null;
   /**
    * isLoading = true khi đang kiểm tra phiên đăng nhập (lần đầu app load).
-   * Dùng để tránh redirect về /login khi chưa kịp refresh token.
+   * Dùng để tránh redirect về /login khi chưa khôi phục xong session.
    */
   isLoading: boolean;
-  /** true nếu có accessToken hợp lệ trong bộ nhớ. */
+  /** true nếu có user session hợp lệ trong state. */
   isAuthenticated: boolean;
-  /** Đăng nhập và lưu token vào RAM. */
+  /** Đăng nhập và lưu thông tin user của BFF session vào RAM. */
   login: (email: string, password: string) => Promise<void>;
+  /** Đăng ký tài khoản mới và nhận session đăng nhập nếu backend cấp thành công. */
+  register: (request: RegisterRequest) => Promise<void>;
   /** Đăng xuất: gọi API xóa Cookie + xóa RAM. */
   logout: () => Promise<void>;
-  /** Dùng nội bộ (AuthProvider) và Axios interceptor để lấy token mới. */
-  refreshToken: () => Promise<string | null>;
+  /** Tải lại trạng thái đăng nhập bằng BFF session cookie. */
+  loadSession: () => Promise<AuthUser | null>;
   updateCurrentUserProfile: (profile: UserProfile) => void;
+}
+
+interface RegisterRequest {
+  username: string;
+  displayName: string;
+  email: string;
+  password: string;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -35,83 +46,77 @@ const AuthContext = createContext<AuthContextType | null>(null);
  * @remarks
  * Luồng khởi tạo (khi F5 trang):
  * 1. isLoading = true → giữ nguyên, ProtectedRoute hiện Spinner.
- * 2. Tự động gọi POST /api/auth/refresh để dùng HttpOnly Cookie đổi lấy AccessToken mới.
- * 3. Nếu thành công → lưu token + user vào RAM, isLoading = false.
- * 4. Nếu thất bại (Cookie hết hạn / chưa đăng nhập) → isLoading = false, token = null.
+ * 2. Tự động gọi GET /api/auth/session để khôi phục BFF session.
+ * 3. Nếu thành công → lưu user vào RAM, isLoading = false.
+ * 4. Nếu thất bại (session hết hạn / chưa đăng nhập) → isLoading = false, user = null.
  * 5. ProtectedRoute kiểm tra isAuthenticated và điều hướng phù hợp.
  */
-// Lưu promise để chống gọi API nhiều lần đồng thời (Race Condition)
-// Đặc biệt khi React 18 Strict Mode mount component 2 lần.
-let refreshPromise: Promise<string | null> | null = null;
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const accessTokenRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    accessTokenRef.current = accessToken;
-  }, [accessToken]);
+  const clearAuthState = useCallback((): void => {
+    resetBffCsrfToken();
+    setUser(null);
+  }, []);
 
-  const refreshToken = useCallback(async (): Promise<string | null> => {
-    // Nếu có một tiến trình refresh đang chạy, return luôn tiến trình đó
-    if (refreshPromise) return refreshPromise;
+  const mapSessionToUser = useCallback((data: AuthSessionResponse): AuthUser => ({
+    userId: data.userId,
+    username: data.username,
+    displayName: data.displayName,
+    avatarUrl: data.avatarUrl,
+  }), []);
 
-    refreshPromise = (async () => {
-      try {
-        const response = await apiClient.post<AuthClientResponse>('/api/auth/refresh');
-        const data = response.data;
+  const loadSession = useCallback(async (): Promise<AuthUser | null> => {
+    try {
+      const response = await apiClient.get<AuthSessionResponse>('/api/auth/session');
+      const sessionUser = mapSessionToUser(response.data);
 
-        setAccessToken(data.accessToken);
-        setUser({
-          userId: data.userId,
-          username: data.username,
-          displayName: data.displayName,
-          avatarUrl: data.avatarUrl,
-        });
+      setUser(sessionUser);
+      resetBffCsrfToken();
 
-        return data.accessToken;
-      } catch {
-        setAccessToken(null);
-        setUser(null);
-        return null;
-      } finally {
-        // Hoàn thành xong thì dọn dẹp lock
-        refreshPromise = null;
-      }
-    })();
+      return sessionUser;
+    } catch {
+      clearAuthState();
+      return null;
+    }
+  }, [clearAuthState, mapSessionToUser]);
 
-    return refreshPromise;
+  const applyAuthResponse = useCallback((data: AuthClientResponse): void => {
+    setUser({
+      userId: data.userId,
+      username: data.username,
+      displayName: data.displayName,
+      avatarUrl: data.avatarUrl,
+    });
+    resetBffCsrfToken();
   }, []);
 
 
   /**
-   * Lần F5 đầu tiên, thử khôi phục phiên từ Cookie.
+   * Lần F5 đầu tiên, thử khôi phục phiên từ BFF session cookie.
    * Chỉ chạy một lần duy nhất khi mount.
    */
   useEffect(() => {
     const initializeAuth = async () => {
-      await refreshToken();
-      setIsLoading(false); // Dù thành công hay thất bại, đều tắt loading
+      await loadSession();
+      setIsLoading(false);
     };
 
     initializeAuth();
-  }, [refreshToken]);
+  }, [loadSession]);
 
-  /**
-   * Đăng ký Axios interceptor bridge để request bị 401 có thể refresh token và retry một lần.
-   */
   useEffect(() => {
-    configureAuthInterceptors({
-      getAccessToken: () => accessTokenRef.current,
-      refreshAccessToken: refreshToken,
+    configureBffUnauthorizedHandler(() => {
+      clearAuthState();
     });
-  }, [refreshToken]);
+
+    return () => configureBffUnauthorizedHandler(null);
+  }, [clearAuthState]);
 
   /**
-   * Đăng nhập: Gọi API, nhận AccessToken về RAM.
-   * Backend sẽ tự Set-Cookie HttpOnly cho RefreshToken.
+   * Đăng nhập: gọi API để backend tạo BFF session.
+   * Frontend chỉ giữ thông tin user, không nhận hoặc lưu application token.
    *
    * @param email - Email người dùng.
    * @param password - Mật khẩu.
@@ -122,19 +127,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       email,
       password,
     });
-    const data = response.data;
 
-    setAccessToken(data.accessToken);
-    setUser({
-      userId: data.userId,
-      username: data.username,
-      displayName: data.displayName,
-      avatarUrl: data.avatarUrl,
-    });
-  }, []);
+    applyAuthResponse(response.data);
+  }, [applyAuthResponse]);
+
+  const register = useCallback(async (request: RegisterRequest): Promise<void> => {
+    const response = await apiClient.post<AuthClientResponse>('/api/auth/register', request);
+
+    applyAuthResponse(response.data);
+  }, [applyAuthResponse]);
 
   /**
-   * Đăng xuất: Gọi API thu hồi RefreshToken trong DB + xóa Cookie.
+   * Đăng xuất: gọi API thu hồi BFF session và xóa cookie phiên.
    * Sau đó xóa trạng thái trong RAM.
    */
   const updateCurrentUserProfile = useCallback((profile: UserProfile): void => {
@@ -154,27 +158,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = useCallback(async (): Promise<void> => {
     try {
-      await apiClient.post('/api/auth/logout');
+      await apiClient.post('/api/auth/logout', undefined, {
+        _skipBffUnauthorized: true,
+      });
     } catch {
       // Kể cả khi API lỗi, vẫn xóa RAM để logout phía client
     } finally {
-      setAccessToken(null);
-      setUser(null);
+      clearAuthState();
     }
-  }, []);
+  }, [clearAuthState]);
 
   // [FIX] Memoize context value để tránh tạo object mới mỗi render
   // → ngăn toàn bộ consumer re-render khi AuthProvider re-render nhưng data không đổi
   const value: AuthContextType = useMemo(() => ({
-    accessToken,
     user,
     isLoading,
-    isAuthenticated: !!accessToken,
+    isAuthenticated: !!user,
     login,
+    register,
     logout,
-    refreshToken,
+    loadSession,
     updateCurrentUserProfile,
-  }), [accessToken, user, isLoading, login, logout, refreshToken, updateCurrentUserProfile]);
+  }), [user, isLoading, login, register, logout, loadSession, updateCurrentUserProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

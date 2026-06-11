@@ -5,7 +5,7 @@
 
 /**
  * Thông tin user lưu trong RAM (RAM-only, không persist).
- * Dữ liệu này tương ứng với AuthClientResponse từ Backend.
+ * Dữ liệu này tương ứng với phần public của auth/session response.
  */
 export interface AuthUser {
   userId: string;
@@ -15,15 +15,31 @@ export interface AuthUser {
 }
 
 /**
- * Response từ API Login/Register/Refresh.
- * Lưu ý: refreshToken KHÔNG có trong này - nó nằm trong HttpOnly Cookie.
+ * Response public từ API Login/Register trong BFF mode.
+ * Không chứa access token hoặc refresh token.
  */
 export interface AuthClientResponse {
-  accessToken: string;
   userId: string;
   username: string;
   displayName: string;
   avatarUrl?: string | null;
+  expiresAtUtc?: string;
+}
+
+export interface AuthSessionResponse {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  expiresAtUtc: string;
+}
+
+export interface AuthUserResponse {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  expiresAtUtc?: string;
 }
 
 export interface UserProfile {

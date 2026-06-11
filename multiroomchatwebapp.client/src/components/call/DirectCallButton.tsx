@@ -11,7 +11,7 @@ interface DirectCallButtonProps {
 }
 
 export const DirectCallButton = ({ dmRoomId, displayName }: DirectCallButtonProps) => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const {
     joinDirectCallSession,
     shouldSwitchVoiceSession,
@@ -20,7 +20,7 @@ export const DirectCallButton = ({ dmRoomId, displayName }: DirectCallButtonProp
   const [isCalling, setIsCalling] = useState(false);
 
   const handleStartCall = async () => {
-    if (!accessToken || isCalling) return;
+    if (!isAuthenticated || isCalling) return;
 
     if (!shouldSwitchVoiceSession()) {
       return;
@@ -29,7 +29,7 @@ export const DirectCallButton = ({ dmRoomId, displayName }: DirectCallButtonProp
     setIsCalling(true);
 
     try {
-      const response = await startDirectCall(accessToken, dmRoomId);
+      const response = await startDirectCall(dmRoomId);
       await leaveCurrentVoiceSessionForSwitch(response.session.sessionId);
       await joinDirectCallSession(response, displayName || 'DM call');
     } catch (error) {
@@ -45,7 +45,7 @@ export const DirectCallButton = ({ dmRoomId, displayName }: DirectCallButtonProp
       type="button"
       className={`${styles.callButton} ${isCalling ? styles.calling : ''}`}
       onClick={handleStartCall}
-      disabled={!accessToken || isCalling}
+      disabled={!isAuthenticated || isCalling}
       title={`Gọi ${displayName}`}
       aria-label={`Gọi ${displayName}`}
     >

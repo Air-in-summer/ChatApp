@@ -1,10 +1,9 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
-using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
 namespace MultiRoomChatWebApp.Server.Modules.Media.Controllers;
 
@@ -15,13 +14,16 @@ public sealed class MediaController : ControllerBase
 {
     private const long MaxChatMediaRequestBytes = 110L * 1024 * 1024;
 
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IAvatarMediaService _avatarMediaService;
     private readonly IChatMediaService _chatMediaService;
 
     public MediaController(
+        ICurrentUserAccessor currentUser,
         IAvatarMediaService avatarMediaService,
         IChatMediaService chatMediaService)
     {
+        _currentUser = currentUser;
         _avatarMediaService = avatarMediaService;
         _chatMediaService = chatMediaService;
     }
@@ -143,10 +145,6 @@ public sealed class MediaController : ControllerBase
 
     private Guid GetCurrentUserIdOrThrow()
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userIdString, out var currentUserId))
-            return currentUserId;
-
-        throw ApiException.Unauthorized("user_context_missing", "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
+        return _currentUser.GetUserIdOrThrow();
     }
 }

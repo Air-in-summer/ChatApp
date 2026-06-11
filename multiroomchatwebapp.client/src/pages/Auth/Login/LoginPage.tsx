@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { API_BASE_URL } from '../../../api/apiClient';
+import { buildApiUrl } from '../../../api/apiClient';
 import { useAuth } from '../../../context/AuthContext';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
@@ -17,8 +17,8 @@ import styles from './LoginPage.module.css';
  * Luồng xử lý:
  * 1. Validate form phía Frontend.
  * 2. Gọi hàm `login` từ AuthContext → gọi API /api/auth/login.
- * 3. Backend trả về AccessToken trong body, RefreshToken trong HttpOnly Cookie.
- * 4. AuthContext lưu AccessToken vào RAM.
+ * 3. Backend cấp BFF session cookie và trả thông tin user/session.
+ * 4. AuthContext cập nhật trạng thái đăng nhập.
  * 5. Điều hướng về Dashboard.
  *
  * Lưu ý: KHÔNG còn lưu bất kỳ token nào vào localStorage nữa.
@@ -77,10 +77,10 @@ export const LoginPage = () => {
   const handleGoogleLogin = () => {
     setGoogleLoading(true);
 
-    const googleLoginUrl = new URL('/api/auth/google/login', API_BASE_URL);
-    googleLoginUrl.searchParams.set('returnUrl', returnUrl);
-
-    window.location.assign(googleLoginUrl.toString());
+    const query = new URLSearchParams({ returnUrl });
+    window.location.assign(
+      `${buildApiUrl('/api/auth/google/login')}?${query.toString()}`
+    );
   };
 
   return (

@@ -1,4 +1,4 @@
-import { createAuthClient } from './apiClient';
+import { apiClient } from './apiClient';
 import type {
   EditMessageRequest,
   MessageDeletedDto,
@@ -14,13 +14,11 @@ import type {
  * Sua noi dung tin nhan cua chinh nguoi gui.
  */
 export const editMessage = async (
-  token: string,
   roomId: string,
   messageId: string,
   request: EditMessageRequest
 ): Promise<MessageEditedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.patch<MessageEditedDto>(
+  const response = await apiClient.patch<MessageEditedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}`,
     request
   );
@@ -31,12 +29,10 @@ export const editMessage = async (
  * Xoa mem tin nhan voi moi nguoi.
  */
 export const deleteMessage = async (
-  token: string,
   roomId: string,
   messageId: string
 ): Promise<MessageDeletedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.delete<MessageDeletedDto>(
+  const response = await apiClient.delete<MessageDeletedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}`
   );
   return response.data;
@@ -46,13 +42,11 @@ export const deleteMessage = async (
  * Them reaction cua nguoi dung hien tai vao tin nhan.
  */
 export const addMessageReaction = async (
-  token: string,
   roomId: string,
   messageId: string,
   request: MessageReactionRequest
 ): Promise<MessageReactionUpdatedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.put<MessageReactionUpdatedDto>(
+  const response = await apiClient.put<MessageReactionUpdatedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}/reactions`,
     request
   );
@@ -63,13 +57,11 @@ export const addMessageReaction = async (
  * Go reaction cua nguoi dung hien tai khoi tin nhan.
  */
 export const removeMessageReaction = async (
-  token: string,
   roomId: string,
   messageId: string,
   request: MessageReactionRequest
 ): Promise<MessageReactionUpdatedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.delete<MessageReactionUpdatedDto>(
+  const response = await apiClient.delete<MessageReactionUpdatedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}/reactions`,
     { data: request }
   );
@@ -80,12 +72,10 @@ export const removeMessageReaction = async (
  * Ghim mot tin nhan trong phong.
  */
 export const pinMessage = async (
-  token: string,
   roomId: string,
   messageId: string
 ): Promise<MessagePinnedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<MessagePinnedDto>(
+  const response = await apiClient.post<MessagePinnedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}/pin`
   );
   return response.data;
@@ -95,12 +85,10 @@ export const pinMessage = async (
  * Bo ghim mot tin nhan trong phong.
  */
 export const unpinMessage = async (
-  token: string,
   roomId: string,
   messageId: string
 ): Promise<MessageUnpinnedDto> => {
-  const client = createAuthClient(token);
-  const response = await client.delete<MessageUnpinnedDto>(
+  const response = await apiClient.delete<MessageUnpinnedDto>(
     `/api/v1/chat/rooms/${roomId}/messages/${messageId}/pin`
   );
   return response.data;
@@ -110,12 +98,10 @@ export const unpinMessage = async (
  * Lay danh sach tin nhan dang duoc ghim, moi nhat truoc.
  */
 export const getPinnedMessages = async (
-  token: string,
   roomId: string,
   limit = 50
 ): Promise<MessageDto[]> => {
-  const client = createAuthClient(token);
-  const response = await client.get<MessageDto[]>(
+  const response = await apiClient.get<MessageDto[]>(
     `/api/v1/chat/rooms/${roomId}/pins`,
     { params: { limit } }
   );

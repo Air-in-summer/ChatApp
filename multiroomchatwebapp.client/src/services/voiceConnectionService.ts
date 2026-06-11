@@ -11,7 +11,6 @@ const toExactDeviceConstraint = (deviceId: string | null): ConstrainDOMString | 
   deviceId ? { exact: deviceId } : undefined;
 
 export interface JoinVoiceSessionParams {
-  accessToken: string;
   session: ActiveVoiceSession;
   token: string;
   liveKitHost: string;
@@ -77,17 +76,13 @@ const getRefreshDelayMs = (expiresAtUtc: string, expiresInSeconds: number): numb
   return Math.max(5_000, delayMs);
 };
 
-const scheduleTokenRefresh = (
-  accessToken: string,
-  expiresAtUtc: string,
-  expiresInSeconds: number
-) => {
+const scheduleTokenRefresh = (expiresAtUtc: string, expiresInSeconds: number) => {
   clearTokenRefreshTimer();
 
   const delayMs = getRefreshDelayMs(expiresAtUtc, expiresInSeconds);
 
   tokenRefreshTimerRef.current = window.setTimeout(() => {
-    void refreshLiveKitToken(accessToken).catch((error) => {
+    void refreshLiveKitToken().catch((error) => {
       console.error('Không thể refresh LiveKit token:', error);
 
       cleanupRoom();
@@ -98,7 +93,7 @@ const scheduleTokenRefresh = (
   }, delayMs);
 };
 
-const refreshLiveKitToken = async (accessToken: string) => {
+const refreshLiveKitToken = async () => {
   const state = useVoiceStore.getState();
   const session = state.activeSession;
 
@@ -108,15 +103,15 @@ const refreshLiveKitToken = async (accessToken: string) => {
 
   const response =
     session.kind === 'channel'
-      ? await getVoiceToken(accessToken, session.sourceRoomId)
-      : await getVoiceSessionToken(accessToken, session.sessionId);
+      ? await getVoiceToken(session.sourceRoomId)
+      : await getVoiceSessionToken(session.sessionId);
 
   useVoiceStore.getState().setTokenMetadata({
     expiresAtUtc: response.expiresAtUtc,
     expiresInSeconds: response.expiresInSeconds,
   });
 
-  scheduleTokenRefresh(accessToken, response.expiresAtUtc, response.expiresInSeconds);
+  scheduleTokenRefresh(response.expiresAtUtc, response.expiresInSeconds);
 };
 
 /**
@@ -177,7 +172,6 @@ const setupRoomEventListeners = (room: Room) => {
  * Error cases: connect lỗi sẽ cleanup Room tạm và set `connectionStatus = error`.
  */
 export const joinVoiceSession = async ({
-  accessToken,
   session,
   token,
   liveKitHost,
@@ -207,7 +201,7 @@ export const joinVoiceSession = async ({
     await room.connect(liveKitHost, token);
     useVoiceStore.getState().setConnected(room);
     useVoiceStore.getState().setTokenMetadata({ expiresAtUtc, expiresInSeconds });
-    scheduleTokenRefresh(accessToken, expiresAtUtc, expiresInSeconds);
+    scheduleTokenRefresh(expiresAtUtc, expiresInSeconds);
 
     try {
       const { isMicEnabled, isDeafened } = useVoiceStore.getState();
@@ -230,14 +224,13 @@ export const joinVoiceSession = async ({
  * Join một Voice Room qua LiveKit.
  *
  * Input:
- * - accessToken: JWT hiện tại của app.
  * - roomId: ID phòng Voice trong PostgreSQL.
  * - roomName: tên phòng hiển thị trên UI.
  *
  * Output: lấy token voice room rồi forward vào `joinVoiceSession`.
  * Error cases: token/API/connect lỗi sẽ cleanup Room tạm và set `connectionStatus = error`.
  */
-export const joinVoiceRoom = async (accessToken: string, roomId: string, roomName: string) => {
+export const joinVoiceRoom = async (roomId: string, roomName: string) => {
   const session: ActiveVoiceSession = {
     kind: 'channel',
     sourceRoomId: roomId,
@@ -254,10 +247,9 @@ export const joinVoiceRoom = async (accessToken: string, roomId: string, roomNam
   }
 
   try {
-    const { token, liveKitHost, expiresAtUtc, expiresInSeconds } = await getVoiceToken(accessToken, roomId);
+    const { token, liveKitHost, expiresAtUtc, expiresInSeconds } = await getVoiceToken(roomId);
 
     await joinVoiceSession({
-      accessToken,
       session,
       token,
       liveKitHost,

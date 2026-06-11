@@ -24,7 +24,7 @@ export const AddMemberToRoomModal = ({
   onClose,
   onSuccess
 }: AddMemberToRoomModalProps) => {
-  const { accessToken: token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,12 +35,12 @@ export const AddMemberToRoomModal = ({
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!token) return;
+      if (!isAuthenticated) return;
       try {
         // Fetch đồng thời cả danh sách Group Member VÀ danh sách ID đã có trong phòng (Từ Redis O(1))
         const [allMembers, existingIds] = await Promise.all([
-          getGroupMembers(token, groupId),
-          getRoomMemberIds(token, groupId, roomId)
+          getGroupMembers(groupId),
+          getRoomMemberIds(groupId, roomId)
         ]);
 
         const existingSet = new Set(existingIds);
@@ -57,7 +57,7 @@ export const AddMemberToRoomModal = ({
     };
 
     fetchData();
-  }, [token, groupId, roomId]);
+  }, [isAuthenticated, groupId, roomId]);
 
   const toggleSelect = (userId: string) => {
     const newSet = new Set(selectedIds);
@@ -70,11 +70,11 @@ export const AddMemberToRoomModal = ({
   };
 
   const handleSubmit = async () => {
-    if (!token || selectedIds.size === 0) return;
+    if (!isAuthenticated || selectedIds.size === 0) return;
     setIsSubmitting(true);
     setError(null);
     try {
-      const response = await addMembersToRoom(token, groupId, roomId, Array.from(selectedIds));
+      const response = await addMembersToRoom(groupId, roomId, Array.from(selectedIds));
       onSuccess(response.addedCount);
     } catch (err: any) {
       console.error("Add members error:", err);

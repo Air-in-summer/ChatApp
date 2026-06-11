@@ -1,4 +1,4 @@
-import { createAuthClient } from './apiClient';
+import { apiClient } from './apiClient';
 
 export type VoiceSessionKind = 'Channel' | 'DirectCall';
 
@@ -64,23 +64,21 @@ export interface VoiceTokenResponse {
 /**
  * Gọi API: POST /api/v1/voice/token/{roomId} - Lấy LiveKit Access Token để tham gia phòng Voice
  * 
- * @param token - AccessToken (JWT) từ AuthContext
  * @param roomId - ID của phòng Voice (phải là RoomType.Voice)
  * @returns Promise<VoiceTokenResponse> - JWT token + LiveKit host URL
  * @throws AxiosError
- *   - 401: JWT không hợp lệ hoặc hết hạn
+ *   - 401: Session đăng nhập không hợp lệ hoặc hết hạn
  *   - 403: User không phải thành viên của phòng
  *   - 404: Phòng không tồn tại
  * 
  * @example
  * ```ts
- * const { token: liveKitToken, liveKitHost } = await getVoiceToken(authToken, roomId);
+ * const { token: liveKitToken, liveKitHost } = await getVoiceToken(roomId);
  * // Dùng liveKitToken + liveKitHost để connect LiveKit SDK
  * ```
  */
-export const getVoiceToken = async (token: string, roomId: string): Promise<VoiceTokenResponse> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceTokenResponse>(`/api/v1/voice/token/${roomId}`);
+export const getVoiceToken = async (roomId: string): Promise<VoiceTokenResponse> => {
+  const response = await apiClient.post<VoiceTokenResponse>(`/api/v1/voice/token/${roomId}`);
   return response.data;
 };
 
@@ -88,11 +86,9 @@ export const getVoiceToken = async (token: string, roomId: string): Promise<Voic
  * Bắt đầu một DM call từ DirectMessage room.
  */
 export const startDirectCall = async (
-  token: string,
   dmRoomId: string
 ): Promise<VoiceSessionTokenResponseDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceSessionTokenResponseDto>(
+  const response = await apiClient.post<VoiceSessionTokenResponseDto>(
     `/api/v1/voice/sessions/direct/${dmRoomId}/start`
   );
   return response.data;
@@ -102,11 +98,9 @@ export const startDirectCall = async (
  * Accept một DM call đang ringing.
  */
 export const acceptVoiceSession = async (
-  token: string,
   sessionId: string
 ): Promise<VoiceSessionTokenResponseDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceSessionTokenResponseDto>(
+  const response = await apiClient.post<VoiceSessionTokenResponseDto>(
     `/api/v1/voice/sessions/${sessionId}/accept`
   );
   return response.data;
@@ -116,11 +110,9 @@ export const acceptVoiceSession = async (
  * Decline một DM call đang ringing.
  */
 export const declineVoiceSession = async (
-  token: string,
   sessionId: string
 ): Promise<VoiceSessionResponseDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceSessionResponseDto>(
+  const response = await apiClient.post<VoiceSessionResponseDto>(
     `/api/v1/voice/sessions/${sessionId}/decline`
   );
   return response.data;
@@ -130,11 +122,9 @@ export const declineVoiceSession = async (
  * Lấy lại LiveKit token cho reconnect/refresh của DM call.
  */
 export const getVoiceSessionToken = async (
-  token: string,
   sessionId: string
 ): Promise<VoiceSessionTokenResponseDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceSessionTokenResponseDto>(
+  const response = await apiClient.post<VoiceSessionTokenResponseDto>(
     `/api/v1/voice/sessions/${sessionId}/token`
   );
   return response.data;
@@ -144,11 +134,9 @@ export const getVoiceSessionToken = async (
  * Rời khỏi một DM call.
  */
 export const leaveVoiceSession = async (
-  token: string,
   sessionId: string
 ): Promise<VoiceSessionResponseDto> => {
-  const client = createAuthClient(token);
-  const response = await client.post<VoiceSessionResponseDto>(
+  const response = await apiClient.post<VoiceSessionResponseDto>(
     `/api/v1/voice/sessions/${sessionId}/leave`
   );
   return response.data;

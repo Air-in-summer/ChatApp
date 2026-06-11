@@ -1,7 +1,7 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using StackExchange.Redis;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Exceptions;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
@@ -52,8 +52,7 @@ public class ChatHub : Hub<IChatClient>
 
     public override async Task OnConnectedAsync()
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userIdString, out var currentUserId))
+        if (HubUserClaims.TryGetUserId(Context.User, out var currentUserId))
         {
             var isOnline = await _tracker.UserConnected(currentUserId, Context.ConnectionId);
             if (isOnline)
@@ -67,8 +66,7 @@ public class ChatHub : Hub<IChatClient>
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userIdString, out var currentUserId))
+        if (HubUserClaims.TryGetUserId(Context.User, out var currentUserId))
         {
             var isOffline = await _tracker.UserDisconnected(currentUserId, Context.ConnectionId);
             if (isOffline)
@@ -133,8 +131,7 @@ public class ChatHub : Hub<IChatClient>
 
     public async Task TypingStarted(Guid roomId)
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var currentUserId))
+        if (!HubUserClaims.TryGetUserId(Context.User, out var currentUserId))
         {
             return;
         }
@@ -144,8 +141,7 @@ public class ChatHub : Hub<IChatClient>
 
     public async Task TypingStopped(Guid roomId)
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var currentUserId))
+        if (!HubUserClaims.TryGetUserId(Context.User, out var currentUserId))
         {
             return;
         }
@@ -182,10 +178,7 @@ public class ChatHub : Hub<IChatClient>
 
     private Guid GetCurrentUserIdOrThrow()
     {
-        var userIdString = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdString, out var currentUserId)
-            ? currentUserId
-            : throw new HubException("Phien dang nhap khong hop le.");
+        return HubUserClaims.GetUserIdOrThrow(Context.User);
     }
 
     private static RedisKey GetReadReceiptMessageIdKey(Guid roomId) =>

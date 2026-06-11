@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { createAuthClient } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 import type { UserSearchResult } from '../../types/chat';
 import styles from './UserSearchModal.module.css';
 
@@ -24,7 +24,7 @@ interface UserSearchModalProps {
  * - Khóa scroll của body khi Modal đang mở.
  */
 export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps) => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -51,13 +51,12 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
       return;
     }
 
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const authClient = createAuthClient(accessToken);
-        const response = await authClient.get<UserSearchResult[]>(
+        const response = await apiClient.get<UserSearchResult[]>(
           `/api/v1/users/search?keyword=${encodeURIComponent(query)}`
         );
         setResults(response.data);
@@ -69,7 +68,7 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
     }, 300);
 
     return () => clearTimeout(timer); // Cleanup debounce
-  }, [query, accessToken]);
+  }, [query, isAuthenticated]);
 
   return (
     <>

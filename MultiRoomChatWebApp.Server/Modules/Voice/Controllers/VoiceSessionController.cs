@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces;
-using System.Security.Claims;
 
 namespace MultiRoomChatWebApp.Server.Modules.Voice.Controllers;
 
@@ -19,13 +19,16 @@ namespace MultiRoomChatWebApp.Server.Modules.Voice.Controllers;
 [Authorize]
 public class VoiceSessionController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IVoiceSessionService _voiceSessionService;
     private readonly ILogger<VoiceSessionController> _logger;
 
     public VoiceSessionController(
+        ICurrentUserAccessor currentUser,
         IVoiceSessionService voiceSessionService,
         ILogger<VoiceSessionController> logger)
     {
+        _currentUser = currentUser;
         _voiceSessionService = voiceSessionService;
         _logger = logger;
     }
@@ -38,7 +41,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: dmRoomId (Guid) - ID phòng DirectMessage.
-    /// - Headers: Authorization: Bearer {JWT}.
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     ///
     /// Response Success (201):
     /// - Tạo Mongo document trong collection `voice_sessions`.
@@ -48,7 +51,7 @@ public class VoiceSessionController : ControllerBase
     ///
     /// Response Error:
     /// - 400: DM room không đúng 2 thành viên.
-    /// - 401: JWT không hợp lệ hoặc thiếu user context.
+    /// - 401: Session đăng nhập không hợp lệ hoặc thiếu user context.
     /// - 403: Caller không phải member của DM room.
     /// - 404: DirectMessage room không tồn tại.
     /// - 409: DM room đang có call chưa kết thúc.
@@ -86,7 +89,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Headers: Authorization: Bearer {JWT}.
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     ///
     /// Response Success (200):
     /// - Chỉ participant đang `Invited` được accept.
@@ -95,7 +98,7 @@ public class VoiceSessionController : ControllerBase
     /// - Trả LiveKit token cho callee để join room `call:{sessionId}`.
     ///
     /// Response Error:
-    /// - 401: JWT không hợp lệ hoặc thiếu user context.
+    /// - 401: Session đăng nhập không hợp lệ hoặc thiếu user context.
     /// - 403: User không phải participant được mời.
     /// - 404: VoiceSession không tồn tại.
     /// - 409: Session không còn ở trạng thái Ringing.
@@ -131,7 +134,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Headers: Authorization: Bearer {JWT}.
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     ///
     /// Response Success (200):
     /// - Chỉ participant đang `Invited` được decline.
@@ -140,7 +143,7 @@ public class VoiceSessionController : ControllerBase
     /// - Không trả LiveKit token.
     ///
     /// Response Error:
-    /// - 401: JWT không hợp lệ hoặc thiếu user context.
+    /// - 401: Session đăng nhập không hợp lệ hoặc thiếu user context.
     /// - 403: User không phải participant được mời.
     /// - 404: VoiceSession không tồn tại.
     /// - 409: Session không còn ở trạng thái Ringing.
@@ -176,7 +179,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Headers: Authorization: Bearer {JWT}.
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     ///
     /// Dùng cho:
     /// - Refresh token trước khi hết hạn.
@@ -187,7 +190,7 @@ public class VoiceSessionController : ControllerBase
     /// - Không thay đổi lifecycle chính của session.
     ///
     /// Response Error:
-    /// - 401: JWT không hợp lệ hoặc thiếu user context.
+    /// - 401: Session đăng nhập không hợp lệ hoặc thiếu user context.
     /// - 403: User không phải participant joined.
     /// - 404: VoiceSession không tồn tại.
     /// - 409: Session đã kết thúc hoặc không còn hợp lệ để cấp token.
@@ -223,7 +226,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Headers: Authorization: Bearer {JWT}.
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     ///
     /// Response Success (200):
     /// - Participant đang `Joined` chuyển sang `Left`.
@@ -231,7 +234,7 @@ public class VoiceSessionController : ControllerBase
     /// - Không trả LiveKit token.
     ///
     /// Response Error:
-    /// - 401: JWT không hợp lệ hoặc thiếu user context.
+    /// - 401: Session đăng nhập không hợp lệ hoặc thiếu user context.
     /// - 403: User không phải participant của session.
     /// - 404: VoiceSession không tồn tại.
     /// - 409: Participant chưa joined hoặc session không hợp lệ để leave.
@@ -261,20 +264,12 @@ public class VoiceSessionController : ControllerBase
 
     private bool TryGetCurrentUser(out Guid userId, out string displayName)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var hasUserId = Guid.TryParse(userIdString, out userId);
+        var hasUserId = _currentUser.TryGetUserId(out userId);
         displayName = hasUserId
-            ? GetCurrentUserDisplayName(userId)
+            ? _currentUser.GetDisplayName(userId)
             : "Unknown";
 
         return hasUserId;
-    }
-
-    private string GetCurrentUserDisplayName(Guid userId)
-    {
-        return User.FindFirstValue("displayName")
-            ?? User.FindFirstValue("name")
-            ?? userId.ToString();
     }
 
     private static bool IsHandledVoiceSessionException(Exception ex)

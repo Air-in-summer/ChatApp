@@ -1,0 +1,100 @@
+using Microsoft.AspNetCore.Http;
+
+namespace MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
+
+/// <summary>
+/// Cau hinh xac thuc BFF session va giai doan chuyen doi tu Bearer.
+/// </summary>
+public sealed class BffAuthOptions
+{
+    public const string SectionName = "Auth:Bff";
+
+    public bool Enabled { get; set; }
+
+    public bool AcceptBearerFallback { get; set; } = true;
+
+    public bool RequireCsrf { get; set; }
+
+    public string CsrfHeaderName { get; set; } = "X-CSRF-TOKEN";
+
+    public string CsrfCookieName { get; set; } = "__Host-chatapp_csrf";
+
+    public string CookieName { get; set; } = BffAuthDefaults.DefaultCookieName;
+
+    public string CookiePath { get; set; } = "/";
+
+    public bool HttpOnly { get; set; } = true;
+
+    public bool Secure { get; set; } = true;
+
+    public SameSiteMode SameSite { get; set; } = SameSiteMode.Lax;
+
+    public int SessionLifetimeMinutes { get; set; } = 10080;
+
+    public bool SlidingExpiration { get; set; } = true;
+
+    public int RenewalThresholdMinutes { get; set; } = 1440;
+
+    public int LastSeenUpdateIntervalMinutes { get; set; } = 5;
+
+    public bool IsValid(out string error)
+    {
+        if (string.IsNullOrWhiteSpace(CookieName))
+        {
+            error = "Auth:Bff:CookieName is required.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(CsrfHeaderName) ||
+            string.IsNullOrWhiteSpace(CsrfCookieName))
+        {
+            error = "Auth:Bff CSRF header and cookie names are required.";
+            return false;
+        }
+
+        if (string.Equals(
+                CookieName,
+                CsrfCookieName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "BFF session and CSRF cookies must use different names.";
+            return false;
+        }
+
+        if (CookieName.StartsWith("__Host-", StringComparison.Ordinal) &&
+            (!Secure || CookiePath != "/"))
+        {
+            error = "__Host- cookies require Secure=true and Path=/.";
+            return false;
+        }
+
+        if (CsrfCookieName.StartsWith("__Host-", StringComparison.Ordinal) &&
+            (!Secure || CookiePath != "/"))
+        {
+            error = "__Host- CSRF cookies require Secure=true and Path=/.";
+            return false;
+        }
+
+        if (SessionLifetimeMinutes <= 0)
+        {
+            error = "Auth:Bff:SessionLifetimeMinutes must be greater than zero.";
+            return false;
+        }
+
+        if (RenewalThresholdMinutes <= 0 ||
+            RenewalThresholdMinutes >= SessionLifetimeMinutes)
+        {
+            error = "Auth:Bff:RenewalThresholdMinutes must be between zero and the session lifetime.";
+            return false;
+        }
+
+        if (LastSeenUpdateIntervalMinutes <= 0)
+        {
+            error = "Auth:Bff:LastSeenUpdateIntervalMinutes must be greater than zero.";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
+    }
+}

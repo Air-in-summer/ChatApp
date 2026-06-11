@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { createAuthClient } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 import { deleteAvatar, uploadAvatar } from '../../api/mediaApi';
 import { useAuth } from '../../context/AuthContext';
 import type { UserProfile } from '../../types/auth';
@@ -19,7 +19,7 @@ const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
  * Modal tài khoản core: cập nhật profile, đổi mật khẩu và đăng xuất.
  */
 export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
-  const { accessToken, logout, refreshToken, updateCurrentUserProfile } = useAuth();
+  const { isAuthenticated, logout, updateCurrentUserProfile } = useAuth();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -41,11 +41,13 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
 
   useEffect(() => {
     const loadProfile = async () => {
-      if (!accessToken) return;
+      if (!isAuthenticated) {
+        setIsLoading(false);
+        return;
+      }
 
       try {
-        const client = createAuthClient(accessToken);
-        const response = await client.get<UserProfile>('/api/v1/users/me');
+        const response = await apiClient.get<UserProfile>('/api/v1/users/me');
         setProfile(response.data);
         setDisplayName(response.data.displayName);
         setAvatarUrl(response.data.avatarUrl ?? '');
@@ -57,7 +59,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
     };
 
     loadProfile();
-  }, [accessToken]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!selectedAvatarFile) {
@@ -79,19 +81,18 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
 
   const handleProfileSave = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     setIsProfileSaving(true);
     try {
-      const client = createAuthClient(accessToken);
-      const response = await client.put<UserProfile>('/api/v1/users/me/profile', {
+      const response = await apiClient.put<UserProfile>('/api/v1/users/me/profile', {
         displayName,
         avatarUrl: avatarUrl.trim() || null,
       });
 
       setProfile(response.data);
       setAvatarUrl(response.data.avatarUrl ?? '');
-      await refreshToken();
+      updateCurrentUserProfile(response.data);
       toast.success('Đã cập nhật hồ sơ.');
     } catch (error: unknown) {
       toast.error(getApiErrorMessage(error, 'Không cập nhật được hồ sơ.'));
@@ -120,11 +121,11 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   };
 
   const handleAvatarUpload = async () => {
-    if (!accessToken || !selectedAvatarFile) return;
+    if (!isAuthenticated || !selectedAvatarFile) return;
 
     setIsAvatarUploading(true);
     try {
-      const updatedProfile = await uploadAvatar(accessToken, selectedAvatarFile);
+      const updatedProfile = await uploadAvatar(selectedAvatarFile);
       setProfile(updatedProfile);
       setAvatarUrl(updatedProfile.avatarUrl ?? '');
       setSelectedAvatarFile(null);
@@ -138,11 +139,11 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   };
 
   const handleAvatarDelete = async () => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     setIsAvatarDeleting(true);
     try {
-      const updatedProfile = await deleteAvatar(accessToken);
+      const updatedProfile = await deleteAvatar();
       setProfile(updatedProfile);
       setAvatarUrl(updatedProfile.avatarUrl ?? '');
       setSelectedAvatarFile(null);
@@ -157,7 +158,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
 
   const handlePasswordChange = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     if (newPassword !== confirmPassword) {
       toast.error('Mật khẩu xác nhận không khớp.');
@@ -166,8 +167,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
 
     setIsPasswordSaving(true);
     try {
-      const client = createAuthClient(accessToken);
-      await client.put('/api/v1/users/me/password', {
+      await apiClient.put('/api/v1/users/me/password', {
         currentPassword,
         newPassword,
       });

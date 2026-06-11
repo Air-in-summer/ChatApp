@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
+import { buildApiUrl } from '../api/apiClient';
 import { useAuth } from '../context/AuthContext';
 import { useChatStore } from '../store/useChatStore';
 import { useNotificationStore } from '../store/useNotificationStore';
@@ -44,20 +45,19 @@ const cleanupActiveDirectCallIfMatches = (
  *
  * @remarks
  * Luồng xử lý:
- * 1. Khởi tạo kết nối khi có accessToken.
+ * 1. Khởi tạo kết nối khi có BFF session hợp lệ.
  * 2. Đăng ký các sự kiện lắng nghe: ReceiveMessage, ReceiveTyping, ReceiveReadReceipt và typed message events.
  * 3. Expose các method gửi lệnh lên Backend.
  * 4. Cleanup khi unmount.
  *
  * Lưu ý quan trọng:
- * - Backend (C#) serialize Entity dùng camelCase convention, nên field name
- *   có thể là `roomId` hoặc `room_id` tùy cấu hình. Hook này map lại cho đúng.
+ * - ReceiveMessage dùng contract camelCase đã chốt từ backend.
  * - Khi ReceiveMessage, cần kiểm tra xem tin nhắn có phải do chính user này gửi không.
  *   Nếu đúng → thay thế tin tạm (Optimistic) bằng tin thật. Nếu không → thêm mới.
- * - MessagePersisted/MessagePersistenceFailed/MessageRetracted là nguồn reconcile trạng thái V2.
+ * - MessagePersisted/MessagePersistenceFailed/MessageRetracted là nguồn reconcile trạng thái lưu trữ.
  */
 export const useSignalR = () => {
-  const { accessToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const currentUserId = user?.userId;
   const [isConnected, setIsConnected] = useState(false);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
@@ -76,15 +76,20 @@ export const useSignalR = () => {
   const updateRoomMetadata = useChatStore((state) => state.updateRoomMetadata);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated || !currentUserId) {
+      if (connectionRef.current) {
+        void connectionRef.current.stop();
+        connectionRef.current = null;
+      }
+      setIsConnected(false);
+      return;
+    }
 
     let heartbeatTimer: ReturnType<typeof window.setInterval> | undefined;
 
     // 1. Khởi tạo kết nối
     const newConnection = new signalR.HubConnectionBuilder()
-      .withUrl('https://localhost:7222/hub/chat', {
-        accessTokenFactory: () => accessToken,
-      })
+      .withUrl(buildApiUrl('/hub/chat'))
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Information)
       .build();
@@ -131,45 +136,9 @@ export const useSignalR = () => {
 
     // 2. Đăng ký các sự kiện lắng nghe từ Backend
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    newConnection.on('ReceiveMessage', (raw: any) => {
-      console.log('📬 Raw ReceiveMessage từ Backend:', raw);
-
-      // Map field name từ C# Entity (camelCase convention) sang MessageDto Frontend
-      const message: MessageDto = {
-        id: raw.id ?? raw.Id ?? '',
-        clientMessageId:
-          raw.clientMessageId ??
-          raw.ClientMessageId ??
-          raw.client_message_id ??
-          null,
-        roomId: raw.roomId ?? raw.RoomId ?? raw.room_id ?? '',
-        senderId: raw.senderId ?? raw.SenderId ?? raw.sender_id ?? '',
-        type: raw.type ?? raw.Type ?? 'Text',
-        content: raw.content ?? raw.Content ?? '',
-        status: raw.status ?? raw.Status ?? 'Sent',
-        createdAt: raw.createdAt ?? raw.CreatedAt ?? raw.created_at ?? new Date().toISOString(),
-        acceptedAtUtc:
-          raw.acceptedAtUtc ??
-          raw.AcceptedAtUtc ??
-          raw.accepted_at ??
-          null,
-        attachments: Array.isArray(raw.attachments ?? raw.Attachments)
-          ? (raw.attachments ?? raw.Attachments).map((attachment: any) => ({
-              mediaId: attachment.mediaId ?? attachment.MediaId ?? attachment.media_id ?? null,
-              kind: attachment.kind ?? attachment.Kind ?? 'File',
-              filename: attachment.filename ?? attachment.Filename ?? '',
-              size: attachment.size ?? attachment.Size ?? 0,
-              mimeType: attachment.mimeType ?? attachment.MimeType ?? attachment.mime_type ?? '',
-              url: attachment.url ?? attachment.Url ?? '',
-              thumbnailUrl: attachment.thumbnailUrl ?? attachment.ThumbnailUrl ?? attachment.thumbnail_url ?? null,
-              expiresAt: attachment.expiresAt ?? attachment.ExpiresAt ?? attachment.expires_at ?? null,
-            }))
-          : null,
-      };
-
+    newConnection.on('ReceiveMessage', (message: MessageDto) => {
       if (!message.roomId) {
-        console.warn('⚠️ ReceiveMessage: thiếu roomId, bỏ qua tin nhắn', raw);
+        console.warn('⚠️ ReceiveMessage: thiếu roomId, bỏ qua tin nhắn', message);
         return;
       }
 
@@ -364,13 +333,12 @@ export const useSignalR = () => {
         console.log('🔌 Đã kết nối SignalR thành công!');
 
         // [User-based Routing] Auto-join loop đã được vô hiệu hóa.
-        // Lý do: MessagePersistenceWorker đã dùng Clients.Users(memberIds) thay vì Clients.Group().
+        // Lý do: MessageDeliveryWorker phát tin bằng Clients.Users(memberIds) thay vì Clients.Group().
         // Server tự route tin nhắn đến đúng user qua NameIdentifier claim → không cần client join group.
         // Lợi ích: Loại bỏ N sequential round-trips (N = số phòng) mỗi lần kết nối.
         // Typing (OthersInGroup) vẫn hoạt động vì joinRoom() được gọi explicit khi user mở từng phòng.
         //
         // try {
-        //   const authClient = createAuthClient(accessToken);
         //   const res = await authClient.get<{ id: string }[]>('/api/v1/rooms/my-rooms');
         //   for (const room of res.data) {
         //     await newConnection.invoke('JoinRoom', room.id);
@@ -393,10 +361,13 @@ export const useSignalR = () => {
     // 4. Cleanup khi unmount
     return () => {
       stopPresenceHeartbeat();
-      newConnection.stop();
+      if (connectionRef.current === newConnection) {
+        connectionRef.current = null;
+      }
+      void newConnection.stop();
       setIsConnected(false);
     };
-  }, [accessToken]); // Chỉ phụ thuộc accessToken, các store actions là stable reference
+  }, [isAuthenticated, currentUserId]);
 
   // Expose các method gửi lệnh lên Backend (dùng useCallback để tránh re-render con)
   const joinRoom = useCallback(async (roomId: string) => {

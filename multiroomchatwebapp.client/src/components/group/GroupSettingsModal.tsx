@@ -31,7 +31,7 @@ interface GroupSettingsModalProps {
  * Bước 14.7: Chức năng Giải tán (Xóa) Server - Chỉ dành cho Owner.
  */
 export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpdated }: GroupSettingsModalProps) => {
-  const { accessToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'members'>('overview');
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
@@ -49,10 +49,10 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   // [Luồng 14.4: Tải danh sách thành viên]
   const fetchMembers = async () => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setIsLoadingMembers(true);
     try {
-      const data = await getGroupMembers(accessToken, group.id);
+      const data = await getGroupMembers(group.id);
       setMembers(data);
     } catch (error) {
       console.error('Failed to fetch members:', error);
@@ -62,13 +62,13 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
   };
 
   useEffect(() => {
-    if (accessToken) {
+    if (isAuthenticated) {
       fetchMembers();
-      void loadFriends(accessToken).catch(() => undefined);
-      void loadBlockedUsers(accessToken).catch(() => undefined);
-      void loadFriendsPresence(accessToken).catch(() => undefined);
+      void loadFriends().catch(() => undefined);
+      void loadBlockedUsers().catch(() => undefined);
+      void loadFriendsPresence().catch(() => undefined);
     }
-  }, [accessToken, group.id, loadFriends, loadBlockedUsers, loadFriendsPresence]);
+  }, [isAuthenticated, group.id, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
   useEffect(() => {
     setEditName(group.name);
@@ -88,7 +88,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   const handleSaveOverview = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!accessToken || currentUserRole !== 'Owner') return;
+    if (!isAuthenticated || currentUserRole !== 'Owner') return;
 
     const normalizedName = editName.trim();
     if (!normalizedName) {
@@ -98,7 +98,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
     setIsSavingOverview(true);
     try {
-      const updatedGroup = await updateGroup(accessToken, group.id, {
+      const updatedGroup = await updateGroup(group.id, {
         name: normalizedName,
         description: editDescription,
         iconUrl: editIconUrl,
@@ -124,11 +124,11 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   /** [Luồng 14.5]: Trục xuất thành viên */
   const handleKick = async (targetUserId: string, targetName: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     if (!window.confirm(`Bạn có chắc chắn muốn trục xuất "${targetName}" khỏi Server không?`)) return;
 
     try {
-      await kickMember(accessToken, group.id, targetUserId);
+      await kickMember(group.id, targetUserId);
       // Tải lại danh sách sau khi kick thành công
       await fetchMembers();
     } catch (error) {
@@ -139,7 +139,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   /** [Luồng 14.6]: Rời khỏi Server */
   const handleLeaveGroup = async () => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     // Ràng buộc Owner không được rời nhóm (phải transfer hoặc delete)
     if (currentUserRole === 'Owner') {
@@ -150,7 +150,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     if (!window.confirm(`Bạn có chắc chắn muốn rời khỏi Server "${group.name}"?`)) return;
 
     try {
-      await leaveGroup(accessToken, group.id);
+      await leaveGroup(group.id);
       onClose();
       if (onLeaveSuccess) onLeaveSuccess();
     } catch (error: any) {
@@ -162,13 +162,13 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   /** [Luồng 14.7]: Giải tán Server */
   const handleDeleteGroup = async () => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     if (!window.confirm(`CẢNH BÁO: Bạn có chắc chắn muốn GIẢI TÁN Server "${group.name}" không? Hành động này không thể hoàn tác.`)) return;
     if (!window.confirm(`XÁC NHẬN CUỐI CÙNG: Toàn bộ dữ liệu Server sẽ bị xóa mềm. Bạn vẫn muốn tiếp tục?`)) return;
 
     try {
-      await deleteGroup(accessToken, group.id);
+      await deleteGroup(group.id);
       onClose();
       if (onLeaveSuccess) onLeaveSuccess();
     } catch (error: any) {

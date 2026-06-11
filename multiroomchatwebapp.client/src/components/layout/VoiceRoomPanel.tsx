@@ -165,7 +165,7 @@ export const VoiceRoomPanel = ({
   groupId,
   isPrivate = false,
 }: VoiceRoomPanelProps) => {
-  const { accessToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   // Đọc state từ Zustand store
   const connectionStatus = useVoiceStore((s) => s.connectionStatus);
   const activeSession = useVoiceStore((s) => s.activeSession);
@@ -321,7 +321,7 @@ export const VoiceRoomPanel = ({
   };
 
   useEffect(() => {
-    if (mode !== 'channel' || !isPrivate || !groupId || !accessToken || !user?.userId) {
+    if (mode !== 'channel' || !isPrivate || !groupId || !isAuthenticated || !user?.userId) {
       setCurrentUserRole(null);
       return;
     }
@@ -330,7 +330,7 @@ export const VoiceRoomPanel = ({
 
     const loadCurrentUserRole = async () => {
       try {
-        const members = await getGroupMembers(accessToken, groupId);
+        const members = await getGroupMembers(groupId);
         if (!isMounted) return;
 
         const me = members.find(member => member.profile.id === user.userId);
@@ -348,7 +348,7 @@ export const VoiceRoomPanel = ({
     return () => {
       isMounted = false;
     };
-  }, [accessToken, groupId, isPrivate, mode, user?.userId]);
+  }, [groupId, isAuthenticated, isPrivate, mode, user?.userId]);
 
   useEffect(() => {
     if (!liveKitRoom) return;

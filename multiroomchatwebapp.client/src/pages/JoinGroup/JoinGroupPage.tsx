@@ -22,7 +22,7 @@ import styles from './JoinGroupPage.module.css';
 export const JoinGroupPage = () => {
   const { inviteCode } = useParams<{ inviteCode: string }>();
   const navigate = useNavigate();
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // Trạng thái hiển thị: loading (mặc định) hoặc error (khi API thất bại)
   const [error, setError] = useState<string | null>(null);
@@ -38,14 +38,14 @@ export const JoinGroupPage = () => {
     hasCalledRef.current = true;
 
     // Guard: Thiếu dữ liệu cần thiết
-    if (!inviteCode || !accessToken) {
+    if (!inviteCode || !isAuthenticated) {
       setError('Mã mời không hợp lệ.');
       return;
     }
 
     const joinGroup = async () => {
       try {
-        const groupDto = await joinGroupByInviteCode(accessToken, inviteCode);
+        const groupDto = await joinGroupByInviteCode(inviteCode);
 
         // Bước 16.4a: Redirect về trang chủ, truyền GroupDto qua navigation state
         navigate('/', { replace: true, state: { joinedGroup: groupDto } });
@@ -65,7 +65,7 @@ export const JoinGroupPage = () => {
     };
 
     joinGroup();
-  }, [inviteCode, accessToken, navigate]);
+  }, [inviteCode, isAuthenticated, navigate]);
 
   return (
     <div className={styles.pageContainer}>

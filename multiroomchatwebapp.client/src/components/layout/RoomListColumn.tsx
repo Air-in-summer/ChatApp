@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type MouseEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { createAuthClient } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 import { getGroupRooms, getGroupMembers, createGroupChannel, leaveGroup, updateGroupRoom, deleteGroupRoom } from '../../api/groupApi';
 import { UserSearchModal } from '../discovery/UserSearchModal';
 import { GroupSettingsModal } from '../group/GroupSettingsModal';
@@ -68,7 +68,7 @@ const DmRoomAvatar = ({ room }: { room: RoomDto }) => {
  * 5. Render giao diện khác nhau tùy thuộc vào ngữ cảnh DM (phong cách Messenger) hay Group (phong cách Discord).
  */
 export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectChat, onGroupUpdated, className }: RoomListColumnProps) => {
-  const { accessToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -121,37 +121,36 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   };
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     if (context === 'dm') {
-      void loadFriends(accessToken).catch(() => undefined);
-      void loadBlockedUsers(accessToken).catch(() => undefined);
-      void loadFriendsPresence(accessToken).catch(() => undefined);
+      void loadFriends().catch(() => undefined);
+      void loadBlockedUsers().catch(() => undefined);
+      void loadFriendsPresence().catch(() => undefined);
       return;
     }
 
     if (context === 'group') {
-      void loadBlockedUsers(accessToken).catch(() => undefined);
+      void loadBlockedUsers().catch(() => undefined);
     }
-  }, [accessToken, context, loadFriends, loadBlockedUsers, loadFriendsPresence]);
+  }, [isAuthenticated, context, loadFriends, loadBlockedUsers, loadFriendsPresence]);
 
   /**
    * [Luồng: Tải dữ liệu phòng]
    * Logic lấy dữ liệu tập trung, hỗ trợ cả 2 ngữ cảnh DM và Group.
    */
   const fetchRoomsLogic = useCallback(async () => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     try {
       let fetchedRooms: RoomDto[] = [];
 
       // Nhánh 1: Nếu là Group, lấy danh sách Channel qua GroupId
       if (context === 'group' && group) {
-        fetchedRooms = await getGroupRooms(accessToken, group.id);
+        fetchedRooms = await getGroupRooms(group.id);
       }
       // Nhánh 2: Nếu là DM, lấy toàn bộ phòng của User và lọc DirectMessage
       else if (context === 'dm') {
-        const authClient = createAuthClient(accessToken);
-        const response = await authClient.get<RoomDto[]>('/api/v1/rooms/my-rooms');
+        const response = await apiClient.get<RoomDto[]>('/api/v1/rooms/my-rooms');
         fetchedRooms = response.data.filter(r => r.type === 'DirectMessage');
       }
 
@@ -174,17 +173,17 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     } catch (err) {
       console.error('Không thể lấy danh sách phòng:', err);
     }
-  }, [accessToken, context, group?.id, setInitialUnreadCounts, setInitialLastReadIds]);
+  }, [isAuthenticated, context, group?.id, setInitialUnreadCounts, setInitialLastReadIds]);
 
   // Tự động tải lại khi đổi context hoặc GroupID
   useEffect(() => {
     fetchRoomsLogic();
 
     // [Bước 15.2]: Lấy vai trò của user hiện tại trong group
-    if (context === 'group' && group && accessToken && user) {
+    if (context === 'group' && group && isAuthenticated && user) {
       const fetchRole = async () => {
         try {
-          const members = await getGroupMembers(accessToken, group.id);
+          const members = await getGroupMembers(group.id);
           setGroupMembers(members);
 
           const me = members.find(m => m.profile.id === user?.userId);
@@ -210,7 +209,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       setCurrentUserRole('Member');
       setGroupMembers([]);
     }
-  }, [fetchRoomsLogic, context, group, accessToken, user?.userId]);
+  }, [fetchRoomsLogic, context, group, isAuthenticated, user?.userId]);
 
   // Snapshot Ref để đọc data "mới nhất" trong các useEffect mà không gây loop phụ thuộc
   const roomsRef = useRef<RoomDto[]>([]);
@@ -224,21 +223,21 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   // [Luồng: Tự động cập nhật danh sách]
   // Hiệu ứng 1: Re-fetch khi một phòng "Ảo" vừa được "Thật hóa" (có tin nhắn đầu tiên)
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     if (activeChat?.type !== 'real') return;
     // Nếu phòng real này chưa có trong list hiện tại -> mới được tạo -> refresh
     if (roomsRef.current.some(r => r.id === activeChat.room.id)) return;
     refreshRooms();
-  }, [activeChat, accessToken, refreshRooms]);
+  }, [activeChat, isAuthenticated, refreshRooms]);
 
   // Hiệu ứng 2: Re-fetch khi SignalR báo có tin nhắn từ một RoomId chưa từng thấy trong list
   useEffect(() => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     const hasUnknownRoom = Object.keys(unreadCount).some(
       roomId => unreadCount[roomId] > 0 && !roomsRef.current.some(r => r.id === roomId)
     );
     if (hasUnknownRoom) refreshRooms();
-  }, [unreadCount, accessToken, refreshRooms]);
+  }, [unreadCount, isAuthenticated, refreshRooms]);
 
   // Hiệu ứng 3 (Notification): Re-fetch khi Backend báo có phòng mới được tạo trong Group đang mở
   const roomRefetchGroupId = useNotificationStore(s => s.roomRefetchGroupId);
@@ -254,15 +253,15 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   }, [roomRefetchGroupId, context, group, refreshRooms, clearRoomRefetch]);
 
   useEffect(() => {
-    if (!accessToken || realtimeSyncVersion === 0) return;
+    if (!isAuthenticated || realtimeSyncVersion === 0) return;
 
     refreshRooms();
-  }, [accessToken, realtimeSyncVersion, refreshRooms]);
+  }, [isAuthenticated, realtimeSyncVersion, refreshRooms]);
 
   /** Xử lý chọn phòng chat */
   const handleSelectRoom = async (room: RoomDto) => {
     if (room.type === 'Voice') {
-      if (!accessToken) return;
+      if (!isAuthenticated) return;
 
       if (!shouldSwitchVoiceSession()) {
         return;
@@ -307,16 +306,16 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
    * Cập nhật danh sách và nhảy vào kênh mới ngay lập tức.
    */
   const handleCreateChannelSubmit = async (request: CreateGroupChannelRequest) => {
-    if (!accessToken || !group) return;
+    if (!isAuthenticated || !group) return;
 
     try {
-      const { roomId } = await createGroupChannel(accessToken, group.id, request);
+      const { roomId } = await createGroupChannel(group.id, request);
       
       toast.success(`Đã tạo kênh #${request.name} thành công!`);
       setIsCreateChannelOpen(false);
 
       // Tải lại danh sách phòng để lấy data RoomDto đầy đủ cho activeChat
-      const updatedRooms = await getGroupRooms(accessToken, group.id);
+      const updatedRooms = await getGroupRooms(group.id);
       setRooms(updatedRooms);
 
       // Tìm phòng vừa tạo trong list mới để lấy object RoomDto hoàn chỉnh
@@ -336,7 +335,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     event: MouseEvent<HTMLButtonElement>
   ) => {
     event.stopPropagation();
-    if (!accessToken || !group) return;
+    if (!isAuthenticated || !group) return;
 
     const nextName = window.prompt('Nhập tên phòng mới', room.name || '');
     if (nextName === null) return;
@@ -348,7 +347,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     }
 
     try {
-      const updatedRoom = await updateGroupRoom(accessToken, group.id, room.id, { name: normalizedName });
+      const updatedRoom = await updateGroupRoom(group.id, room.id, { name: normalizedName });
       setRooms(currentRooms =>
         currentRooms.map(currentRoom =>
           currentRoom.id === updatedRoom.id ? { ...currentRoom, ...updatedRoom } : currentRoom
@@ -369,14 +368,14 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
   const handleDeleteTextRoom = async (room: RoomDto, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (!accessToken || !group) return;
+    if (!isAuthenticated || !group) return;
 
     if (!window.confirm(`Xoa phong #${room.name || 'khong ten'}? Tin nhan cu se khong bi xoa vat ly.`)) {
       return;
     }
 
     try {
-      await deleteGroupRoom(accessToken, group.id, room.id);
+      await deleteGroupRoom(group.id, room.id);
       setRooms(currentRooms => currentRooms.filter(currentRoom => currentRoom.id !== room.id));
 
       if (activeChat?.type === 'real' && activeChat.room.id === room.id) {
@@ -404,11 +403,11 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   };
 
   const handleLeaveSharedGroup = async () => {
-    if (!accessToken || !group) return;
+    if (!isAuthenticated || !group) return;
     if (!window.confirm('Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm.')) return;
 
     try {
-      await leaveGroup(accessToken, group.id);
+      await leaveGroup(group.id);
       toast.success('Đã rời nhóm.');
       onBack?.();
     } catch {

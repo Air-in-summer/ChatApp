@@ -22,6 +22,7 @@ public class User
 
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken> RefreshTokens { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken>();
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin> ExternalLogins { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.ExternalLogin>();
+    public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.AuthSession> AuthSessions { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.AuthSession>();
     
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room> CreatedRooms { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room>();
     public virtual ICollection<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember> RoomMemberships { get; set; } = new List<MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.RoomMember>();

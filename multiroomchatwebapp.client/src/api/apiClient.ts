@@ -1,100 +1,153 @@
-import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  type AxiosError,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 
-export const API_BASE_URL = 'https://localhost:7222';
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    _skipBffUnauthorized?: boolean;
+  }
 
-type AuthRetryConfig = InternalAxiosRequestConfig & {
-  _retry?: boolean;
+  export interface InternalAxiosRequestConfig {
+    _skipBffUnauthorized?: boolean;
+  }
+}
+
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '')
+  .trim()
+  .replace(/\/+$/, '');
+
+export const buildApiUrl = (path: string): string => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
 };
 
-let getAccessTokenForRetry: (() => string | null) | null = null;
-let refreshAccessTokenForRetry: (() => Promise<string | null>) | null = null;
-
-/**
- * Đăng ký bridge từ AuthContext vào api layer để interceptor có thể refresh token.
- */
-export const configureAuthInterceptors = (handlers: {
-  getAccessToken: () => string | null;
-  refreshAccessToken: () => Promise<string | null>;
-}) => {
-  getAccessTokenForRetry = handlers.getAccessToken;
-  refreshAccessTokenForRetry = handlers.refreshAccessToken;
+type BffRetryConfig = InternalAxiosRequestConfig & {
+  _csrfRetry?: boolean;
 };
 
-/**
- * Axios instance được cấu hình làm nền tảng cho toàn bộ API calls.
- *
- * @remarks
- * Các cấu hình quan trọng:
- * 1. baseURL: Trỏ đến Backend API.
- * 2. withCredentials: true → Trình duyệt tự đính kèm HttpOnly Cookie (refreshToken)
- *    trong mọi request. Đây là cơ chế cốt lõi của hệ thống bảo mật mới.
- * 3. Interceptors được thiết lập để token management tự động.
- *
- * Lưu ý: accessToken KHÔNG được đặt ở đây vì nó cần lấy từ Context (RAM)
- * mỗi lần gọi. Điều này được xử lý ở authApiClient bên dưới.
- */
-export const apiClient = axios.create({
+interface CsrfTokenResponse {
+  token: string;
+  headerName: string;
+}
+
+interface ApiErrorResponse {
+  code?: string;
+}
+
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const DEFAULT_CSRF_HEADER = 'X-CSRF-TOKEN';
+
+let handleBffUnauthorized: (() => void) | null = null;
+let csrfToken: string | null = null;
+let csrfHeaderName = DEFAULT_CSRF_HEADER;
+let csrfRequest: Promise<string> | null = null;
+
+const csrfClient = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true, // Bắt buộc để Cookie tự đi kèm mỗi request
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-/**
- * Tạo một Axios instance mới kèm token, dùng cho các request đã xác thực.
- *
- * @param token - AccessToken lấy từ AuthContext (RAM-only).
- * @returns Axios instance với header Authorization được gắn sẵn.
- *
- * @remarks
- * Lý do tạo instance riêng thay vì setHeader mặc định:
- * Token nằm trong RAM (React Context), không thể truy cập trực tiếp
- * khi khởi tạo module. Mỗi lần gọi, caller truyền token hiện tại vào.
- */
-export const createAuthClient = (token: string) => {
-  const instance = axios.create({
-    baseURL: API_BASE_URL,
-    withCredentials: true,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
+const isUnsafeMethod = (method?: string): boolean =>
+  UNSAFE_METHODS.has((method ?? '').toUpperCase());
 
-  instance.interceptors.request.use((config) => {
-    const latestToken = getAccessTokenForRetry?.();
-    if (latestToken) {
-      config.headers.Authorization = `Bearer ${latestToken}`;
-    }
-
-    return config;
-  });
-
-  instance.interceptors.response.use(
-    (response) => response,
-    async (error: AxiosError) => {
-      const originalRequest = error.config as AuthRetryConfig | undefined;
-
-      if (
-        error.response?.status !== 401 ||
-        !originalRequest ||
-        originalRequest._retry ||
-        !refreshAccessTokenForRetry
-      ) {
-        return Promise.reject(error);
-      }
-
-      originalRequest._retry = true;
-      const newAccessToken = await refreshAccessTokenForRetry();
-      if (!newAccessToken) {
-        return Promise.reject(error);
-      }
-
-      originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-      return instance(originalRequest);
-    }
+const isCsrfFailure = (error: AxiosError<ApiErrorResponse>): boolean =>
+  error.response?.status === 419 ||
+  (
+    error.response?.status === 403 &&
+    error.response.data?.code === 'csrf_validation_failed'
   );
 
-  return instance;
+const loadCsrfToken = async (forceRefresh = false): Promise<string> => {
+  if (!forceRefresh && csrfToken) {
+    return csrfToken;
+  }
+
+  if (!forceRefresh && csrfRequest) {
+    return csrfRequest;
+  }
+
+  const request = csrfClient
+    .get<CsrfTokenResponse>('/api/auth/csrf')
+    .then(({ data }) => {
+      csrfToken = data.token;
+      csrfHeaderName = data.headerName || DEFAULT_CSRF_HEADER;
+      return data.token;
+    })
+    .finally(() => {
+      if (csrfRequest === request) {
+        csrfRequest = null;
+      }
+    });
+
+  csrfRequest = request;
+  return request;
 };
+
+/**
+ * Xoa request token da cache khi identity/session thay doi.
+ * Antiforgery cookie phia server se duoc cap lai o lan lay token tiep theo.
+ */
+export const resetBffCsrfToken = (): void => {
+  csrfToken = null;
+  csrfRequest = null;
+  csrfHeaderName = DEFAULT_CSRF_HEADER;
+};
+
+/**
+ * Noi BFF client voi auth state. BFF client khong refresh Bearer khi gap 401.
+ */
+export const configureBffUnauthorizedHandler = (
+  handler: (() => void) | null
+): void => {
+  handleBffUnauthorized = handler;
+};
+
+/**
+ * Client mac dinh cho BFF: browser gui session cookie, khong gui app access token.
+ */
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+apiClient.interceptors.request.use(async (config) => {
+  if (!isUnsafeMethod(config.method)) {
+    return config;
+  }
+
+  const token = await loadCsrfToken();
+  config.headers.set(csrfHeaderName, token);
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError<ApiErrorResponse>) => {
+    const originalRequest = error.config as BffRetryConfig | undefined;
+
+    if (
+      originalRequest &&
+      isUnsafeMethod(originalRequest.method) &&
+      isCsrfFailure(error) &&
+      !originalRequest._csrfRetry
+    ) {
+      originalRequest._csrfRetry = true;
+      const token = await loadCsrfToken(true);
+      originalRequest.headers.set(csrfHeaderName, token);
+      return apiClient(originalRequest);
+    }
+
+    if (error.response?.status === 401 && !originalRequest?._skipBffUnauthorized) {
+      handleBffUnauthorized?.();
+    }
+
+    return Promise.reject(error);
+  }
+);

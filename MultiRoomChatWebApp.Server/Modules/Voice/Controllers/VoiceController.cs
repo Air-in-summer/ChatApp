@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Group.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces;
-using System.Security.Claims;
 
 namespace MultiRoomChatWebApp.Server.Modules.Voice.Controllers;
 
@@ -19,6 +19,7 @@ namespace MultiRoomChatWebApp.Server.Modules.Voice.Controllers;
 [Authorize]
 public class VoiceController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IVoiceTokenService _voiceTokenService;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
     private readonly IRoomMetadataCache _roomMetadataCache;
@@ -26,12 +27,14 @@ public class VoiceController : ControllerBase
     private readonly ILogger<VoiceController> _logger;
 
     public VoiceController(
+        ICurrentUserAccessor currentUser,
         IVoiceTokenService voiceTokenService,
         IRoomPermissionsCache roomPermissionsCache,
         IRoomMetadataCache roomMetadataCache,
         IGroupPermissionsCache groupPermissionsCache,
         ILogger<VoiceController> logger)
     {
+        _currentUser = currentUser;
         _voiceTokenService = voiceTokenService;
         _roomPermissionsCache = roomPermissionsCache;
         _roomMetadataCache = roomMetadataCache;
@@ -47,7 +50,7 @@ public class VoiceController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: roomId (Guid) - ID phòng Voice
-    /// - Headers: Authorization: Bearer {JWT}
+    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
     /// 
     /// Response Success (200):
     /// {
@@ -56,12 +59,12 @@ public class VoiceController : ControllerBase
     /// }
     /// 
     /// Response Error:
-    /// - 401: Token JWT không hợp lệ hoặc hết hạn
+    /// - 401: Session đăng nhập không hợp lệ hoặc hết hạn.
     /// - 403: User không phải thành viên của phòng (hoặc Group chứa phòng)
     /// - 404: Phòng không tồn tại hoặc không phải phòng Voice
     /// 
     /// Luồng xử lý:
-    /// 1. Lấy userId từ JWT Claims
+    /// 1. Lấy userId từ principal đã xác thực.
     /// 2. Kiểm tra user có quyền truy cập Room (qua RoomPermissionsCache)
     /// 3. Tạo LiveKit Token (VoiceTokenService)
     /// 4. Trả về Token + LiveKit Host URL
@@ -76,16 +79,12 @@ public class VoiceController : ControllerBase
     public async Task<IActionResult> GetVoiceToken(Guid roomId)
     {
         // ──────────────────────────────────────────────────────
-        // Bước 1: Lấy userId từ JWT Claims
+        // Bước 1: Lấy userId từ principal đã xác thực.
         // ──────────────────────────────────────────────────────
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized("User context is missing");
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         // Ưu tiên displayName để LiveKit participant không hiện Unknown trong UI voice/call.
-        var displayName = GetCurrentUserDisplayName(userId);
+        var displayName = _currentUser.GetDisplayName(userId);
 
         var roomMetadata = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
         if (roomMetadata == null || roomMetadata.Value.Type != RoomType.Voice)
@@ -132,10 +131,4 @@ public class VoiceController : ControllerBase
         });
     }
 
-    private string GetCurrentUserDisplayName(Guid userId)
-    {
-        return User.FindFirstValue("displayName")
-            ?? User.FindFirstValue("name")
-            ?? userId.ToString();
-    }
 }

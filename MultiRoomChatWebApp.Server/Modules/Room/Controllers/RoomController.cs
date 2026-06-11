@@ -1,11 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
-using System.Security.Claims;
-using System.IdentityModel.Tokens.Jwt;
 
 namespace MultiRoomChatWebApp.Server.Modules.Room.Controllers;
 
@@ -14,11 +13,16 @@ namespace MultiRoomChatWebApp.Server.Modules.Room.Controllers;
 [Authorize]
 public class RoomController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IRoomService _roomService;
     private readonly MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService _chatService;
 
-    public RoomController(IRoomService roomService, MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService chatService)
+    public RoomController(
+        ICurrentUserAccessor currentUser,
+        IRoomService roomService,
+        MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces.IChatService chatService)
     {
+        _currentUser = currentUser;
         _roomService = roomService;
         _chatService = chatService;
     }
@@ -30,11 +34,7 @@ public class RoomController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<RoomDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyRooms()
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized("User context is missing");
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var rooms = await _roomService.GetMyRoomsAsync(userId);
         
@@ -97,11 +97,7 @@ public class RoomController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetOrCreateDirectRoom(Guid targetUserId)
     {
-        var currentUserIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(currentUserIdString) || !Guid.TryParse(currentUserIdString, out Guid currentUserId))
-        {
-            return Unauthorized("User context is missing");
-        }
+        var currentUserId = _currentUser.GetUserIdOrThrow();
 
         try
         {

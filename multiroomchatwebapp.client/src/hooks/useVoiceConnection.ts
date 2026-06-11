@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { leaveVoiceSession as leaveVoiceSessionApi } from '../api/voiceApi';
 import { useVoiceStore } from '../store/useVoiceStore';
 import type { ActiveVoiceSession } from '../store/useVoiceStore';
@@ -17,22 +16,15 @@ const isTargetActiveDirectCall = (activeSession: ActiveVoiceSession | null, targ
 /**
  * Hook wrapper cho Voice connection khi component đã ở trong voice chunk.
  *
- * Input: lấy `accessToken` từ AuthContext.
+ * Input: dùng BFF session cookie hiện tại của browser.
  * Output: trả về imperative actions `joinVoiceRoom` và `leaveVoiceRoom`.
- * Error cases: nếu thiếu access token thì không gọi LiveKit service.
+ * Error cases: nếu session hết hạn thì API voice sẽ trả 401 và auth layer xử lý.
  */
 export const useVoiceConnection = () => {
-  const { accessToken } = useAuth();
-
   const joinVoiceRoom = useCallback(async (roomId: string, roomName: string) => {
-    if (!accessToken) {
-      console.error('useVoiceConnection: Không có accessToken');
-      return;
-    }
-
     const { joinVoiceRoom: joinVoiceRoomService } = await loadVoiceConnectionService();
-    await joinVoiceRoomService(accessToken, roomId, roomName);
-  }, [accessToken]);
+    await joinVoiceRoomService(roomId, roomName);
+  }, []);
 
   const leaveVoiceRoom = useCallback(async () => {
     const { leaveVoiceRoom: leaveVoiceRoomService } = await loadVoiceConnectionService();
@@ -42,9 +34,9 @@ export const useVoiceConnection = () => {
   const leaveActiveVoiceSession = useCallback(async () => {
     const activeSession = useVoiceStore.getState().activeSession;
 
-    if (activeSession?.kind === 'direct-call' && accessToken) {
+    if (activeSession?.kind === 'direct-call') {
       try {
-        await leaveVoiceSessionApi(accessToken, activeSession.sessionId);
+        await leaveVoiceSessionApi(activeSession.sessionId);
       } catch (error) {
         console.warn('Không thể báo backend rời DM call trước khi cleanup local:', error);
       }
@@ -52,7 +44,7 @@ export const useVoiceConnection = () => {
 
     const { leaveVoiceRoom: leaveVoiceRoomService } = await loadVoiceConnectionService();
     leaveVoiceRoomService();
-  }, [accessToken]);
+  }, []);
 
   const shouldSwitchVoiceSession = useCallback((targetSessionId?: string) => {
     const activeSession = useVoiceStore.getState().activeSession;
@@ -73,9 +65,9 @@ export const useVoiceConnection = () => {
       return;
     }
 
-    if (activeSession.kind === 'direct-call' && accessToken) {
+    if (activeSession.kind === 'direct-call') {
       try {
-        await leaveVoiceSessionApi(accessToken, activeSession.sessionId);
+        await leaveVoiceSessionApi(activeSession.sessionId);
       } catch (error) {
         console.warn('Không thể báo backend rời DM call cũ trước khi chuyển phiên:', error);
       }
@@ -83,20 +75,14 @@ export const useVoiceConnection = () => {
 
     const { leaveVoiceRoom: leaveVoiceRoomService } = await loadVoiceConnectionService();
     leaveVoiceRoomService();
-  }, [accessToken]);
+  }, []);
 
   const joinDirectCallSession = useCallback(async (
     response: VoiceSessionTokenResponseDto,
     displayName: string
   ) => {
-    if (!accessToken) {
-      console.error('useVoiceConnection: Không có accessToken');
-      return;
-    }
-
     const { joinVoiceSession: joinVoiceSessionService } = await loadVoiceConnectionService();
     await joinVoiceSessionService({
-      accessToken,
       session: {
         kind: 'direct-call',
         sourceRoomId: response.session.sourceRoomId,
@@ -109,7 +95,7 @@ export const useVoiceConnection = () => {
       expiresAtUtc: response.expiresAtUtc,
       expiresInSeconds: response.expiresInSeconds,
     });
-  }, [accessToken]);
+  }, []);
 
   return {
     joinVoiceRoom,

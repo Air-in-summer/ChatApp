@@ -4,6 +4,7 @@ using Amazon.Runtime;
 using Amazon.S3;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -12,6 +13,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MultiRoomChatWebApp.Server.Modules.Auth.Authentication;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Options;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 using MultiRoomChatWebApp.Server.Shared.Middleware;
@@ -92,6 +96,27 @@ try
             options => options.IsValid(out _),
             "ChatBroker configuration is invalid.")
         .ValidateOnStart();
+    builder.Services.AddOptions<BffAuthOptions>()
+        .Bind(builder.Configuration.GetSection(BffAuthOptions.SectionName))
+        .Validate(
+            options => options.IsValid(out _),
+            "BFF authentication configuration is invalid.")
+        .ValidateOnStart();
+    var configuredBffOptions = builder.Configuration
+        .GetSection(BffAuthOptions.SectionName)
+        .Get<BffAuthOptions>() ?? new BffAuthOptions();
+    builder.Services.AddAntiforgery(options =>
+    {
+        options.HeaderName = configuredBffOptions.CsrfHeaderName;
+        options.Cookie.Name = configuredBffOptions.CsrfCookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = configuredBffOptions.Secure
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SameSite = configuredBffOptions.SameSite;
+        options.Cookie.Path = "/";
+        options.Cookie.IsEssential = true;
+    });
     builder.Services.AddHealthChecks()
         .AddCheck<MultiRoomChatWebApp.Server.Modules.Chat.Services.ChatBrokerHealthCheck>("chat_broker");
     
@@ -178,11 +203,15 @@ try
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.PendingMediaCleanupWorker>();
 
     // Register Auth Services
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.ICurrentUserAccessor, MultiRoomChatWebApp.Server.Modules.Auth.Services.CurrentUserAccessor>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IAuthSessionService, MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthSessionService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IJwtService, MultiRoomChatWebApp.Server.Modules.Auth.Services.JwtService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IAuthService, MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserCacheService, MultiRoomChatWebApp.Server.Modules.User.Services.UserCacheService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserService, MultiRoomChatWebApp.Server.Modules.User.Services.UserService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.TokenCleanupService>();
+    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthSessionCleanupWorker>();
 
     // Register MediatR
     builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
@@ -203,6 +232,9 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserPresenceService, MultiRoomChatWebApp.Server.Modules.User.Services.UserPresenceService>();
 
     // Register Chat / SignalR Services
+    builder.Services.AddSingleton<
+        Microsoft.AspNetCore.SignalR.IUserIdProvider,
+        MultiRoomChatWebApp.Server.Modules.Auth.Authentication.NameIdentifierUserIdProvider>();
     builder.Services.AddSignalR()
         .AddJsonProtocol(options => {
             options.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
@@ -231,9 +263,42 @@ try
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceMissedCallWorker>();
 
     // Configure Authentication
-    // JWT Bearer vẫn là scheme mặc định cho API/SignalR. Google chỉ là external scheme
-    // được gọi rõ bằng Challenge ở endpoint OAuth, không thay thế JWT nội bộ của app.
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    // Policy scheme giu Bearer flow cu trong giai doan migration va chuyen sang
+    // BFF session khi request khong gui Bearer credential.
+    var bffAuthOptions = configuredBffOptions;
+
+    builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = BffAuthDefaults.PolicyScheme;
+            options.DefaultChallengeScheme = BffAuthDefaults.PolicyScheme;
+            options.DefaultForbidScheme = BffAuthDefaults.PolicyScheme;
+        })
+        .AddPolicyScheme(
+            BffAuthDefaults.PolicyScheme,
+            BffAuthDefaults.PolicyScheme,
+            options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                {
+                    var authorization = context.Request.Headers.Authorization.ToString();
+                    var hasBearerHeader = authorization.StartsWith(
+                        "Bearer ",
+                        StringComparison.OrdinalIgnoreCase);
+
+                    if (bffAuthOptions.AcceptBearerFallback &&
+                        hasBearerHeader)
+                    {
+                        return JwtBearerDefaults.AuthenticationScheme;
+                    }
+
+                    return bffAuthOptions.Enabled
+                        ? BffAuthDefaults.SessionScheme
+                        : JwtBearerDefaults.AuthenticationScheme;
+                };
+            })
+        .AddScheme<AuthenticationSchemeOptions, BffSessionAuthenticationHandler>(
+            BffAuthDefaults.SessionScheme,
+            _ => { })
         .AddCookie(GoogleExternalCookieScheme, options =>
         {
             options.Cookie.Name = "googleExternalAuth";
@@ -257,23 +322,6 @@ try
                 ClockSkew = TimeSpan.Zero,
                 IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
                     System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
-            };
-
-            // Hook Event để Bắt Token từ SignalR Websocket Query String (?access_token=...)
-            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
-            {
-                OnMessageReceived = context =>
-                {
-                    var accessToken = context.Request.Query["access_token"];
-                    var path = context.HttpContext.Request.Path;
-                    
-                    // Nếu là đường dẫn của Hub thì mình mới bắt token kiểu ảo này
-                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hub/chat"))
-                    {
-                        context.Token = accessToken;
-                    }
-                    return Task.CompletedTask;
-                }
             };
         })
         .AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
@@ -506,6 +554,7 @@ try
     app.UseRateLimiter();
 
     app.UseAuthentication();
+    app.UseMiddleware<BffCsrfProtectionMiddleware>();
     app.UseAuthorization();
 
     app.MapControllers();

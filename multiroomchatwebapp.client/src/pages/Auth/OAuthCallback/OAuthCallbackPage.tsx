@@ -21,14 +21,14 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
  * @remarks
  * Luồng xử lý:
  * 1. Đọc lỗi OAuth nếu backend redirect về kèm query error.
- * 2. Nếu không có lỗi, gọi refresh token để lấy JWT nội bộ vào RAM.
+ * 2. Nếu không có lỗi, gọi loadSession để đọc BFF session cookie.
  * 3. Redirect về returnUrl nội bộ an toàn hoặc dashboard.
- * 4. Nếu refresh thất bại, đưa user về Login page với thông báo rõ ràng.
+ * 4. Nếu session không hợp lệ, đưa user về Login page với thông báo rõ ràng.
  */
 export const OAuthCallbackPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { refreshToken } = useAuth();
+  const { loadSession } = useAuth();
 
   const rawReturnUrl = searchParams.get('returnUrl');
   const returnUrl = sanitizeInternalReturnUrl(rawReturnUrl);
@@ -47,10 +47,10 @@ export const OAuthCallbackPage = () => {
         return;
       }
 
-      const accessToken = await refreshToken();
+      const sessionUser = await loadSession();
       if (isCancelled) return;
 
-      if (accessToken) {
+      if (sessionUser) {
         toast.success('Đăng nhập thành công!');
         navigate(returnUrl, { replace: true });
         return;
@@ -67,7 +67,7 @@ export const OAuthCallbackPage = () => {
     return () => {
       isCancelled = true;
     };
-  }, [errorCode, navigate, refreshToken, returnUrl]);
+  }, [errorCode, loadSession, navigate, returnUrl]);
 
   return (
     <div className={styles.pageContainer}>

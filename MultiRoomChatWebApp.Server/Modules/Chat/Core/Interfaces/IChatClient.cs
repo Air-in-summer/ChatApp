@@ -41,12 +41,6 @@ public interface IChatClient
     Task ReceiveReadReceipt(Guid userId, Guid roomId, string lastReadMessageId);
 
     /// <summary>
-    /// Notify người gửi rằng tin nhắn của họ đã được Worker lưu thành công.
-    /// Payload: clientMessageId để frontend tìm đúng optimistic message cần cập nhật.
-    /// </summary>
-    Task MessageStatusUpdated(Guid clientMessageId, string finalMessageId, string status);
-
-    /// <summary>
     /// Notify only the sender after message history and attachment state are consistent.
     /// Sent means persisted in history, not delivered to recipient devices.
     /// </summary>

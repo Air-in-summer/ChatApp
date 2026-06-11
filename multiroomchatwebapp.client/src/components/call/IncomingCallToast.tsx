@@ -8,7 +8,7 @@ import { useVoiceStore } from '../../store/useVoiceStore';
 import styles from './IncomingCallToast.module.css';
 
 export const IncomingCallToast = () => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const incomingCall = useVoiceStore((s) => s.incomingCall);
   const clearIncomingCall = useVoiceStore((s) => s.clearIncomingCall);
   const {
@@ -80,7 +80,7 @@ export const IncomingCallToast = () => {
   };
 
   const handleAccept = async () => {
-    if (!accessToken || isBusy) return;
+    if (!isAuthenticated || isBusy) return;
 
     const call = incomingCall;
     const sessionId = call.session.sessionId;
@@ -92,7 +92,7 @@ export const IncomingCallToast = () => {
     setIsAccepting(true);
 
     try {
-      const response = await acceptVoiceSession(accessToken, sessionId);
+      const response = await acceptVoiceSession(sessionId);
       await leaveCurrentVoiceSessionForSwitch(response.session.sessionId);
       clearIncomingCall();
       await joinDirectCallSession(response, callerName);
@@ -105,13 +105,13 @@ export const IncomingCallToast = () => {
   };
 
   const handleDecline = async () => {
-    if (!accessToken || isBusy) return;
+    if (!isAuthenticated || isBusy) return;
 
     const sessionId = incomingCall.session.sessionId;
     setIsDeclining(true);
 
     try {
-      await declineVoiceSession(accessToken, sessionId);
+      await declineVoiceSession(sessionId);
       clearIncomingCall();
     } catch (error) {
       toast.error('Không thể từ chối cuộc gọi.');

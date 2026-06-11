@@ -1,7 +1,7 @@
-using System.Security.Claims;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Commands;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Enums;
@@ -14,21 +14,19 @@ namespace MultiRoomChatWebApp.Server.Modules.Chat.Controllers;
 [Authorize]
 public class ChatDevController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IMediator _mediator;
 
-    public ChatDevController(IMediator mediator)
+    public ChatDevController(ICurrentUserAccessor currentUser, IMediator mediator)
     {
+        _currentUser = currentUser;
         _mediator = mediator;
     }
 
     [HttpPost("send")]
     public async Task<IActionResult> TestSendMessage([FromBody] SendMessageRequestDto request)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var currentUserId))
-        {
-            return Unauthorized();
-        }
+        var currentUserId = _currentUser.GetUserIdOrThrow();
 
         var command = new SendMessageCommand
         {

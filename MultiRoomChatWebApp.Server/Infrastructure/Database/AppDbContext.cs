@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
+    public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<RoomMember> RoomMembers => Set<RoomMember>();
     public DbSet<ReadReceipt> ReadReceipts => Set<ReadReceipt>();
@@ -103,6 +104,25 @@ public class AppDbContext : DbContext
 
             entity.HasOne(d => d.User)
                   .WithMany(p => p.ExternalLogins)
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AuthSession>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            entity.HasIndex(e => new { e.UserId, e.ExpiresAt });
+            entity.HasIndex(e => new { e.ExpiresAt, e.RevokedAt });
+
+            entity.Property(e => e.TokenHash).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.RevokedReason).HasMaxLength(200);
+            entity.Property(e => e.CreatedByIp).HasMaxLength(64);
+            entity.Property(e => e.LastSeenIp).HasMaxLength(64);
+            entity.Property(e => e.UserAgent).HasMaxLength(512);
+
+            entity.HasOne(d => d.User)
+                  .WithMany(p => p.AuthSessions)
                   .HasForeignKey(d => d.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });

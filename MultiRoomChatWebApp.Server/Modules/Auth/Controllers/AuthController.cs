@@ -1,10 +1,16 @@
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using MultiRoomChatWebApp.Server.Modules.Auth.Authentication;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 using MultiRoomChatWebApp.Server.Shared.Exceptions;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -24,15 +30,24 @@ public class AuthController : ControllerBase
     private const string GoogleOAuthCompletePath = "/api/auth/google/complete";
 
     private readonly IAuthService _authService;
+    private readonly IAuthSessionService _authSessionService;
+    private readonly IAntiforgery _antiforgery;
+    private readonly BffAuthOptions _bffOptions;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         IAuthService authService,
+        IAuthSessionService authSessionService,
+        IAntiforgery antiforgery,
+        IOptions<BffAuthOptions> bffOptions,
         IConfiguration configuration,
         ILogger<AuthController> logger)
     {
         _authService = authService;
+        _authSessionService = authSessionService;
+        _antiforgery = antiforgery;
+        _bffOptions = bffOptions.Value;
         _configuration = configuration;
         _logger = logger;
     }
@@ -106,6 +121,116 @@ public class AuthController : ControllerBase
     private int GetRefreshTokenMinutes()
     {
         return _configuration.GetValue("Auth:TokenLifetime:RefreshTokenMinutes", DefaultRefreshTokenMinutes);
+    }
+
+    private AuthSessionMetadata GetAuthSessionMetadata()
+    {
+        return new AuthSessionMetadata(
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString());
+    }
+
+    private string? GetBffSessionToken()
+    {
+        return Request.Cookies[_bffOptions.CookieName];
+    }
+
+    private async Task ReplaceBffSessionAsync(Guid userId)
+    {
+        if (!_bffOptions.Enabled)
+        {
+            return;
+        }
+
+        var currentSessionToken = GetBffSessionToken();
+        if (!string.IsNullOrWhiteSpace(currentSessionToken))
+        {
+            await _authSessionService.RevokeSessionAsync(
+                currentSessionToken,
+                "replaced_by_new_login",
+                HttpContext.RequestAborted);
+        }
+
+        await CreateAndSetBffSessionAsync(userId);
+    }
+
+    private async Task EnsureBffSessionAsync(Guid userId)
+    {
+        if (!_bffOptions.Enabled)
+        {
+            return;
+        }
+
+        var currentSessionToken = GetBffSessionToken();
+        if (!string.IsNullOrWhiteSpace(currentSessionToken))
+        {
+            var currentSession = await _authSessionService.ValidateSessionAsync(
+                currentSessionToken,
+                HttpContext.RequestAborted);
+
+            if (currentSession?.UserId == userId)
+            {
+                return;
+            }
+
+            if (currentSession != null)
+            {
+                await _authSessionService.RevokeSessionAsync(
+                    currentSessionToken,
+                    "replaced_during_legacy_refresh",
+                    HttpContext.RequestAborted);
+            }
+        }
+
+        await CreateAndSetBffSessionAsync(userId);
+    }
+
+    private async Task CreateAndSetBffSessionAsync(Guid userId)
+    {
+        var session = await _authSessionService.CreateSessionAsync(
+            userId,
+            GetAuthSessionMetadata(),
+            HttpContext.RequestAborted);
+
+        BffSessionCookie.Append(
+            Response,
+            _bffOptions,
+            session.RawSessionToken,
+            session.ExpiresAtUtc);
+    }
+
+    private static AuthSessionResponse CreateAuthSessionResponse(
+        AuthenticateResult authenticateResult)
+    {
+        var principal = authenticateResult.Principal;
+        var expiresAtUtc = authenticateResult.Properties?.ExpiresUtc?.UtcDateTime;
+
+        if (principal == null ||
+            !CurrentUserClaims.TryGetUserId(principal, out var userId) ||
+            expiresAtUtc == null)
+        {
+            throw ApiException.Unauthorized(
+                "bff_session_invalid",
+                "Phien dang nhap khong hop le.");
+        }
+
+        var username = GetClaimValue(
+            principal,
+            JwtRegisteredClaimNames.Name,
+            ClaimTypes.Name) ?? userId.ToString();
+        var displayName = GetClaimValue(
+            principal,
+            "displayName",
+            ClaimTypes.Name,
+            JwtRegisteredClaimNames.Name) ?? username;
+        var avatarUrl = GetClaimValue(principal, "avatarUrl");
+
+        return new AuthSessionResponse(
+            userId,
+            username,
+            displayName,
+            string.IsNullOrWhiteSpace(avatarUrl) ? null : avatarUrl,
+            expiresAtUtc.Value);
     }
 
     /// <summary>
@@ -262,7 +387,7 @@ public class AuthController : ControllerBase
     /// 1. Đọc external cookie `GoogleExternal` do Google middleware tạo sau callback.
     /// 2. Lấy và validate provider user id, email, email_verified, displayName, picture.
     /// 3. Xóa external cookie tạm để không giữ principal Google dài hơn cần thiết.
-    /// 4. Nếu login thành công thì phát refresh cookie và redirect frontend callback thành công.
+    /// 4. Nếu login thành công thì phát BFF session, giữ refresh cookie legacy trong giai đoạn migration và redirect frontend callback thành công.
     /// 5. Nếu email đã tồn tại nhưng chưa link thì trả `account_conflict`, không auto-link.
     /// </remarks>
     [HttpGet("google/complete")]
@@ -332,6 +457,7 @@ public class AuthController : ControllerBase
                 return Redirect(BuildFrontendOAuthCallbackUrl("oauth_failed", safeReturnUrl));
             }
 
+            await ReplaceBffSessionAsync(authResult.AuthResponse.UserId);
             SetRefreshTokenCookie(authResult.AuthResponse.RefreshToken);
             LogOAuthSuccess(provider, authResult.AuthResponse.UserId, providerUserId);
 
@@ -371,6 +497,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         var result = await _authService.RegisterAsync(request);
+        await ReplaceBffSessionAsync(result.UserId);
 
         // Lưu RefreshToken vào HttpOnly Cookie (ẩn khỏi JavaScript)
         SetRefreshTokenCookie(result.RefreshToken);
@@ -403,6 +530,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var result = await _authService.LoginAsync(request);
+        await ReplaceBffSessionAsync(result.UserId);
 
         // Lưu RefreshToken vào HttpOnly Cookie (ẩn khỏi JavaScript)
         SetRefreshTokenCookie(result.RefreshToken);
@@ -443,6 +571,7 @@ public class AuthController : ControllerBase
             throw ApiException.Unauthorized("refresh_token_missing", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
 
         var result = await _authService.RefreshAsync(refreshTokenFromCookie);
+        await EnsureBffSessionAsync(result.UserId);
 
         // Ghi đè token mới vào Cookie (Token Rotation)
         SetRefreshTokenCookie(result.RefreshToken);
@@ -474,14 +603,103 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Logout()
     {
         var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
+        var bffSessionToken = GetBffSessionToken();
 
         // Nếu có token trong Cookie thì thu hồi trong DB
         if (!string.IsNullOrEmpty(refreshTokenFromCookie))
             await _authService.LogoutAsync(refreshTokenFromCookie);
 
         // Xóa Cookie khỏi trình duyệt dù token có tồn tại hay không (idempotent)
+        if (!string.IsNullOrWhiteSpace(bffSessionToken))
+        {
+            await _authSessionService.RevokeSessionAsync(
+                bffSessionToken,
+                "user_logout",
+                HttpContext.RequestAborted);
+        }
+
         Response.Cookies.Delete(GetRefreshCookieName(), GetBaseCookieOptions());
+        BffSessionCookie.Delete(Response, _bffOptions);
 
         return Ok();
+    }
+
+    /// <summary>
+    /// Tra thong tin BFF session hien tai, khong tra access token hay raw session token.
+    /// </summary>
+    [HttpGet("session")]
+    [ProducesResponseType(typeof(AuthSessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetSession()
+    {
+        var authenticateResult = await HttpContext.AuthenticateAsync(
+            BffAuthDefaults.SessionScheme);
+
+        if (!authenticateResult.Succeeded)
+        {
+            throw ApiException.Unauthorized(
+                "bff_session_invalid",
+                "Phien dang nhap da het han. Vui long dang nhap lai.");
+        }
+
+        return Ok(CreateAuthSessionResponse(authenticateResult));
+    }
+
+    /// <summary>
+    /// Gia han BFF session hien tai ma khong phat access token.
+    /// </summary>
+    [HttpPost("session/renew")]
+    [ProducesResponseType(typeof(AuthSessionRenewalResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RenewSession()
+    {
+        if (!_bffOptions.Enabled)
+        {
+            throw ApiException.Unauthorized(
+                "bff_session_disabled",
+                "BFF session chua duoc bat.");
+        }
+
+        var rawSessionToken = GetBffSessionToken();
+        var renewal = await _authSessionService.RenewSessionAsync(
+            rawSessionToken,
+            HttpContext.RequestAborted);
+
+        if (renewal == null || string.IsNullOrWhiteSpace(rawSessionToken))
+        {
+            throw ApiException.Unauthorized(
+                "bff_session_invalid",
+                "Phien dang nhap da het han. Vui long dang nhap lai.");
+        }
+
+        BffSessionCookie.Append(
+            Response,
+            _bffOptions,
+            rawSessionToken,
+            renewal.ExpiresAtUtc);
+
+        return Ok(new AuthSessionRenewalResponse(renewal.ExpiresAtUtc));
+    }
+
+    /// <summary>
+    /// Cap request token chong CSRF cho SPA; token nay khong phai credential dang nhap.
+    /// </summary>
+    [HttpGet("csrf")]
+    [DisableRateLimiting]
+    [ProducesResponseType(typeof(CsrfTokenResponse), StatusCodes.Status200OK)]
+    public IActionResult GetCsrfToken()
+    {
+        var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
+        if (string.IsNullOrWhiteSpace(tokens.RequestToken))
+        {
+            throw new InvalidOperationException("Antiforgery request token was not generated.");
+        }
+
+        Response.Headers.CacheControl = "no-store, no-cache";
+        Response.Headers.Pragma = "no-cache";
+
+        return Ok(new CsrfTokenResponse(
+            tokens.RequestToken,
+            _bffOptions.CsrfHeaderName));
     }
 }

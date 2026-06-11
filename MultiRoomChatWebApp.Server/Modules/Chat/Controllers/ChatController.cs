@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
-using System.Security.Claims;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Controllers;
 
@@ -13,6 +13,7 @@ namespace MultiRoomChatWebApp.Server.Modules.Chat.Controllers;
 [Authorize]
 public class ChatController : ControllerBase
 {
+    private readonly ICurrentUserAccessor _currentUser;
     private readonly IChatService _chatService;
     private readonly IRoomPermissionsCache _roomPermissionsCache;
     private readonly IRoomMetadataCache _roomMetadataCache;
@@ -20,12 +21,14 @@ public class ChatController : ControllerBase
     private readonly IMessageMutationService _messageMutationService;
 
     public ChatController(
+        ICurrentUserAccessor currentUser,
         IChatService chatService, 
         IRoomPermissionsCache roomPermissionsCache,
         IRoomMetadataCache roomMetadataCache,
         Modules.Group.Core.Interfaces.IGroupPermissionsCache groupPermissionsCache,
         IMessageMutationService messageMutationService)
     {
+        _currentUser = currentUser;
         _chatService = chatService;
         _roomPermissionsCache = roomPermissionsCache;
         _roomMetadataCache = roomMetadataCache;
@@ -50,11 +53,7 @@ public class ChatController : ControllerBase
             return BadRequest("Limit must be between 1 and 100");
         }
 
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out Guid userId))
-        {
-            return Unauthorized("User context is missing");
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         // Kiểm tra quyền theo cơ chế Phân tầng (Dispatcher)
         var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
@@ -112,11 +111,7 @@ public class ChatController : ControllerBase
         [FromBody] EditMessageRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.EditMessageAsync(
             userId,
@@ -142,11 +137,7 @@ public class ChatController : ControllerBase
         string messageId,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.DeleteMessageAsync(
             userId,
@@ -172,11 +163,7 @@ public class ChatController : ControllerBase
         [FromBody] MessageReactionRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.AddReactionAsync(
             userId,
@@ -203,11 +190,7 @@ public class ChatController : ControllerBase
         [FromBody] MessageReactionRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.RemoveReactionAsync(
             userId,
@@ -233,11 +216,7 @@ public class ChatController : ControllerBase
         string messageId,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.PinMessageAsync(
             userId,
@@ -262,11 +241,7 @@ public class ChatController : ControllerBase
         string messageId,
         CancellationToken cancellationToken)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.UnpinMessageAsync(
             userId,
@@ -290,11 +265,7 @@ public class ChatController : ControllerBase
         [FromQuery] int limit = 50,
         CancellationToken cancellationToken = default)
     {
-        var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdString, out var userId))
-        {
-            return Unauthorized();
-        }
+        var userId = _currentUser.GetUserIdOrThrow();
 
         var result = await _messageMutationService.GetPinnedMessagesAsync(
             userId,

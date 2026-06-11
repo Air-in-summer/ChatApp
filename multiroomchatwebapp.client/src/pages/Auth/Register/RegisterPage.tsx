@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { apiClient } from '../../../api/apiClient';
+import { useAuth } from '../../../context/AuthContext';
 import { GlassCard } from '../../../components/ui/GlassCard/GlassCard';
 import { InputText } from '../../../components/ui/InputText/InputText';
 import { Button } from '../../../components/ui/Button/Button';
@@ -14,15 +14,15 @@ import styles from './RegisterPage.module.css';
  * @remarks
  * Luồng xử lý:
  * 1. Validate form phía Frontend.
- * 2. Gọi API /api/auth/register qua apiClient (withCredentials: true).
- * 3. Backend tạo user, trả về AccessToken trong body + RefreshToken trong Cookie.
- * 4. Sau khi đăng ký thành công → điều hướng về /login để user tự đăng nhập.
- *    (Không tự login sau khi register để giữ luồng đơn giản)
+ * 2. Gọi register từ AuthContext.
+ * 3. Backend tạo user và cấp BFF session cookie.
+ * 4. Sau khi đăng ký thành công → vào thẳng ứng dụng.
  *
  * Lưu ý: KHÔNG còn lưu bất kỳ token nào vào localStorage nữa.
  */
 export const RegisterPage = () => {
   const navigate = useNavigate();
+  const { register } = useAuth();
   const [formData, setFormData] = useState({
     username: '',
     displayName: '',
@@ -60,11 +60,10 @@ export const RegisterPage = () => {
 
     setLoading(true);
     try {
-      // Gọi qua apiClient (withCredentials: true → Cookie sẽ được set)
-      await apiClient.post('/api/auth/register', formData);
+      await register(formData);
 
-      toast.success('Đăng ký thành công! Hãy đăng nhập.');
-      navigate('/login');
+      toast.success('Đăng ký thành công!');
+      navigate('/', { replace: true });
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Lỗi đăng ký, vui lòng thử lại'));
     } finally {

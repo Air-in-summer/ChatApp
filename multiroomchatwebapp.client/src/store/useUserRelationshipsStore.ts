@@ -38,19 +38,19 @@ interface UserRelationshipsState {
   outgoingRequestsError: string | null;
   blockedUsersError: string | null;
   presenceError: string | null;
-  loadFriends: (token: string) => Promise<void>;
-  loadIncomingRequests: (token: string) => Promise<void>;
-  loadOutgoingRequests: (token: string) => Promise<void>;
-  loadBlockedUsers: (token: string) => Promise<void>;
-  loadFriendsPresence: (token: string) => Promise<void>;
-  loadAllRelationships: (token: string) => Promise<void>;
-  sendFriendRequest: (token: string, receiverId: string) => Promise<FriendRequestDto>;
-  acceptFriendRequest: (token: string, requestId: string) => Promise<FriendRequestDto>;
-  declineFriendRequest: (token: string, requestId: string) => Promise<FriendRequestDto>;
-  cancelFriendRequest: (token: string, requestId: string) => Promise<FriendRequestDto>;
-  removeFriend: (token: string, userId: string) => Promise<void>;
-  blockUser: (token: string, blockedUserId: string) => Promise<BlockedUserDto>;
-  unblockUser: (token: string, userId: string) => Promise<void>;
+  loadFriends: () => Promise<void>;
+  loadIncomingRequests: () => Promise<void>;
+  loadOutgoingRequests: () => Promise<void>;
+  loadBlockedUsers: () => Promise<void>;
+  loadFriendsPresence: () => Promise<void>;
+  loadAllRelationships: () => Promise<void>;
+  sendFriendRequest: (receiverId: string) => Promise<FriendRequestDto>;
+  acceptFriendRequest: (requestId: string) => Promise<FriendRequestDto>;
+  declineFriendRequest: (requestId: string) => Promise<FriendRequestDto>;
+  cancelFriendRequest: (requestId: string) => Promise<FriendRequestDto>;
+  removeFriend: (userId: string) => Promise<void>;
+  blockUser: (blockedUserId: string) => Promise<BlockedUserDto>;
+  unblockUser: (userId: string) => Promise<void>;
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string, lastSeenAt?: string | null) => void;
   setPresenceSnapshot: (presenceList: PresenceDto[]) => void;
@@ -118,11 +118,11 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
   blockedUsersError: null,
   presenceError: null,
 
-  loadFriends: async (token: string) => {
+  loadFriends: async () => {
     set({ isLoadingFriends: true, friendsError: null });
 
     try {
-      const friends = await getFriends(token);
+      const friends = await getFriends();
       set({ friends });
     } catch (error) {
       set({ friendsError: getErrorMessage(error, 'Khong the tai danh sach ban be.') });
@@ -132,11 +132,11 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     }
   },
 
-  loadIncomingRequests: async (token: string) => {
+  loadIncomingRequests: async () => {
     set({ isLoadingIncomingRequests: true, incomingRequestsError: null });
 
     try {
-      const incomingRequests = await getIncomingFriendRequests(token);
+      const incomingRequests = await getIncomingFriendRequests();
       set({ incomingRequests });
     } catch (error) {
       set({ incomingRequestsError: getErrorMessage(error, 'Khong the tai loi moi ket ban.') });
@@ -146,11 +146,11 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     }
   },
 
-  loadOutgoingRequests: async (token: string) => {
+  loadOutgoingRequests: async () => {
     set({ isLoadingOutgoingRequests: true, outgoingRequestsError: null });
 
     try {
-      const outgoingRequests = await getOutgoingFriendRequests(token);
+      const outgoingRequests = await getOutgoingFriendRequests();
       set({ outgoingRequests });
     } catch (error) {
       set({ outgoingRequestsError: getErrorMessage(error, 'Khong the tai loi moi da gui.') });
@@ -160,11 +160,11 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     }
   },
 
-  loadBlockedUsers: async (token: string) => {
+  loadBlockedUsers: async () => {
     set({ isLoadingBlockedUsers: true, blockedUsersError: null });
 
     try {
-      const blockedUsers = await getBlockedUsers(token);
+      const blockedUsers = await getBlockedUsers();
       set({ blockedUsers });
     } catch (error) {
       set({ blockedUsersError: getErrorMessage(error, 'Khong the tai danh sach da chan.') });
@@ -174,11 +174,11 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     }
   },
 
-  loadFriendsPresence: async (token: string) => {
+  loadFriendsPresence: async () => {
     set({ isLoadingPresence: true, presenceError: null });
 
     try {
-      const presenceList = await getFriendsPresence(token);
+      const presenceList = await getFriendsPresence();
       set({ presenceByUserId: toPresenceByUserId(presenceList) });
     } catch (error) {
       set({ presenceError: getErrorMessage(error, 'Khong the tai trang thai online.') });
@@ -188,61 +188,61 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     }
   },
 
-  loadAllRelationships: async (token: string) => {
+  loadAllRelationships: async () => {
     await Promise.all([
-      get().loadFriends(token),
-      get().loadIncomingRequests(token),
-      get().loadOutgoingRequests(token),
-      get().loadBlockedUsers(token),
-      get().loadFriendsPresence(token),
+      get().loadFriends(),
+      get().loadIncomingRequests(),
+      get().loadOutgoingRequests(),
+      get().loadBlockedUsers(),
+      get().loadFriendsPresence(),
     ]);
   },
 
-  sendFriendRequest: async (token: string, receiverId: string) => {
-    const request = await createFriendRequest(token, receiverId);
+  sendFriendRequest: async (receiverId: string) => {
+    const request = await createFriendRequest(receiverId);
     set(state => ({
       outgoingRequests: upsertById(state.outgoingRequests, request),
     }));
     return request;
   },
 
-  acceptFriendRequest: async (token: string, requestId: string) => {
-    const request = await acceptFriendRequest(token, requestId);
+  acceptFriendRequest: async (requestId: string) => {
+    const request = await acceptFriendRequest(requestId);
     set(state => ({
       incomingRequests: state.incomingRequests.filter(existing => existing.id !== requestId),
     }));
 
-    await get().loadFriends(token);
+    await get().loadFriends();
 
     return request;
   },
 
-  declineFriendRequest: async (token: string, requestId: string) => {
-    const request = await declineFriendRequest(token, requestId);
+  declineFriendRequest: async (requestId: string) => {
+    const request = await declineFriendRequest(requestId);
     set(state => ({
       incomingRequests: state.incomingRequests.filter(existing => existing.id !== requestId),
     }));
     return request;
   },
 
-  cancelFriendRequest: async (token: string, requestId: string) => {
-    const request = await cancelFriendRequest(token, requestId);
+  cancelFriendRequest: async (requestId: string) => {
+    const request = await cancelFriendRequest(requestId);
     set(state => ({
       outgoingRequests: state.outgoingRequests.filter(existing => existing.id !== requestId),
     }));
     return request;
   },
 
-  removeFriend: async (token: string, userId: string) => {
-    await removeFriendApi(token, userId);
+  removeFriend: async (userId: string) => {
+    await removeFriendApi(userId);
     set(state => ({
       friends: state.friends.filter(friend => friend.user.id !== userId),
       presenceByUserId: removePresenceByUserId(state.presenceByUserId, userId),
     }));
   },
 
-  blockUser: async (token: string, blockedUserId: string) => {
-    const blockedUser = await blockUserApi(token, blockedUserId);
+  blockUser: async (blockedUserId: string) => {
+    const blockedUser = await blockUserApi(blockedUserId);
     set(state => ({
       friends: state.friends.filter(friend => friend.user.id !== blockedUserId),
       incomingRequests: state.incomingRequests.filter(request => !requestIncludesUser(request, blockedUserId)),
@@ -253,8 +253,8 @@ export const useUserRelationshipsStore = create<UserRelationshipsState>((set, ge
     return blockedUser;
   },
 
-  unblockUser: async (token: string, userId: string) => {
-    await unblockUserApi(token, userId);
+  unblockUser: async (userId: string) => {
+    await unblockUserApi(userId);
     set(state => ({
       blockedUsers: state.blockedUsers.filter(blockedUser => blockedUser.user.id !== userId),
     }));

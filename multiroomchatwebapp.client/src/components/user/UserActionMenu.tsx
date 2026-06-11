@@ -30,7 +30,7 @@ export const UserActionMenu = ({
   onBlocked,
   blockWarningMessage,
 }: UserActionMenuProps) => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [actionInFlightByKey, setActionInFlightByKey] = useState<Record<string, boolean>>({});
   const actionInFlightRef = useRef<Record<string, boolean>>({});
@@ -59,7 +59,7 @@ export const UserActionMenu = ({
     action: () => Promise<void>,
     successMessage: string,
   ) => {
-    if (!accessToken || actionInFlightRef.current[actionKey]) return;
+    if (!isAuthenticated || actionInFlightRef.current[actionKey]) return;
 
     actionInFlightRef.current[actionKey] = true;
     setActionInFlightByKey(state => ({ ...state, [actionKey]: true }));
@@ -91,7 +91,7 @@ export const UserActionMenu = ({
     void runAction(
       `block:${target.id}`,
       async () => {
-        await blockUser(accessToken!, target.id);
+        await blockUser(target.id);
         onBlocked?.(target.id);
       },
       'User blocked.',
@@ -105,7 +105,7 @@ export const UserActionMenu = ({
     void runAction(
       `remove:${friend.user.id}`,
       async () => {
-        await removeFriend(accessToken!, friend.user.id);
+        await removeFriend(friend.user.id);
       },
       'Friend removed.',
     );
@@ -117,11 +117,11 @@ export const UserActionMenu = ({
         <button
           className={styles.menuItem}
           type="button"
-          disabled={!accessToken || isActionInFlight(`unblock:${target.id}`)}
+          disabled={!isAuthenticated || isActionInFlight(`unblock:${target.id}`)}
           onClick={() => void runAction(
             `unblock:${target.id}`,
             async () => {
-              await unblockUser(accessToken!, target.id);
+              await unblockUser(target.id);
             },
             'User unblocked.',
           )}
@@ -137,7 +137,7 @@ export const UserActionMenu = ({
           <button
             className={styles.menuItem}
             type="button"
-            disabled={!accessToken || isActionInFlight(`remove:${friend.user.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`remove:${friend.user.id}`)}
             onClick={handleRemoveFriend}
           >
             {isActionInFlight(`remove:${friend.user.id}`) ? 'Removing...' : 'Remove friend'}
@@ -145,7 +145,7 @@ export const UserActionMenu = ({
           <button
             className={`${styles.menuItem} ${styles.dangerItem}`}
             type="button"
-            disabled={!accessToken || isActionInFlight(`block:${target.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
             onClick={handleBlock}
           >
             {isActionInFlight(`block:${target.id}`) ? 'Blocking...' : 'Block'}
@@ -160,11 +160,11 @@ export const UserActionMenu = ({
           <button
             className={styles.menuItem}
             type="button"
-            disabled={!accessToken || isActionInFlight(`cancel:${outgoingRequest.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`cancel:${outgoingRequest.id}`)}
             onClick={() => void runAction(
               `cancel:${outgoingRequest.id}`,
               async () => {
-                await cancelFriendRequest(accessToken!, outgoingRequest.id);
+                await cancelFriendRequest(outgoingRequest.id);
               },
               'Friend request canceled.',
             )}
@@ -174,7 +174,7 @@ export const UserActionMenu = ({
           <button
             className={`${styles.menuItem} ${styles.dangerItem}`}
             type="button"
-            disabled={!accessToken || isActionInFlight(`block:${target.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
             onClick={handleBlock}
           >
             {isActionInFlight(`block:${target.id}`) ? 'Blocking...' : 'Block'}
@@ -189,11 +189,11 @@ export const UserActionMenu = ({
           <button
             className={styles.menuItem}
             type="button"
-            disabled={!accessToken || isActionInFlight(`accept:${incomingRequest.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`accept:${incomingRequest.id}`)}
             onClick={() => void runAction(
               `accept:${incomingRequest.id}`,
               async () => {
-                await acceptFriendRequest(accessToken!, incomingRequest.id);
+                await acceptFriendRequest(incomingRequest.id);
               },
               'Friend request accepted.',
             )}
@@ -203,11 +203,11 @@ export const UserActionMenu = ({
           <button
             className={styles.menuItem}
             type="button"
-            disabled={!accessToken || isActionInFlight(`decline:${incomingRequest.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`decline:${incomingRequest.id}`)}
             onClick={() => void runAction(
               `decline:${incomingRequest.id}`,
               async () => {
-                await declineFriendRequest(accessToken!, incomingRequest.id);
+                await declineFriendRequest(incomingRequest.id);
               },
               'Friend request declined.',
             )}
@@ -217,7 +217,7 @@ export const UserActionMenu = ({
           <button
             className={`${styles.menuItem} ${styles.dangerItem}`}
             type="button"
-            disabled={!accessToken || isActionInFlight(`block:${target.id}`)}
+            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
             onClick={handleBlock}
           >
             {isActionInFlight(`block:${target.id}`) ? 'Blocking...' : 'Block'}
@@ -231,11 +231,11 @@ export const UserActionMenu = ({
         <button
           className={styles.menuItem}
           type="button"
-          disabled={!accessToken || isActionInFlight(`send:${target.id}`)}
+          disabled={!isAuthenticated || isActionInFlight(`send:${target.id}`)}
           onClick={() => void runAction(
             `send:${target.id}`,
             async () => {
-              await sendFriendRequest(accessToken!, target.id);
+              await sendFriendRequest(target.id);
             },
             'Friend request sent.',
           )}
@@ -245,7 +245,7 @@ export const UserActionMenu = ({
         <button
           className={`${styles.menuItem} ${styles.dangerItem}`}
           type="button"
-          disabled={!accessToken || isActionInFlight(`block:${target.id}`)}
+          disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
           onClick={handleBlock}
         >
           {isActionInFlight(`block:${target.id}`) ? 'Blocking...' : 'Block'}

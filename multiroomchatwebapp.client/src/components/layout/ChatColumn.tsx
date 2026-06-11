@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { createAuthClient } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 import {
   addMessageReaction,
   deleteMessage,
@@ -196,10 +196,9 @@ const toMessageAttachment = (attachment: PendingAttachment): MessageAttachmentDt
 
 interface MessageAttachmentRendererProps {
   attachment: MessageAttachmentDto;
-  token: string | null | undefined;
 }
 
-const MessageAttachmentRenderer = ({ attachment, token }: MessageAttachmentRendererProps) => {
+const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProps) => {
   const [url, setUrl] = useState(attachment.localPreviewUrl ?? attachment.url ?? '');
   const [expiresAt, setExpiresAt] = useState(attachment.expiresAt ?? null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -222,11 +221,11 @@ const MessageAttachmentRenderer = ({ attachment, token }: MessageAttachmentRende
   }, [attachment.mediaId, attachment.localPreviewUrl, attachment.url, attachment.expiresAt]);
 
   const refreshUrl = async () => {
-    if (!token || !attachment.mediaId || isRefreshing) return;
+    if (!attachment.mediaId || isRefreshing) return;
 
     setIsRefreshing(true);
     try {
-      const result = await getMediaAccessUrl(token, attachment.mediaId);
+      const result = await getMediaAccessUrl(attachment.mediaId);
       setUrl(result.url);
       setExpiresAt(result.expiresAt ?? null);
       setLoadFailed(false);
@@ -239,11 +238,11 @@ const MessageAttachmentRenderer = ({ attachment, token }: MessageAttachmentRende
   };
 
   const loadContentBlob = async () => {
-    if (!token || !attachment.mediaId || isRefreshing) return;
+    if (!attachment.mediaId || isRefreshing) return;
 
     setIsRefreshing(true);
     try {
-      const blob = await getMediaContentBlob(token, attachment.mediaId);
+      const blob = await getMediaContentBlob(attachment.mediaId);
       clearObjectUrl();
 
       const objectUrl = URL.createObjectURL(blob);
@@ -288,7 +287,7 @@ const MessageAttachmentRenderer = ({ attachment, token }: MessageAttachmentRende
     if (expiresInMs <= 60_000) {
       refreshUrl();
     }
-  }, [attachment.mediaId, attachment.localPreviewUrl, attachment.kind, token, url, expiresAt]);
+  }, [attachment.mediaId, attachment.localPreviewUrl, attachment.kind, url, expiresAt]);
 
   const handleMediaError = () => {
     if (attachment.localPreviewUrl && url === attachment.localPreviewUrl) {
@@ -426,7 +425,7 @@ export const ChatColumn = ({
   joinRoom,
   className,
 }: ChatColumnProps) => {
-  const { accessToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const userId = user?.userId;
   const activeSession = useVoiceStore((state) => state.activeSession);
   const voiceConnectionStatus = useVoiceStore((state) => state.connectionStatus);
@@ -548,8 +547,8 @@ export const ChatColumn = ({
           return;
         }
 
-        if (attachment.status === 'ready' && attachment.mediaId && accessToken) {
-          cancelPendingChatMedia(accessToken, attachment.mediaId)
+        if (attachment.status === 'ready' && attachment.mediaId) {
+          cancelPendingChatMedia(attachment.mediaId)
             .catch((error) => console.error('Khong the huy pending media khi doi phong:', error));
         }
       });
@@ -577,7 +576,7 @@ export const ChatColumn = ({
   }, [isEmojiPickerOpen]);
 
   useEffect(() => {
-    if (!isPinnedPanelOpen || !roomId || !accessToken) {
+    if (!isPinnedPanelOpen || !roomId || !isAuthenticated) {
       return;
     }
 
@@ -585,7 +584,7 @@ export const ChatColumn = ({
     setIsLoadingPinnedMessages(true);
     setPinnedMessagesError(null);
 
-    getPinnedMessages(accessToken, roomId)
+    getPinnedMessages(roomId)
       .then((messages) => {
         if (!isCancelled) {
           setPinnedMessages(roomId, messages);
@@ -608,7 +607,7 @@ export const ChatColumn = ({
       isCancelled = true;
     };
   }, [
-    accessToken,
+    isAuthenticated,
     isPinnedPanelOpen,
     pinnedMessagesRevision,
     pinnedRefreshRequest,
@@ -625,10 +624,10 @@ export const ChatColumn = ({
 
   // Hook: Lấy quyền GroupRole nếu phòng này là Private trong Group
   useEffect(() => {
-    if (activeChat?.type === 'real' && activeChat.room.groupId && accessToken) {
+    if (activeChat?.type === 'real' && activeChat.room.groupId && isAuthenticated) {
       const fetchMembers = async () => {
         try {
-          const members = await getGroupMembers(accessToken, activeChat.room.groupId!);
+          const members = await getGroupMembers(activeChat.room.groupId!);
           setGroupMembers(members);
 
           if (userId) {
@@ -647,7 +646,7 @@ export const ChatColumn = ({
       setCurrentUserRole(null);
       setGroupMembers([]);
     }
-  }, [activeChat, accessToken, userId]);
+  }, [activeChat, isAuthenticated, userId]);
 
   // Ref giữ roomId trước đó để gọi trimRoom khi user chuyển phòng
   const prevRoomIdRef = useRef<string | null>(null);
@@ -672,16 +671,22 @@ export const ChatColumn = ({
 
   // Hook: Lấy lịch sử tin nhắn khi mở phòng
   useEffect(() => {
-    if (!roomId || !accessToken) return;
+    if (!roomId || !isAuthenticated) return;
 
     const controller = new AbortController();
 
-    // Kiểm tra cache
-    const existingMsgs = useChatStore.getState().messages[roomId] || [];
+    // Chỉ dùng cache nếu phòng đã từng hydrate lịch sử từ API.
+    // Realtime message của phòng chưa mở có thể đã nằm trong store, nhưng đó vẫn là cache partial.
+    const chatState = useChatStore.getState();
+    const existingMsgs = chatState.messages[roomId] || [];
+    const hasHydratedHistory = Object.prototype.hasOwnProperty.call(
+      chatState.historyCursor,
+      roomId
+    );
     const shouldSyncAfterReconnect =
       realtimeSyncVersion > 0 &&
       lastHistorySyncVersionByRoomRef.current[roomId] !== realtimeSyncVersion;
-    if (existingMsgs.length > 0 && !shouldSyncAfterReconnect) {
+    if (existingMsgs.length > 0 && hasHydratedHistory && !shouldSyncAfterReconnect) {
       console.log(`[Cache Hit] Phòng ${roomId} đã có ${existingMsgs.length} tin nhắn. KHÔNG gọi API.`);
       setIsLoadingInitial(false);
       return;
@@ -691,8 +696,7 @@ export const ChatColumn = ({
       console.log(`[API Fetch] Bắt đầu tải tin nhắn cho phòng ${roomId}...`);
       setIsLoadingInitial(true);
       try {
-        const authClient = createAuthClient(accessToken);
-        const res = await authClient.get<GetMessagesResponse>(
+        const res = await apiClient.get<GetMessagesResponse>(
           `/api/v1/chat/rooms/${roomId}/messages`,
           { signal: controller.signal }
         );
@@ -717,7 +721,7 @@ export const ChatColumn = ({
     return () => {
       controller.abort();
     };
-  }, [roomId, accessToken, realtimeSyncVersion]); // Cố tình không đưa messages vào đây để tránh re-fetch
+  }, [roomId, isAuthenticated, realtimeSyncVersion]); // Cố tình không đưa messages vào đây để tránh re-fetch
 
   /**
    * [CORE LOGIC] Xử lý Cuộn (Scroll Management)
@@ -796,7 +800,7 @@ export const ChatColumn = ({
 
   // Hàm: Lazy Load khi cuộn lên đỉnh
   const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-    if (!roomId || !accessToken || isLoadingMore || !hasMore) return;
+    if (!roomId || !isAuthenticated || isLoadingMore || !hasMore) return;
 
     const target = e.currentTarget;
     // Khi cuộn lên sát đỉnh (sai số 5px cho mượt)
@@ -809,8 +813,7 @@ export const ChatColumn = ({
       const previousScrollHeight = target.scrollHeight;
 
       try {
-        const authClient = createAuthClient(accessToken);
-        const res = await authClient.get<GetMessagesResponse>(
+        const res = await apiClient.get<GetMessagesResponse>(
           `/api/v1/chat/rooms/${roomId}/messages?beforeMessageId=${encodeURIComponent(cursor)}`
         );
 
@@ -842,7 +845,7 @@ export const ChatColumn = ({
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
 
-    if (!files.length || !accessToken || !activeChat) return;
+    if (!files.length || !isAuthenticated || !activeChat) return;
 
     for (const file of files) {
       const kind = getClientMediaKind(file);
@@ -874,7 +877,7 @@ export const ChatColumn = ({
       setPendingAttachments((current) => [...current, pendingAttachment]);
 
       try {
-        const uploaded = await uploadChatMedia(accessToken, file, controller.signal);
+        const uploaded = await uploadChatMedia(file, controller.signal);
         setPendingAttachments((current) =>
           current.map((attachment) =>
             attachment.localId === localId
@@ -924,7 +927,7 @@ export const ChatColumn = ({
       return;
     }
 
-    if (attachment.status === 'failed' || !attachment.mediaId || !accessToken) {
+    if (attachment.status === 'failed' || !attachment.mediaId) {
       releaseLocalAttachmentUrl(attachment.localPreviewUrl);
       setPendingAttachments((current) =>
         current.filter((item) => item.localId !== attachment.localId)
@@ -939,7 +942,7 @@ export const ChatColumn = ({
     );
 
     try {
-      await cancelPendingChatMedia(accessToken, attachment.mediaId);
+      await cancelPendingChatMedia(attachment.mediaId);
       releaseLocalAttachmentUrl(attachment.localPreviewUrl);
       setPendingAttachments((current) =>
         current.filter((item) => item.localId !== attachment.localId)
@@ -972,7 +975,7 @@ export const ChatColumn = ({
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeChat || !accessToken) return;
+    if (!activeChat || !isAuthenticated) return;
 
     const readyAttachments = pendingAttachments.filter(
       (attachment) => attachment.status === 'ready' && attachment.mediaId
@@ -1017,7 +1020,7 @@ export const ChatColumn = ({
         setIsSendingFirstMessage(true);
         const targetUserId = activeChat.targetUser.id;
 
-        const roomRes = await createAuthClient(accessToken).post<RoomDto>(`/api/v1/rooms/direct/${targetUserId}`);
+        const roomRes = await apiClient.post<RoomDto>(`/api/v1/rooms/direct/${targetUserId}`);
         const realRoom = roomRes.data;
         realRoom.otherUserDisplayName = activeChat.targetUser.displayName;
         realRoom.otherUserUsername = activeChat.targetUser.username;
@@ -1118,7 +1121,7 @@ export const ChatColumn = ({
   };
 
   const handleRetryMessage = async (message: MessageDto) => {
-    if (!accessToken || !message.clientMessageId) {
+    if (!isAuthenticated || !message.clientMessageId) {
       return;
     }
 
@@ -1212,7 +1215,7 @@ export const ChatColumn = ({
     message: MessageDto
   ) => {
     event.preventDefault();
-    if (!accessToken || mutatingMessageIds.has(message.id)) return;
+    if (!isAuthenticated || mutatingMessageIds.has(message.id)) return;
 
     const normalizedContent = editingContent.trim();
     if (!normalizedContent && !message.attachments?.length) {
@@ -1223,7 +1226,6 @@ export const ChatColumn = ({
     setMutatingMessageIds((current) => new Set(current).add(message.id));
     try {
       const payload = await editMessage(
-        accessToken,
         message.roomId,
         message.id,
         { content: normalizedContent }
@@ -1242,13 +1244,12 @@ export const ChatColumn = ({
   };
 
   const handleDeleteMessage = async (message: MessageDto) => {
-    if (!accessToken || mutatingMessageIds.has(message.id)) return;
+    if (!isAuthenticated || mutatingMessageIds.has(message.id)) return;
     if (!window.confirm('Xoa tin nhan nay voi moi nguoi?')) return;
 
     setMutatingMessageIds((current) => new Set(current).add(message.id));
     try {
       const payload = await deleteMessage(
-        accessToken,
         message.roomId,
         message.id
       );
@@ -1272,7 +1273,7 @@ export const ChatColumn = ({
     emoji: string
   ) => {
     if (
-      !accessToken ||
+      !isAuthenticated ||
       !userId ||
       message.deletedAt ||
       mutatingMessageIds.has(message.id)
@@ -1290,13 +1291,11 @@ export const ChatColumn = ({
     try {
       const payload = currentUserReacted
         ? await removeMessageReaction(
-            accessToken,
             message.roomId,
             message.id,
             { emoji }
           )
         : await addMessageReaction(
-            accessToken,
             message.roomId,
             message.id,
             { emoji }
@@ -1317,7 +1316,7 @@ export const ChatColumn = ({
 
   const handleTogglePin = async (message: MessageDto) => {
     if (
-      !accessToken ||
+      !isAuthenticated ||
       message.deletedAt ||
       mutatingMessageIds.has(message.id)
     ) {
@@ -1328,14 +1327,12 @@ export const ChatColumn = ({
     try {
       if (message.pinnedAt) {
         const payload = await unpinMessage(
-          accessToken,
           message.roomId,
           message.id
         );
         applyMessageUnpinned(payload);
       } else {
         const payload = await pinMessage(
-          accessToken,
           message.roomId,
           message.id
         );
@@ -1793,7 +1790,6 @@ export const ChatColumn = ({
                         <MessageAttachmentRenderer
                           key={attachment.mediaId ?? `${msg.id}-${attachmentIndex}`}
                           attachment={attachment}
-                          token={accessToken}
                         />
                       ))}
                     </div>

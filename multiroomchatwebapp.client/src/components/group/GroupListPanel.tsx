@@ -20,8 +20,8 @@ interface GroupListPanelProps {
  * 
  * @remarks
  * Luồng xử lý:
- * 1. Lấy accessToken từ AuthContext để xác thực API.
- * 2. Sử dụng useEffect để tự động gọi API getMyGroups khi component mount.
+ * 1. Dùng BFF session cookie để xác thực API.
+ * 2. Sử dụng useEffect để tự động gọi API getMyGroups khi user đã đăng nhập.
  * 3. [Bước 13.3]: Quản lý trạng thái hiển thị của CreateGroupModal.
  * 4. [Bước 13.4]: Thực hiện gọi API tạo Server mới và xử lý thông báo.
  * 5. Hiển thị trạng thái Loading trong khi chờ dữ liệu.
@@ -29,7 +29,7 @@ interface GroupListPanelProps {
  * 7. Nếu có dữ liệu, render danh sách dưới dạng Grid Card.
  */
 export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [groups, setGroups] = useState<GroupDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,12 +59,11 @@ export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
 
   // [Luồng xử lý: Tải danh sách nhóm]
   useEffect(() => {
-    // Chỉ gọi API nếu đã có token
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     const fetchGroups = async () => {
       try {
-        const data = await getMyGroups(accessToken);
+        const data = await getMyGroups();
         setGroups(data);
       } catch (error) {
         // Log lỗi nhưng vẫn tắt loading để tránh treo UI
@@ -75,17 +74,17 @@ export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
     };
 
     fetchGroups();
-  }, [accessToken]);
+  }, [isAuthenticated]);
 
   /**
    * [Bước 13.4, 13.5]: Xử lý tạo nhóm mới thông qua API.
    * Cập nhật danh sách hiển thị và điều hướng vào Server mới.
    */
   const handleCreateSubmit = async (name: string, description?: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     try {
-      const newGroup = await createGroup(accessToken, { name, description });
+      const newGroup = await createGroup({ name, description });
       
       // Thành công: Thông báo và đóng modal
       toast.success(`Đã tạo Server "${name}" thành công!`);
@@ -170,4 +169,3 @@ export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
     </div>
   );
 };
-
