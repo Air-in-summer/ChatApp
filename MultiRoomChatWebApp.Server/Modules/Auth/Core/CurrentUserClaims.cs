@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
@@ -6,12 +5,15 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Core;
 
 public static class CurrentUserClaims
 {
+    public const string SubjectClaim = "sub";
+    public const string NameClaim = "name";
+
     public static bool TryGetUserId(ClaimsPrincipal? principal, out Guid userId)
     {
         userId = Guid.Empty;
 
         var userIdString = principal?.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            ?? principal?.FindFirstValue(SubjectClaim);
 
         return Guid.TryParse(userIdString, out userId);
     }
@@ -29,7 +31,7 @@ public static class CurrentUserClaims
     {
         return principal?.FindFirstValue("displayName")
             ?? principal?.FindFirstValue(ClaimTypes.Name)
-            ?? principal?.FindFirstValue(JwtRegisteredClaimNames.Name)
+            ?? principal?.FindFirstValue(NameClaim)
             ?? fallbackUserId?.ToString()
             ?? "Unknown";
     }

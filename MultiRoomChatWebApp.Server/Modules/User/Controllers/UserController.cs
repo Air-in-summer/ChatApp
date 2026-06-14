@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
@@ -61,6 +62,7 @@ public class UserController : ControllerBase
     /// <param name="request">Mật khẩu hiện tại và mật khẩu mới.</param>
     /// <returns>200 OK nếu đổi mật khẩu thành công.</returns>
     [HttpPut("me/password")]
+    [EnableRateLimiting("PasswordChangeLimit")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

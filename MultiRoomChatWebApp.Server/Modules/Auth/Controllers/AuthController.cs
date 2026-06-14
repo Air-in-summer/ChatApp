@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
@@ -23,9 +22,6 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Controllers;
 [EnableRateLimiting("AuthLimit")]
 public class AuthController : ControllerBase
 {
-    private const string DefaultRefreshTokenCookieName = "refreshToken";
-    private const string DefaultRefreshTokenCookiePath = "/api/auth";
-    private const int DefaultRefreshTokenMinutes = 10080;
     private const string GoogleExternalCookieScheme = "GoogleExternal";
     private const string GoogleOAuthCompletePath = "/api/auth/google/complete";
 
@@ -50,77 +46,6 @@ public class AuthController : ControllerBase
         _bffOptions = bffOptions.Value;
         _configuration = configuration;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// Helper: Đặt Refresh Token vào HttpOnly Cookie trên Response.
-    /// </summary>
-    /// <param name="refreshToken">Giá trị Refresh Token cần lưu vào Cookie</param>
-    /// <remarks>
-    /// Cấu hình Cookie đảm bảo tuyệt đối an toàn:
-    /// - HttpOnly = true : JavaScript không thể đọc được → chống XSS ăn cắp token.
-    /// - Secure = true   : Chỉ gửi qua HTTPS → chống nghe lén trên đường truyền.
-    /// - SameSite = Lax  : Không gửi trong POST/PUT/DELETE cross-site → chống CSRF cơ bản.
-    ///                     Cho phép gửi khi người dùng click link navigation → UX tốt hơn.
-    /// - MaxAge = 7 ngày : Khớp với thời hạn RefreshToken trong DB.
-    /// </remarks>
-    private CookieOptions GetBaseCookieOptions()
-    {
-        var cookieOptions = new CookieOptions
-        {
-            HttpOnly = _configuration.GetValue("Auth:RefreshTokenCookie:HttpOnly", true),
-            Secure = _configuration.GetValue("Auth:RefreshTokenCookie:Secure", true),
-            SameSite = GetRefreshCookieSameSite(),
-            Path = GetRefreshCookiePath()
-        };
-
-        var domain = _configuration["Auth:RefreshTokenCookie:Domain"];
-        if (!string.IsNullOrWhiteSpace(domain))
-            cookieOptions.Domain = domain;
-
-        return cookieOptions;
-    }
-
-    private void SetRefreshTokenCookie(string refreshToken)
-    {
-        var options = GetBaseCookieOptions();
-        options.MaxAge = TimeSpan.FromMinutes(GetRefreshTokenMinutes());
-        Response.Cookies.Append(GetRefreshCookieName(), refreshToken, options);
-    }
-
-    /// <summary>
-    /// Lấy tên cookie refresh token từ cấu hình để các thao tác set/read/delete đồng bộ.
-    /// </summary>
-    private string GetRefreshCookieName()
-    {
-        return _configuration["Auth:RefreshTokenCookie:Name"] ?? DefaultRefreshTokenCookieName;
-    }
-
-    /// <summary>
-    /// Lấy Path cookie refresh token, mặc định chỉ gửi cookie đến auth endpoints.
-    /// </summary>
-    private string GetRefreshCookiePath()
-    {
-        return _configuration["Auth:RefreshTokenCookie:Path"] ?? DefaultRefreshTokenCookiePath;
-    }
-
-    /// <summary>
-    /// Lấy SameSite từ cấu hình, fallback Lax để giảm rủi ro CSRF cho request dùng cookie.
-    /// </summary>
-    private SameSiteMode GetRefreshCookieSameSite()
-    {
-        var sameSite = _configuration["Auth:RefreshTokenCookie:SameSite"];
-        return Enum.TryParse<SameSiteMode>(sameSite, ignoreCase: true, out var parsed)
-            ? parsed
-            : SameSiteMode.Lax;
-    }
-
-    /// <summary>
-    /// Lấy thời hạn refresh token từ cấu hình để cookie MaxAge khớp với DB token lifetime.
-    /// </summary>
-    private int GetRefreshTokenMinutes()
-    {
-        return _configuration.GetValue("Auth:TokenLifetime:RefreshTokenMinutes", DefaultRefreshTokenMinutes);
     }
 
     private AuthSessionMetadata GetAuthSessionMetadata()
@@ -149,37 +74,6 @@ public class AuthController : ControllerBase
                 currentSessionToken,
                 "replaced_by_new_login",
                 HttpContext.RequestAborted);
-        }
-
-        await CreateAndSetBffSessionAsync(userId);
-    }
-
-    private async Task EnsureBffSessionAsync(Guid userId)
-    {
-        if (!_bffOptions.Enabled)
-        {
-            return;
-        }
-
-        var currentSessionToken = GetBffSessionToken();
-        if (!string.IsNullOrWhiteSpace(currentSessionToken))
-        {
-            var currentSession = await _authSessionService.ValidateSessionAsync(
-                currentSessionToken,
-                HttpContext.RequestAborted);
-
-            if (currentSession?.UserId == userId)
-            {
-                return;
-            }
-
-            if (currentSession != null)
-            {
-                await _authSessionService.RevokeSessionAsync(
-                    currentSessionToken,
-                    "replaced_during_legacy_refresh",
-                    HttpContext.RequestAborted);
-            }
         }
 
         await CreateAndSetBffSessionAsync(userId);
@@ -216,13 +110,13 @@ public class AuthController : ControllerBase
 
         var username = GetClaimValue(
             principal,
-            JwtRegisteredClaimNames.Name,
+            CurrentUserClaims.NameClaim,
             ClaimTypes.Name) ?? userId.ToString();
         var displayName = GetClaimValue(
             principal,
             "displayName",
             ClaimTypes.Name,
-            JwtRegisteredClaimNames.Name) ?? username;
+            CurrentUserClaims.NameClaim) ?? username;
         var avatarUrl = GetClaimValue(principal, "avatarUrl");
 
         return new AuthSessionResponse(
@@ -387,7 +281,7 @@ public class AuthController : ControllerBase
     /// 1. Đọc external cookie `GoogleExternal` do Google middleware tạo sau callback.
     /// 2. Lấy và validate provider user id, email, email_verified, displayName, picture.
     /// 3. Xóa external cookie tạm để không giữ principal Google dài hơn cần thiết.
-    /// 4. Nếu login thành công thì phát BFF session, giữ refresh cookie legacy trong giai đoạn migration và redirect frontend callback thành công.
+    /// 4. Nếu login thành công thì phát BFF session, xóa refresh cookie legacy nếu còn và redirect frontend callback thành công.
     /// 5. Nếu email đã tồn tại nhưng chưa link thì trả `account_conflict`, không auto-link.
     /// </remarks>
     [HttpGet("google/complete")]
@@ -458,7 +352,6 @@ public class AuthController : ControllerBase
             }
 
             await ReplaceBffSessionAsync(authResult.AuthResponse.UserId);
-            SetRefreshTokenCookie(authResult.AuthResponse.RefreshToken);
             LogOAuthSuccess(provider, authResult.AuthResponse.UserId, providerUserId);
 
             return Redirect(BuildFrontendOAuthSuccessCallbackUrl(safeReturnUrl));
@@ -473,14 +366,13 @@ public class AuthController : ControllerBase
     /// [POST] /api/auth/register - Đăng ký tài khoản người dùng mới
     /// </summary>
     /// <param name="request">Bao gồm Username, DisplayName, Email, và Password</param>
-    /// <returns>AuthClientResponse chứa Access Token và thông tin user (không có Refresh Token)</returns>
+    /// <returns>AuthClientResponse chỉ chứa thông tin user public.</returns>
     /// <remarks>
     /// Request:
     /// - Body: RegisterRequest { Username, DisplayName, Email, Password }
     /// 
     /// Response Success (200):
     /// {
-    ///   "accessToken": "eyJ...",
     ///   "userId": "guid...",
     ///   "username": "alice",
     ///   "displayName": "Alice"
@@ -491,7 +383,7 @@ public class AuthController : ControllerBase
     /// 
     /// Side effects:
     /// - Tạo user mới trong DB và băm mật khẩu bằng BCrypt.
-    /// - Phát sinh một Refresh Token lưu vào CSDL và gắn vào HttpOnly Cookie.
+    /// - Phát sinh BFF session cookie opaque.
     /// </remarks>
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -499,12 +391,7 @@ public class AuthController : ControllerBase
         var result = await _authService.RegisterAsync(request);
         await ReplaceBffSessionAsync(result.UserId);
 
-        // Lưu RefreshToken vào HttpOnly Cookie (ẩn khỏi JavaScript)
-        SetRefreshTokenCookie(result.RefreshToken);
-
-        // Chỉ trả về AccessToken + User info, KHÔNG trả RefreshToken trong body
         return Ok(new AuthClientResponse(
-            result.AccessToken,
             result.UserId,
             result.Username,
             result.DisplayName,
@@ -515,13 +402,12 @@ public class AuthController : ControllerBase
     /// [POST] /api/auth/login - Đăng nhập vào hệ thống
     /// </summary>
     /// <param name="request">Bao gồm Email và Password</param>
-    /// <returns>AuthClientResponse chứa Access Token và thông tin user (không có Refresh Token)</returns>
+    /// <returns>AuthClientResponse chỉ chứa thông tin user public.</returns>
     /// <remarks>
     /// Request:
     /// - Body: LoginRequest { Email, Password }
     /// 
-    /// Response Success (200):
-    /// Trả về accessToken (15m). Refresh Token (7 ngày) được lưu vào HttpOnly Cookie.
+    /// Response Success (200): trả thông tin user public và set BFF session cookie.
     /// 
     /// Response Error:
     /// - 401: Sai email, sai mật khẩu, hoặc tài khoản đã bị khóa (IsActive = false).
@@ -532,52 +418,7 @@ public class AuthController : ControllerBase
         var result = await _authService.LoginAsync(request);
         await ReplaceBffSessionAsync(result.UserId);
 
-        // Lưu RefreshToken vào HttpOnly Cookie (ẩn khỏi JavaScript)
-        SetRefreshTokenCookie(result.RefreshToken);
-
-        // Chỉ trả về AccessToken + User info, KHÔNG trả RefreshToken trong body
         return Ok(new AuthClientResponse(
-            result.AccessToken,
-            result.UserId,
-            result.Username,
-            result.DisplayName,
-            result.AvatarUrl));
-    }
-
-    /// <summary>
-    /// [POST] /api/auth/refresh - Cấp lại Access Token mới bằng Refresh Token
-    /// </summary>
-    /// <returns>AuthClientResponse với Access Token mới nhất (Rotation)</returns>
-    /// <remarks>
-    /// Luồng xử lý:
-    /// 1. Đọc Refresh Token từ HttpOnly Cookie "refreshToken" (không nhận từ body nữa).
-    /// 2. Nếu không có Cookie → trả về 401 Unauthorized.
-    /// 3. Gọi AuthService để xác minh và đổi token mới (Rotation).
-    /// 4. Ghi đè Cookie cũ = Cookie mới (refresh token rotation).
-    /// 5. Trả về Access Token mới cho Client.
-    /// 
-    /// Response Error:
-    /// - 401: Cookie không tồn tại, hoặc Refresh Token không hợp lệ/đã thu hồi/hết hạn.
-    /// 
-    /// Side effects:
-    /// - Token cũ sẽ bị đánh dấu IsRevoked = true để tránh dùng lại (chống Replay Attack).
-    /// </remarks>
-    [HttpPost("refresh")]
-    public async Task<IActionResult> Refresh()
-    {
-        // Đọc RefreshToken từ Cookie thay vì từ body JSON
-        var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
-        if (string.IsNullOrEmpty(refreshTokenFromCookie))
-            throw ApiException.Unauthorized("refresh_token_missing", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-
-        var result = await _authService.RefreshAsync(refreshTokenFromCookie);
-        await EnsureBffSessionAsync(result.UserId);
-
-        // Ghi đè token mới vào Cookie (Token Rotation)
-        SetRefreshTokenCookie(result.RefreshToken);
-
-        return Ok(new AuthClientResponse(
-            result.AccessToken,
             result.UserId,
             result.Username,
             result.DisplayName,
@@ -590,26 +431,19 @@ public class AuthController : ControllerBase
     /// <returns>Trả về kết quả 200 OK khi đăng xuất xong</returns>
     /// <remarks>
     /// Luồng xử lý:
-    /// 1. Đọc Refresh Token từ HttpOnly Cookie "refreshToken".
-    /// 2. Nếu không có Cookie → vẫn xóa Cookie và trả về 200 (idempotent).
-    /// 3. Gọi AuthService để thu hồi token trong DB.
-    /// 4. Xóa Cookie khỏi trình duyệt.
+    /// 1. Đọc BFF session cookie hiện tại.
+    /// 2. Thu hồi session phía server nếu cookie tồn tại.
+    /// 3. Xóa session cookie khỏi trình duyệt.
     /// 
     /// Side effects:
-    /// - Refresh Token bị đánh dấu IsRevoked = true trong DB.
-    /// - Cookie "refreshToken" bị xóa khỏi trình duyệt Client.
+    /// - Auth session bị thu hồi trong DB.
+    /// - Cookie BFF session bị xóa khỏi trình duyệt Client.
     /// </remarks>
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
-        var refreshTokenFromCookie = Request.Cookies[GetRefreshCookieName()];
         var bffSessionToken = GetBffSessionToken();
 
-        // Nếu có token trong Cookie thì thu hồi trong DB
-        if (!string.IsNullOrEmpty(refreshTokenFromCookie))
-            await _authService.LogoutAsync(refreshTokenFromCookie);
-
-        // Xóa Cookie khỏi trình duyệt dù token có tồn tại hay không (idempotent)
         if (!string.IsNullOrWhiteSpace(bffSessionToken))
         {
             await _authSessionService.RevokeSessionAsync(
@@ -618,7 +452,6 @@ public class AuthController : ControllerBase
                 HttpContext.RequestAborted);
         }
 
-        Response.Cookies.Delete(GetRefreshCookieName(), GetBaseCookieOptions());
         BffSessionCookie.Delete(Response, _bffOptions);
 
         return Ok();

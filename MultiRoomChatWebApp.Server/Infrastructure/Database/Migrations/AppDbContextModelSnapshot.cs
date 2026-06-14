@@ -117,38 +117,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.ToTable("ExternalLogins");
                 });
 
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsRevoked")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("RefreshTokens");
-                });
-
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities.ReadReceipt", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -585,17 +553,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities.RefreshToken", b =>
-                {
-                    b.HasOne("MultiRoomChatWebApp.Server.Modules.User.Core.Entities.User", "User")
-                        .WithMany("RefreshTokens")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities.ReadReceipt", b =>
                 {
                     b.HasOne("MultiRoomChatWebApp.Server.Modules.Room.Core.Entities.Room", "Room")
@@ -780,8 +737,6 @@ namespace MultiRoomChatWebApp.Server.Infrastructure.Database.Migrations
                     b.Navigation("ExternalLogins");
 
                     b.Navigation("GroupMemberships");
-
-                    b.Navigation("RefreshTokens");
 
                     b.Navigation("RoomMemberships");
                 });

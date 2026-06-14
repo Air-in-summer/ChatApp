@@ -41,7 +41,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: dmRoomId (Guid) - ID phòng DirectMessage.
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     ///
     /// Response Success (201):
     /// - Tạo Mongo document trong collection `voice_sessions`.
@@ -89,7 +89,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     ///
     /// Response Success (200):
     /// - Chỉ participant đang `Invited` được accept.
@@ -134,7 +134,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     ///
     /// Response Success (200):
     /// - Chỉ participant đang `Invited` được decline.
@@ -179,7 +179,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     ///
     /// Dùng cho:
     /// - Refresh token trước khi hết hạn.
@@ -226,7 +226,7 @@ public class VoiceSessionController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: sessionId (Guid) - ID session trong MongoDB.
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     ///
     /// Response Success (200):
     /// - Participant đang `Joined` chuyển sang `Left`.

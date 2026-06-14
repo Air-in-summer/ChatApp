@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Shared.Exceptions;
@@ -14,15 +15,18 @@ public class UserService : IUserService
     private const int MaxPasswordLength = 100;
 
     private readonly AppDbContext _dbContext;
+    private readonly IAuthSessionService _authSessionService;
     private readonly IUserCacheService _userCacheService;
     private readonly IUserRelationshipGraphService _relationshipGraphService;
 
     public UserService(
         AppDbContext dbContext,
+        IAuthSessionService authSessionService,
         IUserCacheService userCacheService,
         IUserRelationshipGraphService relationshipGraphService)
     {
         _dbContext = dbContext;
+        _authSessionService = authSessionService;
         _userCacheService = userCacheService;
         _relationshipGraphService = relationshipGraphService;
     }
@@ -130,7 +134,7 @@ public class UserService : IUserService
     }
 
     /// <summary>
-    /// Đổi mật khẩu local và thu hồi refresh token để bắt user đăng nhập lại.
+    /// Đổi mật khẩu local và thu hồi toàn bộ BFF session để bắt user đăng nhập lại.
     /// </summary>
     /// <param name="userId">Id user hiện tại.</param>
     /// <param name="request">Mật khẩu hiện tại và mật khẩu mới.</param>
@@ -139,12 +143,11 @@ public class UserService : IUserService
     /// 1. Tìm user active và đảm bảo tài khoản có password local.
     /// 2. Verify current password bằng BCrypt.
     /// 3. Validate độ mạnh password mới theo rule đăng ký hiện tại.
-    /// 4. Cập nhật PasswordHash và revoke refresh token của user.
+    /// 4. Cập nhật PasswordHash và revoke toàn bộ session của user.
     /// </remarks>
     public async Task ChangePasswordAsync(Guid userId, ChangePasswordRequest request)
     {
         var user = await _dbContext.Users
-            .Include(u => u.RefreshTokens)
             .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
 
         if (user == null)
@@ -161,12 +164,10 @@ public class UserService : IUserService
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         user.UpdatedAt = DateTime.UtcNow;
 
-        foreach (var token in user.RefreshTokens.Where(t => t.IsActive))
-        {
-            token.IsRevoked = true;
-        }
-
         await _dbContext.SaveChangesAsync();
+        await _authSessionService.RevokeAllUserSessionsAsync(
+            user.Id,
+            "password_changed");
     }
 
     private static UserProfileDto MapToProfileDto(Core.Entities.User user)

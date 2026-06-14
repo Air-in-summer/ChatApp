@@ -20,7 +20,7 @@ import './App.css';
  * - / (và các sub-route) : Protected (phải đăng nhập, bọc bởi ProtectedRoute)
  *
  * Luồng khi F5 trang ở Dashboard:
- * 1. AuthProvider tự động gọi /api/auth/refresh.
+ * 1. AuthProvider tự động gọi /api/auth/session.
  * 2. ProtectedRoute thấy isLoading=true → hiện Spinner, KHÔNG redirect.
  * 3. Khi refresh xong → isLoading=false, isAuthenticated=true → render MainLayout bình thường.
  */

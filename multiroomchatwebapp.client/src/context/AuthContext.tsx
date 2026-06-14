@@ -8,7 +8,7 @@ import type { AuthUser, AuthClientResponse, AuthSessionResponse, UserProfile } f
 
 /**
  * Định nghĩa contract của AuthContext.
- * Contract xác thực frontend trong giai đoạn chuyển từ Bearer sang BFF session.
+ * Contract xác thực frontend dùng BFF session.
  */
 interface AuthContextType {
   /** Thông tin user đang đăng nhập. null = chưa đăng nhập. */
@@ -39,6 +39,8 @@ interface RegisterRequest {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+const AUTH_BROADCAST_CHANNEL = 'chatapp-auth';
+const AUTH_LOGOUT_EVENT = 'logout';
 
 /**
  * AuthProvider - Bọc ngoài toàn bộ App để cung cấp trạng thái xác thực.
@@ -54,6 +56,14 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const broadcastLogout = useCallback((): void => {
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    const channel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+    channel.postMessage({ type: AUTH_LOGOUT_EVENT });
+    channel.close();
+  }, []);
 
   const clearAuthState = useCallback((): void => {
     resetBffCsrfToken();
@@ -114,6 +124,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => configureBffUnauthorizedHandler(null);
   }, [clearAuthState]);
 
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    const channel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+    channel.onmessage = event => {
+      if (event.data?.type === AUTH_LOGOUT_EVENT) {
+        clearAuthState();
+      }
+    };
+
+    return () => channel.close();
+  }, [clearAuthState]);
+
   /**
    * Đăng nhập: gọi API để backend tạo BFF session.
    * Frontend chỉ giữ thông tin user, không nhận hoặc lưu application token.
@@ -165,8 +188,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Kể cả khi API lỗi, vẫn xóa RAM để logout phía client
     } finally {
       clearAuthState();
+      broadcastLogout();
     }
-  }, [clearAuthState]);
+  }, [broadcastLogout, clearAuthState]);
 
   // [FIX] Memoize context value để tránh tạo object mới mỗi render
   // → ngăn toàn bộ consumer re-render khi AuthProvider re-render nhưng data không đổi

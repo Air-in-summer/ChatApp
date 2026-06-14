@@ -14,7 +14,6 @@ public class AppDbContext : DbContext
     }
 
     public DbSet<User> Users => Set<User>();
-    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
     public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
     public DbSet<Room> Rooms => Set<Room>();
@@ -79,17 +78,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.DisplayName).HasMaxLength(100);
             entity.Property(e => e.PasswordHash);
             entity.Property(e => e.AvatarUrl).HasMaxLength(2048);
-        });
-
-        modelBuilder.Entity<RefreshToken>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.TokenHash).IsUnique();
-            
-            entity.HasOne(d => d.User)
-                  .WithMany(p => p.RefreshTokens)
-                  .HasForeignKey(d => d.UserId)
-                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ExternalLogin>(entity =>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
@@ -36,6 +36,12 @@ export const RegisterPage = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const clearSensitiveFields = () => {
+    setFormData(current => ({ ...current, password: '' }));
+  };
+
+  useEffect(() => clearSensitiveFields, []);
+
   const validateForm = () => {
     const newErrors: typeof errors = {};
     if (!formData.username) newErrors.username = 'Username là bắt buộc';
@@ -61,6 +67,7 @@ export const RegisterPage = () => {
     setLoading(true);
     try {
       await register(formData);
+      clearSensitiveFields();
 
       toast.success('Đăng ký thành công!');
       navigate('/', { replace: true });

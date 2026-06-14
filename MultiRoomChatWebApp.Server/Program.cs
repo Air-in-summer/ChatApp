@@ -7,7 +7,6 @@ using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -19,6 +18,7 @@ using MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Options;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 using MultiRoomChatWebApp.Server.Shared.Middleware;
+using MultiRoomChatWebApp.Server.Shared.Options;
 using Serilog;
 using System.Security.Claims;
 
@@ -102,6 +102,8 @@ try
             options => options.IsValid(out _),
             "BFF authentication configuration is invalid.")
         .ValidateOnStart();
+    builder.Services.Configure<SecurityHeadersOptions>(
+        builder.Configuration.GetSection(SecurityHeadersOptions.SectionName));
     var configuredBffOptions = builder.Configuration
         .GetSection(BffAuthOptions.SectionName)
         .Get<BffAuthOptions>() ?? new BffAuthOptions();
@@ -206,11 +208,9 @@ try
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.ICurrentUserAccessor, MultiRoomChatWebApp.Server.Modules.Auth.Services.CurrentUserAccessor>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IAuthSessionService, MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthSessionService>();
-    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IJwtService, MultiRoomChatWebApp.Server.Modules.Auth.Services.JwtService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces.IAuthService, MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserCacheService, MultiRoomChatWebApp.Server.Modules.User.Services.UserCacheService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces.IUserService, MultiRoomChatWebApp.Server.Modules.User.Services.UserService>();
-    builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.TokenCleanupService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Auth.Services.AuthSessionCleanupWorker>();
 
     // Register MediatR
@@ -262,40 +262,12 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Voice.Core.Interfaces.IVoiceSessionService, MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceSessionService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Voice.Services.VoiceMissedCallWorker>();
 
-    // Configure Authentication
-    // Policy scheme giu Bearer flow cu trong giai doan migration va chuyen sang
-    // BFF session khi request khong gui Bearer credential.
-    var bffAuthOptions = configuredBffOptions;
-
     builder.Services.AddAuthentication(options =>
         {
-            options.DefaultAuthenticateScheme = BffAuthDefaults.PolicyScheme;
-            options.DefaultChallengeScheme = BffAuthDefaults.PolicyScheme;
-            options.DefaultForbidScheme = BffAuthDefaults.PolicyScheme;
+            options.DefaultAuthenticateScheme = BffAuthDefaults.SessionScheme;
+            options.DefaultChallengeScheme = BffAuthDefaults.SessionScheme;
+            options.DefaultForbidScheme = BffAuthDefaults.SessionScheme;
         })
-        .AddPolicyScheme(
-            BffAuthDefaults.PolicyScheme,
-            BffAuthDefaults.PolicyScheme,
-            options =>
-            {
-                options.ForwardDefaultSelector = context =>
-                {
-                    var authorization = context.Request.Headers.Authorization.ToString();
-                    var hasBearerHeader = authorization.StartsWith(
-                        "Bearer ",
-                        StringComparison.OrdinalIgnoreCase);
-
-                    if (bffAuthOptions.AcceptBearerFallback &&
-                        hasBearerHeader)
-                    {
-                        return JwtBearerDefaults.AuthenticationScheme;
-                    }
-
-                    return bffAuthOptions.Enabled
-                        ? BffAuthDefaults.SessionScheme
-                        : JwtBearerDefaults.AuthenticationScheme;
-                };
-            })
         .AddScheme<AuthenticationSchemeOptions, BffSessionAuthenticationHandler>(
             BffAuthDefaults.SessionScheme,
             _ => { })
@@ -308,21 +280,6 @@ try
             options.Cookie.Path = "/api/auth/google";
             options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
             options.SlidingExpiration = false;
-        })
-        .AddJwtBearer(options =>
-        {
-            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ValidIssuer = builder.Configuration["Jwt:Issuer"],
-                ValidAudience = builder.Configuration["Jwt:Audience"],
-                ClockSkew = TimeSpan.Zero,
-                IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-                    System.Text.Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
-            };
         })
         .AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
         {
@@ -396,15 +353,18 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
-        c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "MultiRoomChat API", Version = "v1" });
-        c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
         {
-            Name = "Authorization",
-            Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-            Scheme = "Bearer",
-            BearerFormat = "JWT",
-            In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-            Description = "Dán duy nhất chuỗi JWT token vào đây (Không cần chữ 'Bearer')."
+            Title = "MultiRoomChat API",
+            Version = "v1",
+            Description = "Browser SPA authentication uses BFF session cookies."
+        });
+        c.AddSecurityDefinition("BffSession", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        {
+            Name = "__Host-chatapp_session",
+            Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+            In = Microsoft.OpenApi.Models.ParameterLocation.Cookie,
+            Description = "BFF session cookie issued by /api/auth/login, /api/auth/register or OAuth callback. Browser clients do not send Bearer tokens."
         });
 
         c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement()
@@ -415,7 +375,7 @@ try
                     Reference = new Microsoft.OpenApi.Models.OpenApiReference
                     {
                         Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                        Id = "Bearer"
+                        Id = "BffSession"
                     }
                 },
                 new List<string>()
@@ -514,6 +474,17 @@ try
                     QueueLimit = 0,
                     AutoReplenishment = true
                 }));
+
+        options.AddPolicy("PasswordChangeLimit", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                GetUserRateLimitPartitionKey(httpContext),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 5,
+                    Window = TimeSpan.FromHours(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                }));
     });
 
     // ──────────────────────────────────────────────────────────
@@ -522,7 +493,22 @@ try
     var app = builder.Build();
 
     // Serilog đứng ngoài ErrorHandlingMiddleware để log status code cuối cùng sau khi lỗi được map.
-    app.UseSerilogRequestLogging();
+    app.UseSerilogRequestLogging(options =>
+    {
+        // Khong log header, cookie, token, body hay query string; RequestPath chi gom path.
+        options.MessageTemplate =
+            "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+        options.GetLevel = (httpContext, _, exception) =>
+        {
+            if (exception is not null ||
+                httpContext.Response.StatusCode >= StatusCodes.Status500InternalServerError)
+            {
+                return Serilog.Events.LogEventLevel.Error;
+            }
+
+            return Serilog.Events.LogEventLevel.Information;
+        };
+    });
 
     // Global Error Handler
     app.UseMiddleware<ErrorHandlingMiddleware>();

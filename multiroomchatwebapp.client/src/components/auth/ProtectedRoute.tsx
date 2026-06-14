@@ -20,7 +20,7 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
-  // Đang kiểm tra phiên làm việc (F5 → refresh token) → hiện loading
+  // Đang kiểm tra phiên làm việc sau F5.
   if (isLoading) {
     return (
       <div style={{

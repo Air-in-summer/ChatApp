@@ -48,12 +48,18 @@ export const LoginPage = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  const clearSensitiveFields = () => {
+    setPassword('');
+  };
+
   // Tự động chuyển hướng nếu đã đăng nhập
   useEffect(() => {
     if (isAuthenticated) {
       navigate(returnUrl, { replace: true });
     }
   }, [isAuthenticated, navigate, returnUrl]);
+
+  useEffect(() => clearSensitiveFields, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +69,7 @@ export const LoginPage = () => {
     try {
       // Gọi qua AuthContext → tự xử lý API + lưu RAM
       await login(email, password);
+      clearSensitiveFields();
       toast.success('Đăng nhập thành công!');
       // Redirect về returnUrl (nếu có và hợp lệ), không thì về Dashboard
       // Guard: chỉ chấp nhận returnUrl bắt đầu bằng '/' để chống Open Redirect attack

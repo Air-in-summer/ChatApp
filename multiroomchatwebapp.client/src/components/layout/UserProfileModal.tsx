@@ -6,6 +6,7 @@ import { deleteAvatar, uploadAvatar } from '../../api/mediaApi';
 import { useAuth } from '../../context/AuthContext';
 import type { UserProfile } from '../../types/auth';
 import { getApiErrorMessage } from '../../utils/apiError';
+import { getSafeResourceUrl } from '../../utils/safeUrl';
 import styles from './UserProfileModal.module.css';
 
 interface UserProfileModalProps {
@@ -37,7 +38,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasAvatarPreviewError, setHasAvatarPreviewError] = useState(false);
   const avatarFallbackText = (displayName || profile?.username || '?').trim().charAt(0).toUpperCase() || '?';
-  const avatarPreviewUrl = localAvatarPreviewUrl ?? avatarUrl;
+  const avatarPreviewUrl = localAvatarPreviewUrl ?? getSafeResourceUrl(avatarUrl);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -78,6 +79,14 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   useEffect(() => {
     setHasAvatarPreviewError(false);
   }, [avatarPreviewUrl]);
+
+  const clearPasswordFields = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  useEffect(() => clearPasswordFields, []);
 
   const handleProfileSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -173,6 +182,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       });
 
       toast.success('Đã đổi mật khẩu. Vui lòng đăng nhập lại.');
+      clearPasswordFields();
       await logout();
       navigate('/login', { replace: true });
     } catch (error: unknown) {

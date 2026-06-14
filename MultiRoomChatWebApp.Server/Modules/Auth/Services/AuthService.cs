@@ -12,13 +12,11 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
 public class AuthService : IAuthService
 {
     private readonly AppDbContext _dbContext;
-    private readonly IJwtService _jwtService;
     private readonly ILogger<AuthService> _logger;
 
-    public AuthService(AppDbContext dbContext, IJwtService jwtService, ILogger<AuthService> logger)
+    public AuthService(AppDbContext dbContext, ILogger<AuthService> logger)
     {
         _dbContext = dbContext;
-        _jwtService = jwtService;
         _logger = logger;
     }
 
@@ -96,17 +94,16 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
-    /// Đăng ký người dùng mới, hash mật khẩu và cung cấp Token khởi tạo.
+    /// Đăng ký người dùng mới, hash mật khẩu và trả thông tin user cho BFF session.
     /// </summary>
     /// <param name="request">Thông tin đăng ký (Username, Email, DisplayName, Password)</param>
-    /// <returns>AuthResponse với Access Token và Refresh Token</returns>
+    /// <returns>AuthResponse chứa thông tin user mới.</returns>
     /// <remarks>
     /// Luồng xử lý:
     /// 1. Kiểm tra Email và Username xem đã tồn tại trong hệ thống chưa? Nếu có => Throw BadRequest error.
     /// 2. Tạo đối tượng User, đặt DisplayName, và mã hóa Password dùng thuật toán BCrypt.
     /// 3. Lưu User xuống Database.
-    /// 4. Phát sinh Access Token và Refresh Token qua JwtService.
-    /// 5. Lưu Refresh Token liên kết với User xuống Database. 
+    /// 4. Trả thông tin user để controller tạo BFF session cookie.
     /// </remarks>
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
@@ -129,17 +126,7 @@ public class AuthService : IAuthService
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
 
-        // Tạo 2 token (ngắn hạn và dài hạn) cung cấp cho client
-        var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
-
-        _dbContext.RefreshTokens.Add(refreshTokenResult.Entity);
-        // Lưu refresh token để kiểm soát phiên đăng nhập
-        await _dbContext.SaveChangesAsync();
-
         return new AuthResponse(
-            accessToken, 
-            refreshTokenResult.PlainTextToken, 
             user.Id, 
             user.Username, 
             user.DisplayName,
@@ -150,13 +137,12 @@ public class AuthService : IAuthService
     /// Rà soát mật khẩu và đăng nhập hệ thống. Tự động từ chối tài khoản IsActive=false.
     /// </summary>
     /// <param name="request">Thông tin Email và Password</param>
-    /// <returns>AuthResponse chứa phiên làm việc mới</returns>
+    /// <returns>AuthResponse chứa thông tin user đăng nhập.</returns>
     /// <remarks>
     /// Luồng xử lý:
     /// 1. Truy vấn User theo thư Email.
     /// 2. Kiểm tra nếu User null, bị cấm, hoặc mật khẩu xác thực Verify() bị sai => Throw Unauthorized.
-    /// 3. Sinh Token pair qua JwtService.
-    /// 4. Lưu lại Refresh Token để bắt đầu phiên mới cho user này.
+    /// 3. Trả thông tin user để controller tạo BFF session cookie.
     /// </remarks>
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
@@ -166,15 +152,7 @@ public class AuthService : IAuthService
         if (user == null || !user.IsActive || string.IsNullOrWhiteSpace(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw ApiException.Unauthorized("invalid_credentials", "Email hoặc mật khẩu không đúng.");
 
-        var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
-
-        _dbContext.RefreshTokens.Add(refreshTokenResult.Entity);
-        await _dbContext.SaveChangesAsync();
-
         return new AuthResponse(
-            accessToken, 
-            refreshTokenResult.PlainTextToken, 
             user.Id, 
             user.Username, 
             user.DisplayName,
@@ -192,7 +170,7 @@ public class AuthService : IAuthService
     /// 2. Nếu chưa có mapping và email đã tồn tại thì trả null để 2.6 xử lý account conflict.
     /// 3. Nếu chưa có mapping và email mới thì tạo user Google-only + ExternalLogin trong transaction.
     /// 4. Nếu mapping tồn tại nhưng user nội bộ inactive thì từ chối đăng nhập.
-    /// 5. Phát JWT nội bộ và refresh token như login password.
+    /// 5. Trả thông tin user để controller tạo BFF session cookie.
     /// </remarks>
     public async Task<ExternalLoginAuthResult> LoginWithExternalProviderAsync(ExternalLoginRequest request)
     {
@@ -235,10 +213,6 @@ public class AuthService : IAuthService
                 ProviderEmail = normalizedEmail
             });
 
-            var newUserAccessToken = _jwtService.GenerateAccessToken(newUser);
-            var newUserRefreshTokenResult = _jwtService.GenerateRefreshToken(newUser.Id);
-
-            _dbContext.RefreshTokens.Add(newUserRefreshTokenResult.Entity);
             await _dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
 
@@ -250,8 +224,6 @@ public class AuthService : IAuthService
             return new ExternalLoginAuthResult(
                 ExternalLoginAuthStatus.Success,
                 new AuthResponse(
-                    newUserAccessToken,
-                    newUserRefreshTokenResult.PlainTextToken,
                     newUser.Id,
                     newUser.Username,
                     newUser.DisplayName,
@@ -265,101 +237,15 @@ public class AuthService : IAuthService
         externalLogin.ProviderEmail = normalizedEmail;
         externalLogin.UpdatedAt = DateTime.UtcNow;
 
-        var accessToken = _jwtService.GenerateAccessToken(user);
-        var refreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
-
-        _dbContext.RefreshTokens.Add(refreshTokenResult.Entity);
         await _dbContext.SaveChangesAsync();
 
         return new ExternalLoginAuthResult(
             ExternalLoginAuthStatus.Success,
             new AuthResponse(
-                accessToken,
-                refreshTokenResult.PlainTextToken,
                 user.Id,
                 user.Username,
                 user.DisplayName,
                 user.AvatarUrl));
     }
 
-    /// <summary>
-    /// Xoay vòng (Rotation) Refresh Token để sinh ra Access Token mới.
-    /// </summary>
-    /// <param name="refreshToken">Chuỗi token cũ đang chưa bị thu hồi</param>
-    /// <returns>AuthResponse chứa Refresh Token và Access Token hoàn toàn mới</returns>
-    /// <remarks>
-    /// Luồng xử lý:
-    /// 1. Tìm Refresh Token trong hệ thống.
-    /// 2. Xác thực tính hiệu lực (token phải chưa hết hạn, và chưa bị mark IsRevoked).
-    /// 3. Thực hiện [Lazy Cleanup]: tìm và làm sạch các token rác khác của ông user đó.
-    /// 4. Vô hiệu hóa chính cái Refresh Token vừa gửi lên (Rotation security pattern).
-    /// 5. Đẻ ra cái cặp Token mới rồi ném về client.
-    /// </remarks>
-    public async Task<AuthResponse> RefreshAsync(string refreshToken)
-    {
-        var refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
-
-        var storedToken = await _dbContext.RefreshTokens
-            .Include(t => t.User)
-            .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
-
-        if (storedToken == null || !storedToken.IsActive || !storedToken.User.IsActive)
-            throw ApiException.Unauthorized("refresh_token_invalid", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-
-        // [Luồng Lazy Cleanup]
-        // Xác định và xóa sạch các token đã rác của người dùng để nhẹ dọn CSDL
-        // Lý do: Đỡ phụ thuộc 100% vào Background Service
-        var oldTokens = await _dbContext.RefreshTokens
-            .Where(t => t.UserId == storedToken.UserId && (t.IsRevoked || t.ExpiresAt <= DateTime.UtcNow))
-            .ToListAsync();
-            
-        if (oldTokens.Any())
-        {
-            _dbContext.RefreshTokens.RemoveRange(oldTokens);
-        }
-
-        // Tự động thu hồi token hiện tại ngay lập tức sau khi dùng (cơ chế Token Rotation chặn replay attack)
-        storedToken.IsRevoked = true;
-
-        var user = storedToken.User;
-        var newAccessToken = _jwtService.GenerateAccessToken(user);
-        var newRefreshTokenResult = _jwtService.GenerateRefreshToken(user.Id);
-
-        _dbContext.RefreshTokens.Add(newRefreshTokenResult.Entity);
-        await _dbContext.SaveChangesAsync();
-
-        return new AuthResponse(
-            newAccessToken, 
-            newRefreshTokenResult.PlainTextToken, 
-            user.Id, 
-            user.Username, 
-            user.DisplayName,
-            user.AvatarUrl);
-    }
-
-    /// <summary>
-    /// Hủy phiên đăng nhập thông qua Refresh Token cung cấp.
-    /// </summary>
-    /// <param name="refreshToken">RefreshToken đang hoạt động</param>
-    /// <remarks>
-    /// Luồng xử lý:
-    /// Chỉ đơn giản tìm token trong DB và update cờ IsRevoked = true.
-    /// Access token sẽ tiếp tục sống 15 phút rởm nhưng refresh sẽ hoàn toàn bị tịt.
-    /// </remarks>
-    public async Task LogoutAsync(string refreshToken)
-    {
-        if (string.IsNullOrWhiteSpace(refreshToken))
-            return;
-
-        var refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
-
-        var storedToken = await _dbContext.RefreshTokens
-            .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
-
-        if (storedToken != null)
-        {
-            storedToken.IsRevoked = true;
-            await _dbContext.SaveChangesAsync();
-        }
-    }
 }

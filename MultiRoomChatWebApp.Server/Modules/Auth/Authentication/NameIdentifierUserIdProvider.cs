@@ -8,7 +8,7 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Authentication;
 /// </summary>
 /// <remarks>
 /// Luong xu ly:
-/// 1. Authentication pipeline xac thuc request bang BFF session hoac Bearer fallback.
+/// 1. Authentication pipeline xac thuc request bang BFF session.
 /// 2. Principal sau xac thuc phai co ClaimTypes.NameIdentifier la Guid cua user.
 /// 3. SignalR dung gia tri nay lam Context.UserIdentifier de Clients.User/Clients.Users route dung ket noi.
 ///

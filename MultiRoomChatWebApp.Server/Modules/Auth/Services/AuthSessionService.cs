@@ -1,10 +1,10 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
+using MultiRoomChatWebApp.Server.Modules.Auth.Core;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
@@ -227,7 +227,6 @@ public sealed class AuthSessionService : IAuthSessionService
     {
         var configuredMinutes =
             _configuration.GetValue<int?>("Auth:Bff:SessionLifetimeMinutes") ??
-            _configuration.GetValue<int?>("Auth:TokenLifetime:RefreshTokenMinutes") ??
             DefaultSessionLifetimeMinutes;
 
         return TimeSpan.FromMinutes(Math.Max(1, configuredMinutes));
@@ -249,8 +248,8 @@ public sealed class AuthSessionService : IAuthSessionService
         return
         [
             new Claim(ClaimTypes.NameIdentifier, userId),
-            new Claim(JwtRegisteredClaimNames.Sub, userId),
-            new Claim(JwtRegisteredClaimNames.Name, user.Username),
+            new Claim(CurrentUserClaims.SubjectClaim, userId),
+            new Claim(CurrentUserClaims.NameClaim, user.Username),
             new Claim("displayName", user.DisplayName),
             new Claim("avatarUrl", user.AvatarUrl ?? string.Empty)
         ];

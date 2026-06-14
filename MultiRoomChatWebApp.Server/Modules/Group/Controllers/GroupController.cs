@@ -51,7 +51,7 @@ public class GroupController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Body: CreateGroupRequest { name: string, description: string, iconUrl: string }
-    /// - Headers: Authorization: Bearer {JWT}
+    /// - Credential: BFF session cookie
     /// 
     /// Response Success (201):
     /// {
@@ -102,7 +102,7 @@ public class GroupController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Body: CreateGroupChannelRequest { name: string, type: "Text" | "Voice", isPrivate: boolean }
-    /// - Headers: Authorization: Bearer {JWT}
+    /// - Credential: BFF session cookie
     /// 
     /// Response Success (201):
     /// { "roomId": "guid" }
@@ -152,7 +152,7 @@ public class GroupController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Request:
-    /// - Headers: Authorization: Bearer {JWT}
+    /// - Credential: BFF session cookie
     /// 
     /// Response Success (200):
     /// { "id": "guid", "name": "string", ... }

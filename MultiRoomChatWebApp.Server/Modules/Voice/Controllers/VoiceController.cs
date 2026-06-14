@@ -50,7 +50,7 @@ public class VoiceController : ControllerBase
     /// <remarks>
     /// Request:
     /// - Route Param: roomId (Guid) - ID phòng Voice
-    /// - Credential: BFF session cookie hoặc Bearer fallback trong giai đoạn migration.
+    /// - Credential: BFF session cookie.
     /// 
     /// Response Success (200):
     /// {

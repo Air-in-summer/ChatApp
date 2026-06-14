@@ -3,15 +3,13 @@ using Microsoft.AspNetCore.Http;
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 
 /// <summary>
-/// Cau hinh xac thuc BFF session va giai doan chuyen doi tu Bearer.
+/// Cau hinh xac thuc BFF session.
 /// </summary>
 public sealed class BffAuthOptions
 {
     public const string SectionName = "Auth:Bff";
 
-    public bool Enabled { get; set; }
-
-    public bool AcceptBearerFallback { get; set; } = true;
+    public bool Enabled { get; set; } = true;
 
     public bool RequireCsrf { get; set; }
 
@@ -39,6 +37,31 @@ public sealed class BffAuthOptions
 
     public bool IsValid(out string error)
     {
+        if (!Enabled)
+        {
+            error = "Auth:Bff:Enabled must be true because BFF session auth is the only application authentication scheme.";
+            return false;
+        }
+
+        if (Enabled && !HttpOnly)
+        {
+            error = "Auth:Bff:HttpOnly must be true when BFF session auth is enabled.";
+            return false;
+        }
+
+        if (Enabled && !Secure)
+        {
+            error = "Auth:Bff:Secure must be true when BFF session auth is enabled.";
+            return false;
+        }
+
+        if (Enabled &&
+            SameSite is not SameSiteMode.Lax and not SameSiteMode.Strict)
+        {
+            error = "Auth:Bff:SameSite must be Lax or Strict when BFF session auth is enabled.";
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(CookieName))
         {
             error = "Auth:Bff:CookieName is required.";

@@ -24,7 +24,6 @@ public sealed class BffCsrfProtectionMiddleware
         {
             "/api/auth/login",
             "/api/auth/register",
-            "/api/auth/refresh",
             "/api/auth/logout",
             "/api/auth/session/renew"
         };
@@ -36,6 +35,12 @@ public sealed class BffCsrfProtectionMiddleware
             "/api/auth/google/callback",
             "/api/auth/google/complete",
             LiveKitWebhookPath
+        };
+
+    private static readonly HashSet<string> SourceOnlyPaths =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "/hub/chat/negotiate"
         };
 
     private const string LiveKitWebhookPath = "/api/v1/voice/livekit/webhook";
@@ -76,6 +81,11 @@ public sealed class BffCsrfProtectionMiddleware
         }
 
         ValidateRequestSource(context.Request);
+        if (RequiresSourceOnlyProtection(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
 
         try
         {
@@ -106,6 +116,11 @@ public sealed class BffCsrfProtectionMiddleware
             return false;
         }
 
+        if (RequiresSourceOnlyProtection(request.Path))
+        {
+            return true;
+        }
+
         if (ProtectedAuthPaths.Contains(request.Path.Value ?? string.Empty))
         {
             return true;
@@ -116,13 +131,17 @@ public sealed class BffCsrfProtectionMiddleware
             return false;
         }
 
-        var authorization = request.Headers.Authorization.ToString();
-        return !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+        return true;
     }
 
     private static bool IsExplicitlyExempt(PathString path)
     {
         return ExemptPaths.Contains(path.Value ?? string.Empty);
+    }
+
+    private static bool RequiresSourceOnlyProtection(PathString path)
+    {
+        return SourceOnlyPaths.Contains(path.Value ?? string.Empty);
     }
 
     private void ValidateRequestSource(HttpRequest request)

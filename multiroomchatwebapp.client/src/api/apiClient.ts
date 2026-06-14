@@ -98,7 +98,7 @@ export const resetBffCsrfToken = (): void => {
 };
 
 /**
- * Noi BFF client voi auth state. BFF client khong refresh Bearer khi gap 401.
+ * Noi BFF client voi auth state. Khi gap 401, client clear auth state thay vi refresh app token.
  */
 export const configureBffUnauthorizedHandler = (
   handler: (() => void) | null

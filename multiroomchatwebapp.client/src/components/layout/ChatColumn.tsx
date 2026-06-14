@@ -28,6 +28,7 @@ import type {
 } from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
 import { buildMessagePreview, determineMessageType } from '../../utils/chatMessagePreview';
+import { getSafeResourceUrl } from '../../utils/safeUrl';
 import { DirectCallButton } from '../call/DirectCallButton';
 import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
 import { UserActionMenu } from '../user/UserActionMenu';
@@ -324,10 +325,20 @@ const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProp
     );
   }
 
+  const safeUrl = getSafeResourceUrl(url);
+
   if (!url || isRefreshing) {
     return (
       <div className={styles.attachmentLoading}>
         Đang tải media...
+      </div>
+    );
+  }
+
+  if (!safeUrl) {
+    return (
+      <div className={styles.attachmentUnavailable}>
+        KhÃ´ng táº£i Ä‘Æ°á»£c media
       </div>
     );
   }
@@ -337,11 +348,11 @@ const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProp
       <button
         type="button"
         className={styles.imageAttachmentButton}
-        onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+        onClick={() => window.open(safeUrl, '_blank', 'noopener,noreferrer')}
         title={attachment.filename}
       >
         <img
-          src={url}
+          src={safeUrl}
           alt={attachment.filename}
           className={styles.imageAttachment}
           onError={handleMediaError}
@@ -354,7 +365,7 @@ const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProp
     return (
       <div className={styles.mediaAttachment}>
         <div className={styles.attachmentName}>{attachment.filename}</div>
-        <audio controls src={url} className={styles.audioAttachment} onError={handleMediaError} />
+        <audio controls src={safeUrl} className={styles.audioAttachment} onError={handleMediaError} />
       </div>
     );
   }
@@ -365,7 +376,7 @@ const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProp
         <video
           controls
           preload="metadata"
-          src={url}
+          src={safeUrl}
           className={styles.videoAttachment}
           onError={handleMediaError}
         />
@@ -377,12 +388,9 @@ const MessageAttachmentRenderer = ({ attachment }: MessageAttachmentRendererProp
   return (
     <a
       className={styles.fileAttachment}
-      href={url}
+      href={safeUrl}
       target="_blank"
-      rel="noreferrer"
-      onClick={(event) => {
-        if (!url) event.preventDefault();
-      }}
+      rel="noopener noreferrer"
     >
       <span className={styles.fileIcon}>□</span>
       <span className={styles.fileInfo}>
