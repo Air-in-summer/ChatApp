@@ -22,7 +22,7 @@ export const DirectCallButton = ({ dmRoomId, displayName }: DirectCallButtonProp
   const handleStartCall = async () => {
     if (!isAuthenticated || isCalling) return;
 
-    if (!shouldSwitchVoiceSession()) {
+    if (!(await shouldSwitchVoiceSession())) {
       return;
     }
 

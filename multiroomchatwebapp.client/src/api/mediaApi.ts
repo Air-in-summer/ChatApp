@@ -1,6 +1,7 @@
 import { apiClient } from './apiClient';
 import type { UserProfile } from '../types/auth';
 import type { MediaAccessUrlDto, MediaUploadResultDto } from '../types/chat';
+import type { GroupDto } from '../types/group';
 
 /**
  * Goi API upload avatar noi bo bang multipart/form-data.
@@ -28,6 +29,22 @@ export const uploadAvatar = async (file: File): Promise<UserProfile> => {
  */
 export const deleteAvatar = async (): Promise<UserProfile> => {
   const response = await apiClient.delete<UserProfile>('/api/v1/media/avatar');
+  return response.data;
+};
+
+export const uploadGroupIcon = async (
+  groupId: string,
+  file: File
+): Promise<GroupDto> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await apiClient.post<GroupDto>(`/api/v1/media/groups/${groupId}/icon`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
   return response.data;
 };
 

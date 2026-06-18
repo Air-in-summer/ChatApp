@@ -8,6 +8,7 @@ import { LoginPage } from './pages/Auth/Login/LoginPage';
 import { OAuthCallbackPage } from './pages/Auth/OAuthCallback/OAuthCallbackPage';
 import { RegisterPage } from './pages/Auth/Register/RegisterPage';
 import { JoinGroupPage } from './pages/JoinGroup/JoinGroupPage';
+import { VoiceSwitchConfirmDialog } from './components/voice/VoiceSwitchConfirmDialog';
 
 import './App.css';
 
@@ -42,6 +43,7 @@ function App() {
             }
           }}
         />
+        <VoiceSwitchConfirmDialog />
 
         <Routes>
           {/* Public routes - không cần đăng nhập */}

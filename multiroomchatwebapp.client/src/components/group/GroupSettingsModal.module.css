@@ -1,7 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(15, 23, 42, 0.34);
   backdrop-filter: blur(4px);
   z-index: 1000;
   animation: fadeIn 0.15s ease;
@@ -13,25 +13,25 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1001;
-  width: 600px;
+  width: min(920px, calc(100vw - 48px));
   max-width: calc(100vw - 32px);
-  height: 500px;
+  height: min(760px, calc(100vh - 72px));
   max-height: calc(100vh - 32px);
   display: flex;
-  background: rgba(20, 30, 50, 0.95);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--glass-shadow);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px);
   overflow: hidden;
   animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Sidebar bên trái modal để chọn Tab */
+/* Sidebar bên trái modal d? ch?n Tab */
 .sidebar {
   width: 200px;
-  background: rgba(0, 0, 0, 0.2);
-  border-right: 1px solid var(--glass-border);
+  background: var(--color-surface-muted);
+  border-right: 1px solid var(--color-border);
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
@@ -41,7 +41,7 @@
 .sidebarTitle {
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: var(--spacing-sm);
@@ -53,23 +53,23 @@
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   font-weight: 500;
   text-align: left;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .tabItem:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
 }
 
 .tabItem.active {
   background: rgba(59, 130, 246, 0.15);
-  color: var(--accent-primary);
+  color: var(--color-primary);
 }
 
 .flexGrow {
@@ -81,11 +81,11 @@
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   background: transparent;
-  color: #ef4444;
+  color: var(--color-danger);
   font-size: 0.9rem;
   font-weight: 600;
   text-align: left;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: var(--transition-fast);
   margin-top: auto;
@@ -103,11 +103,11 @@
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   background: transparent;
-  color: #f87171;
+  color: var(--color-danger);
   font-size: 0.9rem;
   font-weight: 600;
   text-align: left;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: var(--transition-fast);
   display: flex;
@@ -117,10 +117,10 @@
 
 .deleteBtn:hover {
   background: rgba(220, 38, 38, 0.15);
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
-/* Vùng nội dung bên phải */
+/* Vùng n?i dung bên ph?i */
 .contentArea {
   flex: 1;
   display: flex;
@@ -136,7 +136,7 @@
   right: var(--spacing-md);
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   padding: var(--spacing-xs);
   border-radius: 50%;
@@ -145,8 +145,8 @@
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .section {
@@ -156,7 +156,7 @@
 .sectionTitle {
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text);
   margin-bottom: var(--spacing-md);
 }
 
@@ -165,21 +165,68 @@
   align-items: center;
   gap: var(--spacing-lg);
   padding: var(--spacing-md);
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: var(--border-radius-md);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-md);
 }
 
 .icon {
   width: 80px;
   height: 80px;
-  border-radius: var(--border-radius-md);
-  background: var(--accent-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 2rem;
   font-weight: 700;
-  color: white;
+  color: var(--color-text-inverse);
+  overflow: hidden;
+  flex: 0 0 80px;
+  position: relative;
+}
+
+.icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.editableIcon {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: var(--transition-fast);
+}
+
+.editableIcon:hover,
+.editableIcon:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+}
+
+.editableIcon input {
+  display: none;
+}
+
+.iconEditOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 var(--spacing-xs);
+  background: rgba(15, 23, 42, 0.58);
+  color: var(--color-text-inverse);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0;
+  transition: var(--transition-fast);
+}
+
+.editableIcon:hover .iconEditOverlay,
+.editableIcon:focus-within .iconEditOverlay {
+  opacity: 1;
 }
 
 .groupDetails h3 {
@@ -189,7 +236,7 @@
 
 .groupDetails p {
   margin: 0;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.9rem;
 }
 
@@ -204,7 +251,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.8rem;
   font-weight: 600;
 }
@@ -212,10 +259,10 @@
 .formField input,
 .formField textarea {
   width: 100%;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-sm);
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
   padding: var(--spacing-sm) var(--spacing-md);
   font: inherit;
   outline: none;
@@ -228,15 +275,21 @@
 
 .formField input:focus,
 .formField textarea:focus {
-  border-color: var(--accent-primary);
+  border-color: var(--color-primary);
+}
+
+.formError {
+  color: var(--color-danger);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .saveBtn {
   align-self: flex-start;
   border: none;
-  border-radius: var(--border-radius-sm);
-  background: var(--accent-primary);
-  color: white;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
   padding: var(--spacing-sm) var(--spacing-lg);
   font-weight: 700;
   cursor: pointer;
@@ -244,7 +297,7 @@
 }
 
 .saveBtn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--color-primary-hover);
 }
 
 .saveBtn:disabled {
@@ -257,21 +310,21 @@
   background: rgba(59, 130, 246, 0.05);
   border: 1px solid rgba(59, 130, 246, 0.2);
   padding: var(--spacing-lg);
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
 }
 
 .inviteHeader {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  color: var(--accent-primary);
+  color: var(--color-primary);
   margin-bottom: var(--spacing-sm);
   font-weight: 600;
 }
 
 .inviteDesc {
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   margin-bottom: var(--spacing-md);
 }
 
@@ -282,22 +335,23 @@
 
 .inviteCode {
   flex: 1;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--glass-border);
+  min-width: 0;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--border-radius-sm);
-  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
   font-family: monospace;
-  font-size: 1rem;
-  letter-spacing: 0.1em;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .copyBtn {
-  background: var(--accent-primary);
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
   border: none;
   padding: 0 var(--spacing-lg);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--radius-sm);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
@@ -305,7 +359,7 @@
 }
 
 .copyBtn:hover {
-  background: var(--accent-hover);
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -341,27 +395,28 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+  min-height: 78px;
   padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: var(--border-radius-md);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-md);
   transition: var(--transition-fast);
 }
 
 .memberItem:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-surface-muted);
 }
 
 .memberAvatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.8rem;
   font-weight: 700;
-  color: white;
+  color: var(--color-text-inverse);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -378,12 +433,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  min-height: 54px;
 }
 
 .memberDisplayName {
   font-size: 0.9rem;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--color-text);
 }
 
 .memberRoleTag {
@@ -400,8 +457,12 @@
   align-items: center;
   gap: 6px;
   margin-top: 3px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.75rem;
+}
+
+.memberPresencePlaceholder {
+  visibility: hidden;
 }
 
 .onlineDot,
@@ -413,43 +474,62 @@
 }
 
 .onlineDot {
-  background: #22c55e;
+  background: var(--color-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
 }
 
 .offlineDot {
-  background: #94a3b8;
+  background: var(--color-text-subtle);
 }
 
 .roleOwner {
   background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .roleAdmin {
   background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
+  color: var(--color-primary);
 }
 
 .roleMember {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-secondary);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
 }
 
 .loading {
   text-align: center;
   padding: var(--spacing-xl);
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.9rem;
 }
 
+.memberActions {
+  width: 84px;
+  flex: 0 0 84px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.memberKickSlot {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+}
+
 .kickBtn {
-  background: none;
-  border: none;
-  color: #ef4444;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-danger);
   cursor: pointer;
-  padding: var(--spacing-xs);
-  border-radius: var(--border-radius-sm);
+  padding: 0;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -462,6 +542,6 @@
 }
 
 .kickBtn:hover {
+  border-color: rgba(239, 68, 68, 0.2);
   background: rgba(239, 68, 68, 0.1);
-  transform: scale(1.1);
 }

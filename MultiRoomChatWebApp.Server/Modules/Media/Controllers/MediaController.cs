@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
+using MultiRoomChatWebApp.Server.Modules.Group.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
@@ -17,15 +18,18 @@ public sealed class MediaController : ControllerBase
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IAvatarMediaService _avatarMediaService;
     private readonly IChatMediaService _chatMediaService;
+    private readonly IGroupIconMediaService _groupIconMediaService;
 
     public MediaController(
         ICurrentUserAccessor currentUser,
         IAvatarMediaService avatarMediaService,
-        IChatMediaService chatMediaService)
+        IChatMediaService chatMediaService,
+        IGroupIconMediaService groupIconMediaService)
     {
         _currentUser = currentUser;
         _avatarMediaService = avatarMediaService;
         _chatMediaService = chatMediaService;
+        _groupIconMediaService = groupIconMediaService;
     }
 
     /// <summary>
@@ -57,6 +61,33 @@ public sealed class MediaController : ControllerBase
         var currentUserId = GetCurrentUserIdOrThrow();
         var profile = await _avatarMediaService.DeleteAvatarAsync(currentUserId, cancellationToken);
         return Ok(profile);
+    }
+
+    /// <summary>
+    /// [POST] /api/v1/media/groups/{groupId}/icon - Upload icon noi bo cho Server.
+    /// </summary>
+    /// <param name="groupId">ID Server can cap nhat icon.</param>
+    /// <param name="file">File anh .jpg/.jpeg/.png/.webp gui bang multipart/form-data.</param>
+    /// <returns>Group metadata sau khi cap nhat icon.</returns>
+    [HttpPost("groups/{groupId:guid}/icon")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(GroupDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UploadGroupIcon(
+        Guid groupId,
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserIdOrThrow();
+        var group = await _groupIconMediaService.UploadGroupIconAsync(
+            currentUserId,
+            groupId,
+            file,
+            cancellationToken);
+        return Ok(group);
     }
 
     /// <summary>

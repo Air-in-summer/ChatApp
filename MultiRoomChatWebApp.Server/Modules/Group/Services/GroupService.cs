@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 
 using MultiRoomChatWebApp.Server.Modules.Room.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Room.Core.DTOs;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Entities;
+using MultiRoomChatWebApp.Server.Modules.Room.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.User.Core.DTOs;
 
@@ -18,6 +20,7 @@ public class GroupService : IGroupService
 {
     private readonly AppDbContext _context;
     private readonly IRoomService _roomService;
+    private readonly IRoomPermissionsCache _roomPermissionsCache;
     private readonly IGroupPermissionsCache _permissionsCache;
     private readonly IGroupMetadataCache _metadataCache;
     private readonly ILogger<GroupService> _logger;
@@ -28,6 +31,7 @@ public class GroupService : IGroupService
     public GroupService(
         AppDbContext context, 
         IRoomService roomService, 
+        IRoomPermissionsCache roomPermissionsCache,
         IGroupPermissionsCache permissionsCache,
         IGroupMetadataCache metadataCache,
         ILogger<GroupService> logger,
@@ -36,6 +40,7 @@ public class GroupService : IGroupService
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _roomService = roomService ?? throw new ArgumentNullException(nameof(roomService));
+        _roomPermissionsCache = roomPermissionsCache ?? throw new ArgumentNullException(nameof(roomPermissionsCache));
         _permissionsCache = permissionsCache ?? throw new ArgumentNullException(nameof(permissionsCache));
         _metadataCache = metadataCache ?? throw new ArgumentNullException(nameof(metadataCache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -548,6 +553,7 @@ public class GroupService : IGroupService
             
             if (oldOwnerMember != null) oldOwnerMember.Role = GroupRole.Admin;
             newOwnerMember.Role = GroupRole.Owner;
+            var privateRoomChanges = await EnsureNewOwnerCanAccessPrivateRoomsAsync(groupId, newOwnerId);
 
 
             await _context.SaveChangesAsync();
@@ -568,9 +574,17 @@ public class GroupService : IGroupService
             await _metadataCache.SetGroupMetadataAsync(updatedGroupDto);
             await _permissionsCache.UpdateMemberRoleCacheAsync(groupId, currentOwnerId, GroupRole.Admin);
             await _permissionsCache.UpdateMemberRoleCacheAsync(groupId, newOwnerId, GroupRole.Owner);
+            foreach (var roomId in privateRoomChanges.AddedRoomIds)
+            {
+                await _roomPermissionsCache.AddUsersToRoomCacheAsync(roomId, new[] { newOwnerId });
+            }
 
             // [EVENT] Báo cho toàn bộ member biết Server có chủ mới
             await _mediator.Publish(new Core.Events.OwnershipTransferredEvent(groupId, currentOwnerId, newOwnerId));
+            if (privateRoomChanges.HasChanges)
+            {
+                await _mediator.Publish(new Core.Events.GroupRoomsChangedEvent(groupId, new[] { newOwnerId }));
+            }
 
             _logger.LogInformation("Ownership transferred from {OldOwner} to {NewOwner} in Server {GroupId}", currentOwnerId, newOwnerId, groupId);
         }
@@ -580,6 +594,60 @@ public class GroupService : IGroupService
             _logger.LogError(ex, "Lỗi khi chuyển quyền sở hữu Server {GroupId}", groupId);
             throw;
         }
+    }
+
+    private sealed record PrivateRoomOwnerAccessChanges(
+        IReadOnlyCollection<Guid> AddedRoomIds,
+        bool PromotedExistingMemberships)
+    {
+        public bool HasChanges => AddedRoomIds.Count > 0 || PromotedExistingMemberships;
+    }
+
+    private async Task<PrivateRoomOwnerAccessChanges> EnsureNewOwnerCanAccessPrivateRoomsAsync(Guid groupId, Guid newOwnerId)
+    {
+        var privateRoomIds = await _context.Rooms
+            .AsNoTracking()
+            .Where(room => room.GroupId == groupId && room.IsPrivate && room.DeletedAt == null)
+            .Select(room => room.Id)
+            .ToListAsync();
+
+        if (!privateRoomIds.Any())
+        {
+            return new PrivateRoomOwnerAccessChanges(Array.Empty<Guid>(), false);
+        }
+
+        var addedRoomIds = new List<Guid>();
+        foreach (var roomId in privateRoomIds)
+        {
+            var memberIds = await _roomPermissionsCache.GetRoomMemberIdsAsync(roomId);
+            if (memberIds.Contains(newOwnerId))
+            {
+                continue;
+            }
+
+            addedRoomIds.Add(roomId);
+            _context.RoomMembers.Add(new RoomMember
+            {
+                RoomId = roomId,
+                UserId = newOwnerId,
+                Role = RoomRole.Admin,
+                JoinedAt = DateTime.UtcNow
+            });
+        }
+
+        var existingMembershipsToPromote = await _context.RoomMembers
+            .Where(member =>
+                member.UserId == newOwnerId &&
+                privateRoomIds.Contains(member.RoomId) &&
+                member.Role != RoomRole.Admin)
+            .ToListAsync();
+
+        foreach (var membership in existingMembershipsToPromote)
+        {
+            membership.Role = RoomRole.Admin;
+        }
+
+        return new PrivateRoomOwnerAccessChanges(addedRoomIds, existingMembershipsToPromote.Any());
     }
 
     /// <summary>

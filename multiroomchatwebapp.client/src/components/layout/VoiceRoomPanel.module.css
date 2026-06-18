@@ -1,6 +1,6 @@
 /* ========================================
-   VoiceRoomPanel - Khu vực chính hiển thị
-   Voice Room (thay thế ChatColumn khi
+   VoiceRoomPanel - Khu v?c chính hi?n th?
+   Voice Room (thay th? ChatColumn khi
    user click vào Voice Channel)
    ======================================== */
 
@@ -9,12 +9,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.7);
+  background: var(--color-bg);
 }
 
 .directCallPanel {
   position: relative;
-  background: rgba(2, 6, 23, 0.9);
+  background: var(--color-surface-muted);
 }
 
 /* === Header === */
@@ -22,9 +22,9 @@
   display: flex;
   align-items: center;
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--glass-bg);
-  border-bottom: 1px solid var(--glass-border);
-  backdrop-filter: var(--glass-blur);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  backdrop-filter: none;
   z-index: 10;
   gap: var(--spacing-sm);
 }
@@ -37,7 +37,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: linear-gradient(135deg, var(--color-success), var(--color-success));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -55,7 +55,7 @@
 .headerInfo h2 {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text);
   margin: 0;
   display: flex;
   align-items: center;
@@ -66,12 +66,14 @@
 }
 
 .privateBadge {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #f04747;
-  color: white;
-  font-size: 0.68rem;
-  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--color-danger);
   flex-shrink: 0;
 }
 
@@ -81,7 +83,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -90,8 +92,8 @@
 }
 
 .addMemberButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .connectionBadge {
@@ -103,19 +105,19 @@
 }
 
 .connectionBadge.connected {
-  color: #4ade80;
+  color: var(--color-success);
 }
 
 .connectionBadge.connecting {
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .connectionBadge.reconnecting {
-  color: #fb923c;
+  color: var(--color-warning);
 }
 
 .connectionBadge.error {
-  color: #f87171;
+  color: var(--color-danger);
 }
 
 .statusDot {
@@ -126,22 +128,22 @@
 }
 
 .statusDot.connected {
-  background: #4ade80;
+  background: var(--color-success);
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
 }
 
 .statusDot.connecting {
-  background: #fbbf24;
+  background: var(--color-warning);
   animation: pulse-dot 1.2s infinite;
 }
 
 .statusDot.reconnecting {
-  background: #fb923c;
+  background: var(--color-warning);
   animation: pulse-dot 1.2s infinite;
 }
 
 .statusDot.error {
-  background: #f87171;
+  background: var(--color-danger);
 }
 
 @keyframes pulse-dot {
@@ -149,7 +151,7 @@
   50% { opacity: 0.5; transform: scale(0.8); }
 }
 
-/* === Grid người tham gia (Avatar Grid) === */
+/* === Grid ngu?i tham gia (Avatar Grid) === */
 .participantsArea {
   flex: 1;
   padding: var(--spacing-lg);
@@ -169,7 +171,7 @@
 }
 
 .participantsArea::-webkit-scrollbar-thumb {
-  background: var(--glass-border);
+  background: var(--color-border);
   border-radius: 8px;
 }
 
@@ -282,9 +284,9 @@
   display: block;
   width: 100%;
   padding: 0;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.24);
-  background: radial-gradient(circle at 30% 20%, rgba(30, 41, 59, 0.95), rgba(2, 6, 23, 0.96));
+  background: radial-gradient(circle at 30% 20%, var(--color-surface-muted), var(--color-surface-muted));
   color: inherit;
   cursor: pointer;
   aspect-ratio: 16 / 9;
@@ -315,7 +317,7 @@
 .avatarMediaTile {
   background:
     radial-gradient(circle at 50% 36%, rgba(37, 99, 235, 0.2), transparent 34%),
-    linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.96));
+    linear-gradient(145deg, var(--color-surface), var(--color-surface-muted));
 }
 
 .speakingMediaTile {
@@ -324,8 +326,8 @@
 }
 
 .selectedMediaTile {
-  border-color: #22c55e;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.22), 0 16px 42px rgba(2, 6, 23, 0.38);
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.22), var(--shadow-lg);
 }
 
 .mediaVideo {
@@ -333,7 +335,7 @@
   height: 100%;
   display: block;
   object-fit: cover;
-  background: #020617;
+  background: var(--color-surface-muted);
 }
 
 .screenShareVideo {
@@ -359,11 +361,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #2563eb, #22c55e);
-  color: white;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-success));
+  color: var(--color-text-inverse);
   font-size: clamp(1.8rem, 5vw, 3.4rem);
   font-weight: 800;
-  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.42);
+  box-shadow: var(--shadow-lg);
 }
 
 .mediaTileLabel {
@@ -373,8 +375,8 @@
   max-width: calc(100% - 52px);
   padding: 5px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.68);
-  color: white;
+  background: rgba(15, 23, 42, 0.74);
+  color: var(--color-text-inverse);
   font-size: 0.78rem;
   font-weight: 600;
   white-space: nowrap;
@@ -393,19 +395,19 @@
   align-items: center;
   justify-content: center;
   background: rgba(239, 68, 68, 0.9);
-  color: white;
-  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.3);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-md);
 }
 
 .clearFocusButton {
   position: absolute;
   top: 12px;
   right: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(15, 23, 42, 0.28);
   border-radius: 999px;
   padding: 7px 12px;
-  background: rgba(15, 23, 42, 0.78);
-  color: white;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
@@ -413,7 +415,9 @@
 }
 
 .clearFocusButton:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--color-surface-muted);
+  border-color: rgba(15, 23, 42, 0.42);
+  color: var(--color-text);
 }
 
 .fullscreenButton {
@@ -422,19 +426,21 @@
   bottom: 12px;
   width: 34px;
   height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(15, 23, 42, 0.28);
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.78);
-  color: white;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
   cursor: pointer;
   backdrop-filter: blur(12px);
 }
 
 .fullscreenButton:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--color-surface-muted);
+  border-color: rgba(15, 23, 42, 0.42);
+  color: var(--color-text);
 }
 
 .mainMediaStage:fullscreen {
@@ -442,7 +448,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #020617;
+  background: var(--color-surface-muted);
 }
 
 .mainMediaStage:fullscreen .mainMediaTile {
@@ -463,8 +469,8 @@
   height: 32px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  background: rgba(15, 23, 42, 0.78);
-  color: white;
+  background: var(--color-surface-muted);
+  color: var(--color-text-inverse);
   cursor: pointer;
   font-size: 1.1rem;
 }
@@ -476,33 +482,33 @@
 
 .tilePageText {
   min-width: 56px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.82rem;
   text-align: center;
 }
 
-/* === Thẻ người tham gia === */
+/* === Th? ngu?i tham gia === */
 .participantCard {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
-  border-radius: var(--border-radius-md);
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
   border: 1px solid transparent;
   transition: all var(--transition-fast);
   position: relative;
 }
 
 .participantCard:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--glass-border);
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
 }
 
-/* Viền xanh khi đang nói (Voice Activity) */
+/* Vi?n xanh khi dang nói (Voice Activity) */
 .participantCard.speaking {
-  border-color: #4ade80;
+  border-color: var(--color-success);
   box-shadow: 0 0 12px rgba(74, 222, 128, 0.15);
 }
 
@@ -510,18 +516,18 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
   font-weight: 600;
-  color: white;
+  color: var(--color-text-inverse);
   position: relative;
   transition: box-shadow var(--transition-fast);
 }
 
-/* Viền xanh animated khi speaking */
+/* Vi?n xanh animated khi speaking */
 .participantCard.speaking .participantAvatar {
   box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.4);
   animation: speaking-ring 1.5s ease-in-out infinite;
@@ -540,16 +546,16 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #ef4444;
+  background: var(--color-danger);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--bg-dark-primary);
+  border: 2px solid var(--color-bg);
 }
 
 .participantName {
   font-size: 0.82rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   text-align: center;
   max-width: 100%;
   white-space: nowrap;
@@ -559,24 +565,24 @@
 }
 
 .participantCard.speaking .participantName {
-  color: #4ade80;
+  color: var(--color-success);
 }
 
-/* Nhãn "(Bạn)" cho chính user */
+/* Nhãn "(B?n)" cho chính user */
 .selfLabel {
   font-size: 0.68rem;
-  color: var(--accent-primary);
+  color: var(--color-primary);
   font-weight: 500;
 }
 
-/* === Trạng thái trống === */
+/* === Tr?ng thái tr?ng === */
 .emptyVoice {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   text-align: center;
   padding: var(--spacing-xl);
 }
@@ -600,8 +606,8 @@
   border: none;
   border-radius: 999px;
   padding: 10px 18px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: white;
+  background: linear-gradient(135deg, var(--color-success), var(--color-success));
+  color: var(--color-text-inverse);
   font-weight: 700;
   cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
@@ -612,7 +618,7 @@
   box-shadow: 0 8px 20px rgba(34, 197, 94, 0.24);
 }
 
-/* === Thanh điều khiển Voice (dính đáy) === */
+/* === Thanh di?u khi?n Voice (dính dáy) === */
 .controlsBar {
   display: flex;
   align-items: center;
@@ -620,9 +626,9 @@
   gap: var(--spacing-sm);
   min-height: 52px;
   padding: 6px var(--spacing-md);
-  background: var(--glass-bg);
-  border-top: 1px solid var(--glass-border);
-  backdrop-filter: var(--glass-blur);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  backdrop-filter: none;
 }
 
 .directCallControlsBar {
@@ -637,7 +643,7 @@
   border-top: none;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.76);
+  background: var(--color-surface-muted);
   transform: translateY(-50%);
   backdrop-filter: blur(14px);
 }
@@ -652,7 +658,7 @@
   height: 16px;
 }
 
-/* Nút điều khiển chung */
+/* Nút di?u khi?n chung */
 .controlBtn {
   width: 36px;
   height: 36px;
@@ -671,21 +677,21 @@
   height: 17px;
 }
 
-/* Nút bình thường (Mic, Deafen, Cam, Share) */
+/* Nút bình thu?ng (Mic, Deafen, Cam, Share) */
 .controlBtn.normal {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .controlBtn.normal:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--color-surface-hover);
   transform: translateY(-1px);
 }
 
-/* Nút đang active (bật) - viền sáng nhẹ */
+/* Nút dang active (b?t) - vi?n sáng nh? */
 .controlBtn.active {
   background: rgba(74, 222, 128, 0.15);
-  color: #4ade80;
+  color: var(--color-success);
   box-shadow: 0 0 8px rgba(74, 222, 128, 0.15);
 }
 
@@ -694,10 +700,10 @@
   transform: translateY(-1px);
 }
 
-/* Nút đã tắt (muted/deafened) - đỏ gạch chéo */
+/* Nút dã t?t (muted/deafened) - d? g?ch chéo */
 .controlBtn.muted {
   background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
+  color: var(--color-danger);
 }
 
 .controlBtn.muted:hover {
@@ -705,14 +711,14 @@
   transform: translateY(-1px);
 }
 
-/* Nút Leave - Đỏ nổi bật hơn */
+/* Nút Leave - Ð? n?i b?t hon */
 .controlBtn.leave {
-  background: #ef4444;
-  color: white;
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
 }
 
 .controlBtn.leave:hover {
-  background: #dc2626;
+  background: var(--color-danger);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
@@ -724,8 +730,8 @@
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
-  color: white;
+  background: var(--color-text);
+  color: var(--color-text-inverse);
   font-size: 0.72rem;
   padding: 4px 8px;
   border-radius: 4px;
@@ -749,7 +755,7 @@
   box-shadow: none;
 }
 
-/* === Thông báo lỗi === */
+/* === Thông báo l?i === */
 .errorBanner {
   display: flex;
   align-items: center;
@@ -757,7 +763,7 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: rgba(239, 68, 68, 0.1);
   border-bottom: 1px solid rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  color: var(--color-danger);
   font-size: 0.82rem;
 }
 
@@ -765,7 +771,7 @@
   flex-shrink: 0;
 }
 
-/* === VoiceStatusBar (thanh nhỏ góc dưới khi user đang trong phòng Voice) === */
+/* === VoiceStatusBar (thanh nh? góc du?i khi user dang trong phòng Voice) === */
 .voiceStatusBar {
   display: flex;
   align-items: center;
@@ -788,7 +794,7 @@
 
 .voiceStatusLabel {
   font-size: 0.72rem;
-  color: #4ade80;
+  color: var(--color-success);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -797,7 +803,7 @@
 
 .voiceStatusRoom {
   font-size: 0.78rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -809,7 +815,7 @@
   border-radius: 4px;
   border: none;
   background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  color: var(--color-danger);
   cursor: pointer;
   display: flex;
   align-items: center;

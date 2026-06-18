@@ -3,6 +3,7 @@ import type {
   GroupDto, 
   CreateGroupRequest, 
   UpdateGroupRequest,
+  GroupRole,
   GroupMemberDto, 
   CreateGroupChannelRequest,
   UpdateRoomRequest,
@@ -151,6 +152,34 @@ export const leaveGroup = async (groupId: string): Promise<void> => {
  */
 export const kickMember = async (groupId: string, userId: string): Promise<void> => {
     await apiClient.post(`/api/v1/groups/${groupId}/kick/${userId}`);
+};
+
+/**
+ * Gọi API: PATCH /api/v1/groups/{groupId}/members/{userId}/role - đổi vai trò Admin/Member.
+ *
+ * @param groupId - ID của Server
+ * @param userId - ID của thành viên bị đổi vai trò
+ * @param role - Vai trò mới, chỉ dùng Admin hoặc Member
+ */
+export const updateGroupMemberRole = async (
+  groupId: string,
+  userId: string,
+  role: Exclude<GroupRole, 'Owner'>
+): Promise<void> => {
+  await apiClient.patch(`/api/v1/groups/${groupId}/members/${userId}/role`, role);
+};
+
+/**
+ * Gọi API: POST /api/v1/groups/{groupId}/transfer-ownership - trao quyền Owner.
+ *
+ * @param groupId - ID của Server
+ * @param newOwnerId - ID thành viên sẽ trở thành Owner mới
+ */
+export const transferGroupOwnership = async (
+  groupId: string,
+  newOwnerId: string
+): Promise<void> => {
+  await apiClient.post(`/api/v1/groups/${groupId}/transfer-ownership`, newOwnerId);
 };
 
 /**

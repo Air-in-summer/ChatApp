@@ -1,0 +1,27 @@
+.message {
+  color: var(--color-text);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.message p + p {
+  margin-top: var(--spacing-sm);
+}
+
+.danger {
+  color: var(--color-text);
+}
+
+.cancelButton {
+  background: var(--color-surface-muted);
+  border-color: var(--color-text);
+  color: var(--color-text);
+}
+
+.cancelButton:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.confirmButton {
+  border-color: var(--color-text);
+}

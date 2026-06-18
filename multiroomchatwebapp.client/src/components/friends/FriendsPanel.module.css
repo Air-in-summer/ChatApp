@@ -4,37 +4,45 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-dark-primary);
+  background: var(--color-bg);
 }
 
 .header {
-  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-lg);
-  border-bottom: 1px solid var(--glass-border);
+  padding: 22px 32px 18px;
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: var(--color-surface);
+}
+
+.headerInner {
+  width: min(100%, 1080px);
+  margin: 0 auto;
 }
 
 .title {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 1.5rem;
   font-weight: 600;
 }
 
 .subtitle {
   margin: 6px 0 0;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.9rem;
 }
 
 .content {
   flex: 1;
   min-height: 0;
+  width: min(100%, 1080px);
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: var(--spacing-xl);
+  padding: 24px 32px 32px;
 }
 
 .tabRow {
@@ -52,10 +60,10 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-md);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -64,13 +72,13 @@
 }
 
 .tabButton:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .activeTab {
   background: rgba(59, 130, 246, 0.16);
-  color: var(--accent-primary);
+  color: var(--color-primary);
   border-color: rgba(59, 130, 246, 0.35);
 }
 
@@ -90,6 +98,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-right: 2px;
 }
 
 .stackedContent {
@@ -106,7 +115,7 @@
 .sectionTitle,
 .searchLabel {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.95rem;
   font-weight: 600;
 }
@@ -114,10 +123,10 @@
 .searchInput {
   width: 100%;
   height: 42px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.78);
-  color: var(--text-primary);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
   padding: 0 var(--spacing-md);
   outline: none;
 }
@@ -137,14 +146,21 @@
 }
 
 .profileRow {
-  min-height: 72px;
-  display: flex;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 42px;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
-  border: 1px solid var(--glass-border);
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--glass-bg);
+  background: var(--color-surface);
+  transition: var(--transition-fast);
+}
+
+.profileRow:hover {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: var(--color-surface-hover);
 }
 
 .avatar {
@@ -168,20 +184,25 @@
   height: 100%;
   display: grid;
   place-items: center;
-  color: var(--accent-primary);
+  color: var(--color-primary);
   font-size: 1rem;
   font-weight: 700;
 }
 
 .profileInfo {
   min-width: 0;
-  flex: 1;
   display: grid;
   gap: 2px;
 }
 
+.rowActions {
+  width: 42px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .displayName {
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.95rem;
   font-weight: 600;
   overflow: hidden;
@@ -191,7 +212,7 @@
 
 .username,
 .meta {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -202,7 +223,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.82rem;
 }
 
@@ -215,12 +236,12 @@
 }
 
 .onlineDot {
-  background: #22c55e;
+  background: var(--color-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
 }
 
 .offlineDot {
-  background: #94a3b8;
+  background: var(--color-text-subtle);
 }
 
 .statusBadge,
@@ -229,10 +250,10 @@
 .secondaryAction,
 .dangerAction {
   flex-shrink: 0;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   font-size: 0.8rem;
   font-weight: 600;
   padding: 6px 10px;
@@ -246,29 +267,29 @@
 }
 
 .primaryAction {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: white;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-text-inverse);
 }
 
 .primaryAction:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--color-primary-hover);
 }
 
 .secondaryAction:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .dangerAction {
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.28);
-  color: #fca5a5;
+  color: var(--color-danger);
 }
 
 .dangerAction:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.2);
-  color: #fecaca;
+  color: var(--color-danger);
 }
 
 .primaryAction:disabled,
@@ -290,12 +311,12 @@
   min-height: 180px;
   display: grid;
   place-items: center;
-  border: 1px dashed var(--glass-border);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   text-align: center;
   padding: var(--spacing-xl);
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--color-surface-muted);
 }
 
 @media (max-width: 720px) {

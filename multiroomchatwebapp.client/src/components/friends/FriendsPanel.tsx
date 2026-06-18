@@ -15,10 +15,10 @@ import styles from './FriendsPanel.module.css';
 type FriendsTab = 'friends' | 'pending' | 'incoming' | 'blocked';
 
 const tabs: Array<{ id: FriendsTab; label: string }> = [
-  { id: 'friends', label: 'Friends' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'incoming', label: 'Incoming' },
-  { id: 'blocked', label: 'Blocked' },
+  { id: 'friends', label: 'Bạn bè' },
+  { id: 'pending', label: 'Đã gửi' },
+  { id: 'incoming', label: 'Đã nhận' },
+  { id: 'blocked', label: 'Đã chặn' },
 ];
 
 const formatDate = (value?: string | null): string => {
@@ -137,7 +137,7 @@ export const FriendsPanel = () => {
       } catch {
         if (searchRequestIdRef.current !== requestId) return;
         setSearchResults([]);
-        setSearchError('Khong the tim kiem nguoi dung.');
+        setSearchError('Không thể tìm kiếm người dùng.');
       } finally {
         if (searchRequestIdRef.current === requestId) {
           setIsSearching(false);
@@ -166,7 +166,7 @@ export const FriendsPanel = () => {
       return (
         <span className={styles.presenceMeta}>
           <span className={styles.onlineDot} aria-hidden="true" />
-          Online
+          Đang online
         </span>
       );
     }
@@ -176,7 +176,7 @@ export const FriendsPanel = () => {
     return (
       <span className={styles.presenceMeta}>
         <span className={styles.offlineDot} aria-hidden="true" />
-        Last seen {formatDate(presence.lastSeenAt)}
+        Hoạt động lần cuối {formatDate(presence.lastSeenAt)}
       </span>
     );
   };
@@ -197,16 +197,18 @@ export const FriendsPanel = () => {
         {meta && <span className={styles.meta}>{meta}</span>}
         {presenceUserId && renderPresence(presenceUserId)}
       </div>
-      <UserActionMenu target={user} onBlocked={onBlocked} />
+      <div className={styles.rowActions}>
+        <UserActionMenu target={user} onBlocked={onBlocked} />
+      </div>
     </div>
   );
 
   const renderFriends = () => (
-    <PanelSection isLoading={isLoadingFriends} error={friendsError} empty={friends.length === 0} emptyText="No friends yet.">
+    <PanelSection isLoading={isLoadingFriends} error={friendsError} empty={friends.length === 0} emptyText="Chưa có bạn bè.">
       {friends.map((friend: FriendDto) =>
         renderProfileRow(
           friend.user,
-          friend.friendsSince ? `Friends since ${formatDate(friend.friendsSince)}` : undefined,
+          friend.friendsSince ? `Bạn bè từ ${formatDate(friend.friendsSince)}` : undefined,
           friend.user.id,
         ),
       )}
@@ -217,7 +219,7 @@ export const FriendsPanel = () => {
     <div className={styles.stackedContent}>
       <section className={styles.searchSection}>
         <label className={styles.searchLabel} htmlFor="friends-search">
-          Search users
+          Tìm người dùng
         </label>
         <input
           id="friends-search"
@@ -225,18 +227,18 @@ export const FriendsPanel = () => {
           type="text"
           value={searchQuery}
           onChange={event => setSearchQuery(event.target.value)}
-          placeholder="Search by display name or username"
+          placeholder="Tìm theo tên hiển thị hoặc username"
           autoComplete="off"
         />
 
         <div className={styles.searchResults}>
           {searchQuery.trim().length === 1 && (
-            <SectionState>Type at least 2 characters to search.</SectionState>
+            <SectionState>Nhập ít nhất 2 ký tự để tìm kiếm.</SectionState>
           )}
-          {isSearching && <SectionState>Searching...</SectionState>}
+          {isSearching && <SectionState>Đang tìm kiếm...</SectionState>}
           {searchError && <SectionState>{searchError}</SectionState>}
           {!isSearching && !searchError && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
-            <SectionState>No users found.</SectionState>
+            <SectionState>Không tìm thấy người dùng.</SectionState>
           )}
           {!isSearching && searchResults.map(user =>
             renderProfileRow(user, undefined, undefined, targetUserId => {
@@ -247,17 +249,17 @@ export const FriendsPanel = () => {
       </section>
 
       <section className={styles.listSection}>
-        <h3 className={styles.sectionTitle}>Sent requests</h3>
+        <h3 className={styles.sectionTitle}>Lời mời đã gửi</h3>
         <PanelSection
           isLoading={isLoadingOutgoingRequests}
           error={outgoingRequestsError}
           empty={outgoingRequests.length === 0}
-          emptyText="No sent requests."
+          emptyText="Chưa có lời mời đã gửi."
         >
           {outgoingRequests.map((request: FriendRequestDto) =>
             renderProfileRow(
               request.receiver,
-              request.createdAt ? `Sent ${formatDate(request.createdAt)}` : undefined,
+              request.createdAt ? `Đã gửi ${formatDate(request.createdAt)}` : undefined,
             ),
           )}
         </PanelSection>
@@ -270,12 +272,12 @@ export const FriendsPanel = () => {
       isLoading={isLoadingIncomingRequests}
       error={incomingRequestsError}
       empty={incomingRequests.length === 0}
-      emptyText="No incoming requests."
+      emptyText="Chưa có lời mời đã nhận."
     >
       {incomingRequests.map((request: FriendRequestDto) =>
         renderProfileRow(
           request.requester,
-          request.createdAt ? `Received ${formatDate(request.createdAt)}` : undefined,
+          request.createdAt ? `Đã nhận ${formatDate(request.createdAt)}` : undefined,
         ),
       )}
     </PanelSection>
@@ -286,28 +288,28 @@ export const FriendsPanel = () => {
       isLoading={isLoadingBlockedUsers}
       error={blockedUsersError}
       empty={blockedUsers.length === 0}
-      emptyText="No blocked users."
+      emptyText="Chưa chặn người dùng nào."
     >
       {blockedUsers.map((blockedUser: BlockedUserDto) =>
         renderProfileRow(
           blockedUser.user,
-          blockedUser.blockedAt ? `Blocked ${formatDate(blockedUser.blockedAt)}` : undefined,
+          blockedUser.blockedAt ? `Đã chặn ${formatDate(blockedUser.blockedAt)}` : undefined,
         ),
       )}
     </PanelSection>
   );
 
   return (
-    <section className={styles.container} aria-label="Friends">
+    <section className={styles.container} aria-label="Bạn bè">
       <header className={styles.header}>
-        <div>
-          <h2 className={styles.title}>Friends</h2>
-          <p className={styles.subtitle}>Manage friend lists, requests, and blocked users.</p>
+        <div className={styles.headerInner}>
+          <h2 className={styles.title}>Bạn bè</h2>
+          <p className={styles.subtitle}>Quản lý danh sách bạn bè, lời mời và người dùng đã chặn.</p>
         </div>
       </header>
 
       <div className={styles.content}>
-        <div className={styles.tabRow} role="tablist" aria-label="Friends sections">
+        <div className={styles.tabRow} role="tablist" aria-label="Các mục bạn bè">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -347,7 +349,7 @@ const PanelSection = ({
   empty: boolean;
   emptyText: string;
 }) => {
-  if (isLoading) return <SectionState>Loading...</SectionState>;
+  if (isLoading) return <SectionState>Đang tải...</SectionState>;
   if (error) return <SectionState>{error}</SectionState>;
   if (empty) return <SectionState>{emptyText}</SectionState>;
 

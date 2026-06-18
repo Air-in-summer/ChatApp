@@ -209,7 +209,7 @@ export const DirectCallOverlay = () => {
   const isConnected = connectionStatus === 'connected';
   const preview = liveKitRoom ? getMiniVideoPreview(liveKitRoom) : null;
   const isBusy = pendingAction !== null || !isConnected || !liveKitRoom;
-  const statusLabel = activeSession.kind === 'direct-call' ? 'In Call' : 'Voice Connected';
+  const statusLabel = activeSession.kind === 'direct-call' ? 'Đang gọi' : 'Đã kết nối voice';
   const popoutStyle: CSSProperties | undefined = position
     ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
     : undefined;
@@ -290,7 +290,7 @@ export const DirectCallOverlay = () => {
       ref={panelRef}
       className={`${styles.popout} ${isDragging ? styles.dragging : ''}`}
       style={popoutStyle}
-      aria-label="Voice mini popout"
+      aria-label="Cửa sổ voice thu nhỏ"
     >
       <div className={styles.dragHandle} onPointerDown={handleDragStart}>
         <div className={styles.titleGroup}>
@@ -321,8 +321,26 @@ export const DirectCallOverlay = () => {
           onClick={handleToggleMic}
           disabled={isBusy || isDeafened}
           title={isMicEnabled ? 'Tắt mic' : 'Bật mic'}
+          aria-label={isMicEnabled ? 'Tắt mic' : 'Bật mic'}
         >
-          Mic
+          {isMicEnabled && !isDeafened ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.49-.36 2.18" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          )}
         </button>
         <button
           type="button"
@@ -330,8 +348,22 @@ export const DirectCallOverlay = () => {
           onClick={handleToggleCamera}
           disabled={isBusy}
           title={isCameraEnabled ? 'Tắt camera' : 'Bật camera'}
+          aria-label={isCameraEnabled ? 'Tắt camera' : 'Bật camera'}
         >
-          Cam
+          {isCameraEnabled ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m4.5-2h6.5a2 2 0 0 1 2 2v6.5" />
+              <polygon points="23 7 16 12 23 17 23 7" />
+            </svg>
+          )}
         </button>
         <button
           type="button"
@@ -339,8 +371,14 @@ export const DirectCallOverlay = () => {
           onClick={handleToggleScreenShare}
           disabled={isBusy}
           title={isScreenSharing ? 'Dừng chia sẻ' : 'Chia sẻ màn hình'}
+          aria-label={isScreenSharing ? 'Dừng chia sẻ màn hình' : 'Chia sẻ màn hình'}
         >
-          Share
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
         </button>
         <button
           type="button"
@@ -349,8 +387,14 @@ export const DirectCallOverlay = () => {
             void leaveActiveVoiceSession();
           }}
           title="Rời voice"
+          aria-label="Rời voice"
         >
-          End
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          </svg>
         </button>
       </div>
     </section>

@@ -28,7 +28,7 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
         alignItems: 'center',
         justifyContent: 'center',
         height: '100vh',
-        background: 'var(--bg-dark-primary)',
+        background: 'var(--color-bg)',
       }}>
         <div className="spinner" />
       </div>

@@ -82,7 +82,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
           <div className={styles.formGroup}>
             <div className={styles.labelWrapper}>
               <label className={styles.label} htmlFor="group-name">
-                Tên Server <span style={{ color: 'var(--status-danger)' }}>*</span>
+                Tên Server <span style={{ color: 'var(--color-danger)' }}>*</span>
               </label>
               <span className={styles.charCounter}>
                 {name.length}/{MAX_NAME_LENGTH}
@@ -125,7 +125,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
 
           {/* Hiển thị lỗi nếu có */}
           {error && (
-            <div style={{ color: 'var(--status-danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-md)' }}>
+            <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-md)' }}>
               {error}
             </div>
           )}

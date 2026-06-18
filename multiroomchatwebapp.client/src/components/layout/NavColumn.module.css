@@ -1,13 +1,14 @@
 .navColumn {
-  width: 68px;
+  width: var(--nav-width, 72px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: var(--spacing-md) 0;
   gap: var(--spacing-sm);
-  background: rgba(15, 23, 42, 0.95);
-  border-right: 1px solid var(--glass-border);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .logo {
@@ -16,14 +17,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-primary);
+  color: var(--color-primary);
   margin-bottom: var(--spacing-sm);
 }
 
 .divider {
   width: 36px;
   height: 1px;
-  background: var(--glass-border);
+  background: var(--color-border);
   margin: var(--spacing-xs) 0;
 }
 
@@ -38,22 +39,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .navBtn:hover:not(:disabled) {
-  background: var(--glass-bg);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .navBtn.active {
-  background: rgba(59, 130, 246, 0.2);
-  color: var(--accent-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .navBtn:disabled {
@@ -64,7 +65,7 @@
 .profileBtn {
   overflow: hidden;
   border-radius: 50%;
-  background: rgba(59, 130, 246, 0.16);
+  background: var(--color-primary-soft);
 }
 
 .profileAvatar {
@@ -79,7 +80,7 @@
   height: 100%;
   display: grid;
   place-items: center;
-  color: var(--accent-primary);
+  color: var(--color-primary);
   font-size: 1rem;
   font-weight: 700;
 }
@@ -91,8 +92,8 @@
   font-size: 7px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  background: var(--accent-primary);
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
   padding: 1px 3px;
   border-radius: 3px;
   line-height: 1.2;

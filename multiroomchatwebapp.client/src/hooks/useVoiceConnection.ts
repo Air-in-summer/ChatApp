@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { leaveVoiceSession as leaveVoiceSessionApi } from '../api/voiceApi';
+import { requestVoiceSwitchConfirmation } from '../services/voiceSwitchConfirmService';
 import { useVoiceStore } from '../store/useVoiceStore';
 import type { ActiveVoiceSession } from '../store/useVoiceStore';
 import type { VoiceSessionTokenResponseDto } from '../api/voiceApi';
@@ -12,6 +13,21 @@ const isTargetActiveDirectCall = (activeSession: ActiveVoiceSession | null, targ
     targetSessionId &&
     activeSession.sessionId === targetSessionId
   );
+
+const isTargetActiveVoiceChannel = (activeSession: ActiveVoiceSession | null, targetRoomId?: string) =>
+  Boolean(
+    activeSession?.kind === 'channel' &&
+    targetRoomId &&
+    activeSession.sourceRoomId === targetRoomId
+  );
+
+const isTargetActiveVoiceSession = (
+  activeSession: ActiveVoiceSession | null,
+  targetSessionId?: string,
+  targetRoomId?: string,
+) =>
+  isTargetActiveDirectCall(activeSession, targetSessionId) ||
+  isTargetActiveVoiceChannel(activeSession, targetRoomId);
 
 /**
  * Hook wrapper cho Voice connection khi component đã ở trong voice chunk.
@@ -46,22 +62,22 @@ export const useVoiceConnection = () => {
     leaveVoiceRoomService();
   }, []);
 
-  const shouldSwitchVoiceSession = useCallback((targetSessionId?: string) => {
+  const shouldSwitchVoiceSession = useCallback(async (targetSessionId?: string, targetRoomId?: string) => {
     const activeSession = useVoiceStore.getState().activeSession;
 
-    if (!activeSession || isTargetActiveDirectCall(activeSession, targetSessionId)) {
+    if (!activeSession || isTargetActiveVoiceSession(activeSession, targetSessionId, targetRoomId)) {
       return true;
     }
 
-    return window.confirm(
-      'Bạn đang trong một phiên voice khác. Chuyển sang cuộc gọi này sẽ ngắt phiên hiện tại. Tiếp tục?'
+    return requestVoiceSwitchConfirmation(
+      'Bạn đang trong một phiên voice khác. Chuyển sang phiên này sẽ ngắt phiên hiện tại. Tiếp tục?'
     );
   }, []);
 
-  const leaveCurrentVoiceSessionForSwitch = useCallback(async (targetSessionId?: string) => {
+  const leaveCurrentVoiceSessionForSwitch = useCallback(async (targetSessionId?: string, targetRoomId?: string) => {
     const activeSession = useVoiceStore.getState().activeSession;
 
-    if (!activeSession || isTargetActiveDirectCall(activeSession, targetSessionId)) {
+    if (!activeSession || isTargetActiveVoiceSession(activeSession, targetSessionId, targetRoomId)) {
       return;
     }
 

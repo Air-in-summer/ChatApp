@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type MouseEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type FormEvent, type MouseEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../api/apiClient';
@@ -6,6 +6,9 @@ import { getGroupRooms, getGroupMembers, createGroupChannel, leaveGroup, updateG
 import { UserSearchModal } from '../discovery/UserSearchModal';
 import { GroupSettingsModal } from '../group/GroupSettingsModal';
 import { CreateChannelModal } from '../group/CreateChannelModal';
+import { Button } from '../ui/Button/Button';
+import { ConfirmDialog } from '../ui/ConfirmDialog/ConfirmDialog';
+import { Modal } from '../ui/Modal/Modal';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
@@ -76,6 +79,14 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole>('Member');
   const [groupMembers, setGroupMembers] = useState<GroupMemberDto[]>([]);
   const [dismissedBlockedGroupWarningByGroup, setDismissedBlockedGroupWarningByGroup] = useState<Record<string, boolean>>({});
+  const [pendingRenameRoom, setPendingRenameRoom] = useState<RoomDto | null>(null);
+  const [renameRoomName, setRenameRoomName] = useState('');
+  const [renameRoomError, setRenameRoomError] = useState<string | null>(null);
+  const [isRenamingRoom, setIsRenamingRoom] = useState(false);
+  const [pendingDeleteRoom, setPendingDeleteRoom] = useState<RoomDto | null>(null);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
+  const [isLeaveGroupConfirmOpen, setIsLeaveGroupConfirmOpen] = useState(false);
+  const [isLeavingGroup, setIsLeavingGroup] = useState(false);
   const {
     joinVoiceRoom,
     shouldSwitchVoiceSession,
@@ -263,7 +274,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
     if (room.type === 'Voice') {
       if (!isAuthenticated) return;
 
-      if (!shouldSwitchVoiceSession()) {
+      if (!(await shouldSwitchVoiceSession(undefined, room.id))) {
         return;
       }
 
@@ -271,7 +282,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       onSelectChat({ type: 'real', room });
 
       try {
-        await leaveCurrentVoiceSessionForSwitch();
+        await leaveCurrentVoiceSessionForSwitch(undefined, room.id);
         await joinVoiceRoom(room.id, room.name || 'Voice Channel');
       } catch (error) {
         console.error('Không thể tham gia Voice room:', error);
@@ -336,18 +347,33 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   ) => {
     event.stopPropagation();
     if (!isAuthenticated || !group) return;
+    setPendingRenameRoom(room);
+    setRenameRoomName(room.name || '');
+    setRenameRoomError(null);
+  };
 
-    const nextName = window.prompt('Nhập tên phòng mới', room.name || '');
-    if (nextName === null) return;
+  const handleCloseRenameRoom = () => {
+    if (isRenamingRoom) return;
 
-    const normalizedName = nextName.trim();
+    setPendingRenameRoom(null);
+    setRenameRoomName('');
+    setRenameRoomError(null);
+  };
+
+  const handleSubmitRenameRoom = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!pendingRenameRoom || !isAuthenticated || !group || isRenamingRoom) return;
+
+    const normalizedName = renameRoomName.trim();
     if (!normalizedName) {
-      toast.error('Tên phòng không được bỏ trống.');
+      setRenameRoomError('Tên phòng không được bỏ trống.');
       return;
     }
 
+    setRenameRoomError(null);
+    setIsRenamingRoom(true);
     try {
-      const updatedRoom = await updateGroupRoom(group.id, room.id, { name: normalizedName });
+      const updatedRoom = await updateGroupRoom(group.id, pendingRenameRoom.id, { name: normalizedName });
       setRooms(currentRooms =>
         currentRooms.map(currentRoom =>
           currentRoom.id === updatedRoom.id ? { ...currentRoom, ...updatedRoom } : currentRoom
@@ -359,21 +385,30 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
       }
 
       toast.success('Đã đổi tên phòng.');
+      setPendingRenameRoom(null);
+      setRenameRoomName('');
       void refreshRooms();
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || 'Không thể đổi tên phòng.';
       toast.error(errorMsg);
+    } finally {
+      setIsRenamingRoom(false);
     }
   };
 
   const handleDeleteTextRoom = async (room: RoomDto, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!isAuthenticated || !group) return;
+    setPendingDeleteRoom(room);
+  };
 
-    if (!window.confirm(`Xoa phong #${room.name || 'khong ten'}? Tin nhan cu se khong bi xoa vat ly.`)) {
+  const handleConfirmDeleteTextRoom = async () => {
+    if (!pendingDeleteRoom || !isAuthenticated || !group || isDeletingRoom) {
       return;
     }
 
+    const room = pendingDeleteRoom;
+    setIsDeletingRoom(true);
     try {
       await deleteGroupRoom(group.id, room.id);
       setRooms(currentRooms => currentRooms.filter(currentRoom => currentRoom.id !== room.id));
@@ -382,11 +417,14 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
         onSelectChat(null);
       }
 
-      toast.success('Da xoa phong.');
+      toast.success('Đã xóa phòng.');
+      setPendingDeleteRoom(null);
       void refreshRooms();
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Khong the xoa phong.';
+      const errorMsg = error.response?.data?.detail || 'Không thể xóa phòng.';
       toast.error(errorMsg);
+    } finally {
+      setIsDeletingRoom(false);
     }
   };
 
@@ -404,14 +442,22 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
   const handleLeaveSharedGroup = async () => {
     if (!isAuthenticated || !group) return;
-    if (!window.confirm('Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm.')) return;
+    setIsLeaveGroupConfirmOpen(true);
+  };
 
+  const handleConfirmLeaveSharedGroup = async () => {
+    if (!isAuthenticated || !group || isLeavingGroup) return;
+
+    setIsLeavingGroup(true);
     try {
       await leaveGroup(group.id);
       toast.success('Đã rời nhóm.');
+      setIsLeaveGroupConfirmOpen(false);
       onBack?.();
     } catch {
       toast.error('Không thể rời nhóm, vui lòng thử lại sau.');
+    } finally {
+      setIsLeavingGroup(false);
     }
   };
 
@@ -435,7 +481,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
     return (
       <>
-        <div className={`${styles.column} ${className || ''}`}>
+        <div className={`${styles.column} ${styles.groupColumn} ${className || ''}`}>
         {/* Header kênh: Có nút back quay lại danh sách Server */}
         <div className={styles.header}>
           <button className={styles.backBtn} onClick={onBack} title="Quay lại danh sách nhóm">
@@ -466,7 +512,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
               <span>
                 {sharedGroupBlockedNames}
                 {sharedGroupBlockedMembers.length > 3 ? ` và ${sharedGroupBlockedMembers.length - 3} người khác` : ''}
-                {' '}vẫn có thể gửi tin trong các kênh chung. Tin nhắn nhóm chưa bị ẩn ở giai đoạn này.
+                {' '}vẫn có thể gửi tin trong các kênh chung. Tin nhắn nhóm vẫn sẽ hiển thị với bạn.
               </span>
             </div>
             <div className={styles.blockedGroupWarningActions}>
@@ -523,8 +569,22 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                     void handleSelectRoom(room);
                   }}
                 >
-                  {/* Prefix # cho kênh văn bản */}
-                  <div className={styles.avatar}>#</div>
+                  {/* Icon tin nhắn cho kênh văn bản */}
+                  <div className={styles.avatar}>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                    </svg>
+                  </div>
                   <div className={styles.roomInfo}>
                     <span className={`${styles.roomName} ${unreadCount[room.id] > 0 ? styles.unreadBold : ''}`}>
                       {room.name || 'Unknown Channel'}
@@ -551,7 +611,8 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                       <button
                         type="button"
                         className={`${styles.roomActionBtn} ${styles.deleteRoomActionBtn}`}
-                        title="Xoa phong"
+                        title="Xóa phòng"
+                        aria-label="Xóa phòng"
                         onClick={(event) => void handleDeleteTextRoom(room, event)}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -650,6 +711,90 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
             onSubmit={handleCreateChannelSubmit}
           />
         )}
+
+        <Modal
+          open={Boolean(pendingRenameRoom)}
+          title="Đổi tên phòng"
+          size="sm"
+          closeOnOverlayClick={!isRenamingRoom}
+          closeOnEscape={!isRenamingRoom}
+          closeDisabled={isRenamingRoom}
+          onClose={handleCloseRenameRoom}
+          footer={(
+            <>
+              <Button
+                className={styles.renameRoomCancelButton}
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                disabled={isRenamingRoom}
+                onClick={handleCloseRenameRoom}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="submit"
+                form="rename-room-form"
+                size="sm"
+                fullWidth={false}
+                loading={isRenamingRoom}
+              >
+                Lưu thay đổi
+              </Button>
+            </>
+          )}
+        >
+          <form id="rename-room-form" className={styles.renameRoomForm} onSubmit={handleSubmitRenameRoom}>
+            <label className={styles.renameRoomLabel} htmlFor="rename-room-name">
+              Tên phòng
+            </label>
+            <input
+              id="rename-room-name"
+              className={styles.renameRoomInput}
+              value={renameRoomName}
+              maxLength={80}
+              disabled={isRenamingRoom}
+              onChange={(event) => {
+                setRenameRoomName(event.target.value);
+                if (renameRoomError) setRenameRoomError(null);
+              }}
+              autoFocus
+            />
+            {renameRoomError && (
+              <p className={styles.renameRoomError}>{renameRoomError}</p>
+            )}
+          </form>
+        </Modal>
+
+        <ConfirmDialog
+          open={Boolean(pendingDeleteRoom)}
+          title="Xóa phòng"
+          message={`Xóa phòng #${pendingDeleteRoom?.name || 'không tên'}?`}
+          confirmLabel="Xóa phòng"
+          cancelLabel="Hủy"
+          variant="danger"
+          loading={isDeletingRoom}
+          onCancel={() => {
+            if (isDeletingRoom) return;
+            setPendingDeleteRoom(null);
+          }}
+          onConfirm={handleConfirmDeleteTextRoom}
+        />
+
+        <ConfirmDialog
+          open={isLeaveGroupConfirmOpen}
+          title="Rời nhóm"
+          message="Rời nhóm này? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong nhóm."
+          confirmLabel="Rời nhóm"
+          cancelLabel="Hủy"
+          variant="danger"
+          loading={isLeavingGroup}
+          onCancel={() => {
+            if (isLeavingGroup) return;
+            setIsLeaveGroupConfirmOpen(false);
+          }}
+          onConfirm={handleConfirmLeaveSharedGroup}
+        />
       </>
     );
   }
@@ -666,7 +811,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
 
   return (
     <>
-      <div className={`${styles.column} ${className || ''}`}>
+      <div className={`${styles.column} ${styles.dmColumn} ${className || ''}`}>
       <div className={styles.header}>
         <h2 className={styles.title}>Tin nhắn</h2>
       </div>

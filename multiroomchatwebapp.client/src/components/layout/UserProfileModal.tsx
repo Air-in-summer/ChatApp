@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { apiClient } from '../../api/apiClient';
@@ -7,6 +7,9 @@ import { useAuth } from '../../context/AuthContext';
 import type { UserProfile } from '../../types/auth';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { getSafeResourceUrl } from '../../utils/safeUrl';
+import { Button } from '../ui/Button/Button';
+import { ConfirmDialog } from '../ui/ConfirmDialog/ConfirmDialog';
+import { Modal } from '../ui/Modal/Modal';
 import styles from './UserProfileModal.module.css';
 
 interface UserProfileModalProps {
@@ -17,7 +20,7 @@ const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /**
- * Modal tài khoản core: cập nhật profile, đổi mật khẩu và đăng xuất.
+ * Modal tài khoản gồm hồ sơ, ảnh đại diện, bảo mật và đăng xuất.
  */
 export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   const { isAuthenticated, logout, updateCurrentUserProfile } = useAuth();
@@ -35,10 +38,16 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
   const [isAvatarDeleting, setIsAvatarDeleting] = useState(false);
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasAvatarPreviewError, setHasAvatarPreviewError] = useState(false);
+
   const avatarFallbackText = (displayName || profile?.username || '?').trim().charAt(0).toUpperCase() || '?';
   const avatarPreviewUrl = localAvatarPreviewUrl ?? getSafeResourceUrl(avatarUrl);
+  const isAvatarBusy = isAvatarUploading || isAvatarDeleting;
+  const isMainActionBusy = isProfileSaving || isAvatarBusy;
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -59,13 +68,13 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
       }
     };
 
-    loadProfile();
+    void loadProfile();
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (!selectedAvatarFile) {
       setLocalAvatarPreviewUrl(null);
-      return;
+      return undefined;
     }
 
     const previewUrl = URL.createObjectURL(selectedAvatarFile);
@@ -80,15 +89,40 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
     setHasAvatarPreviewError(false);
   }, [avatarPreviewUrl]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   const clearPasswordFields = () => {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
   };
 
-  useEffect(() => clearPasswordFields, []);
+  useEffect(() => {
+    if (isPasswordModalOpen || isLogoutConfirmOpen || isMainActionBusy) return undefined;
 
-  const handleProfileSave = async (event: React.FormEvent) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLogoutConfirmOpen, isMainActionBusy, isPasswordModalOpen, onClose]);
+
+  const handleCloseMainModal = () => {
+    if (isMainActionBusy || isPasswordModalOpen || isLogoutConfirmOpen) return;
+    onClose();
+  };
+
+  const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isAuthenticated) return;
 
@@ -117,7 +151,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
     if (!file) return;
 
     if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
-      toast.error('Ảnh đại diện chỉ hỗ trợ JPG, PNG hoặc WEBP.');
+      toast.error('Ảnh đại diện chỉ hỗ trợ JPG, PNG hoặc WebP.');
       return;
     }
 
@@ -130,7 +164,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   };
 
   const handleAvatarUpload = async () => {
-    if (!isAuthenticated || !selectedAvatarFile) return;
+    if (!isAuthenticated || !selectedAvatarFile || isAvatarBusy) return;
 
     setIsAvatarUploading(true);
     try {
@@ -148,7 +182,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   };
 
   const handleAvatarDelete = async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isAvatarBusy) return;
 
     setIsAvatarDeleting(true);
     try {
@@ -165,9 +199,20 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
     }
   };
 
-  const handlePasswordChange = async (event: React.FormEvent) => {
+  const handleOpenPasswordModal = () => {
+    clearPasswordFields();
+    setIsPasswordModalOpen(true);
+  };
+
+  const handleClosePasswordModal = () => {
+    if (isPasswordSaving) return;
+    setIsPasswordModalOpen(false);
+    clearPasswordFields();
+  };
+
+  const handlePasswordChange = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isPasswordSaving) return;
 
     if (newPassword !== confirmPassword) {
       toast.error('Mật khẩu xác nhận không khớp.');
@@ -193,115 +238,304 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
   };
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login', { replace: true });
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } catch {
+      toast.error('Không thể đăng xuất. Vui lòng thử lại.');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
-    <div className={styles.overlay} onMouseDown={onClose}>
-      <div className={styles.modal} onMouseDown={(event) => event.stopPropagation()}>
-        <header className={styles.header}>
-          <div className={styles.avatarPreview}>
-            {avatarPreviewUrl && !hasAvatarPreviewError ? (
-              <img
-                src={avatarPreviewUrl}
-                alt={displayName}
-                referrerPolicy="no-referrer"
-                onError={() => setHasAvatarPreviewError(true)}
-              />
-            ) : (
-              avatarFallbackText
-            )}
-          </div>
-          <div className={styles.identity}>
-            <h2>Tài khoản</h2>
-            <span>{profile ? `@${profile.username}` : 'Đang tải...'}</span>
-          </div>
-          <button className={styles.iconBtn} type="button" onClick={onClose} title="Đóng">
-            ×
-          </button>
-        </header>
-
-        {isLoading ? (
-          <div className={styles.loading}>Đang tải hồ sơ...</div>
-        ) : (
-          <div className={styles.body}>
-            <section className={styles.section}>
-              <h3>Ảnh đại diện</h3>
-              <div className={styles.avatarControls}>
-                <label className={styles.filePickerBtn}>
-                  Chọn ảnh
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    onChange={handleAvatarFileChange}
+    <>
+      <div
+        className={styles.overlay}
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) {
+            handleCloseMainModal();
+          }
+        }}
+      >
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="user-profile-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <aside className={styles.sidebar}>
+            <div className={styles.sidebarIdentity}>
+              <div className={styles.sidebarAvatar}>
+                {avatarPreviewUrl && !hasAvatarPreviewError ? (
+                  <img
+                    src={avatarPreviewUrl}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    onError={() => setHasAvatarPreviewError(true)}
                   />
-                </label>
-                <button
-                  className={styles.primaryBtn}
-                  type="button"
-                  onClick={handleAvatarUpload}
-                  disabled={!selectedAvatarFile || isAvatarUploading}
-                >
-                  {isAvatarUploading ? 'Đang tải...' : 'Tải lên'}
-                </button>
-                {selectedAvatarFile && (
-                  <button
-                    className={styles.secondaryBtn}
-                    type="button"
-                    onClick={() => setSelectedAvatarFile(null)}
-                    disabled={isAvatarUploading}
-                  >
-                    Hủy chọn
-                  </button>
+                ) : (
+                  avatarFallbackText
                 )}
-                <button
-                  className={styles.dangerBtn}
-                  type="button"
-                  onClick={handleAvatarDelete}
-                  disabled={!avatarUrl || isAvatarDeleting}
-                >
-                  {isAvatarDeleting ? 'Đang xóa...' : 'Xóa ảnh'}
-                </button>
               </div>
-            </section>
+              <div className={styles.sidebarIdentityText}>
+                <strong>{displayName || profile?.username || 'Tài khoản'}</strong>
+                <span>{profile ? `@${profile.username}` : 'Đang tải...'}</span>
+              </div>
+            </div>
 
-            <form className={styles.section} onSubmit={handleProfileSave}>
-              <h3>Hồ sơ</h3>
-              <label>
-                Tên hiển thị
-                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={100} />
-              </label>
-              <button className={styles.primaryBtn} type="submit" disabled={isProfileSaving}>
-                {isProfileSaving ? 'Đang lưu...' : 'Lưu hồ sơ'}
-              </button>
-            </form>
-
-            <form className={styles.section} onSubmit={handlePasswordChange}>
-              <h3>Đổi mật khẩu</h3>
-              <label>
-                Mật khẩu hiện tại
-                <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-              </label>
-              <label>
-                Mật khẩu mới
-                <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-              </label>
-              <label>
-                Xác nhận mật khẩu mới
-                <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-              </label>
-              <button className={styles.secondaryBtn} type="submit" disabled={isPasswordSaving}>
-                {isPasswordSaving ? 'Đang đổi...' : 'Đổi mật khẩu'}
-              </button>
-            </form>
-
-            <button className={styles.logoutBtn} type="button" onClick={handleLogout}>
-              Đăng xuất
+            <button className={`${styles.sidebarItem} ${styles.sidebarItemActive}`} type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M20 21a8 8 0 0 0-16 0" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <span>Tài khoản</span>
             </button>
-          </div>
-        )}
+
+            <div className={styles.sidebarSpacer} />
+
+            <button
+              className={`${styles.sidebarItem} ${styles.logoutItem}`}
+              type="button"
+              disabled={isLoggingOut}
+              onClick={() => setIsLogoutConfirmOpen(true)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="m16 17 5-5-5-5" />
+                <path d="M21 12H9" />
+              </svg>
+              <span>Đăng xuất</span>
+            </button>
+          </aside>
+
+          <section className={styles.mainPanel}>
+            <header className={styles.topbar}>
+              <h1 id="user-profile-title">Tài khoản</h1>
+              <button
+                className={styles.closeButton}
+                type="button"
+                aria-label="Đóng"
+                title="Đóng"
+                disabled={isMainActionBusy}
+                onClick={handleCloseMainModal}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </header>
+
+            {isLoading ? (
+              <div className={styles.loading}>Đang tải hồ sơ...</div>
+            ) : (
+              <div className={styles.content}>
+                <section className={styles.contentSection}>
+                  <div className={styles.sectionHeading}>
+                    <span className={styles.sectionEyebrow}>Hồ sơ</span>
+                    <h2>Thông tin cá nhân</h2>
+                  </div>
+
+                  <div className={styles.avatarCard}>
+                    <label className={styles.avatarEditor}>
+                      <span className={styles.largeAvatar}>
+                        {avatarPreviewUrl && !hasAvatarPreviewError ? (
+                          <img
+                            src={avatarPreviewUrl}
+                            alt={displayName}
+                            referrerPolicy="no-referrer"
+                            onError={() => setHasAvatarPreviewError(true)}
+                          />
+                        ) : (
+                          avatarFallbackText
+                        )}
+                      </span>
+                      <span className={styles.avatarEditOverlay}>Chỉnh sửa ảnh</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        disabled={isAvatarBusy}
+                        onChange={handleAvatarFileChange}
+                      />
+                    </label>
+
+                    <div className={styles.avatarDetails}>
+                      <strong>Ảnh đại diện</strong>
+                      <span>Nhấn vào ảnh để chọn JPG, PNG hoặc WebP. Tối đa 2MB.</span>
+                      {selectedAvatarFile && (
+                        <span className={styles.selectedFileName}>{selectedAvatarFile.name}</span>
+                      )}
+                    </div>
+
+                    <div className={styles.avatarActions}>
+                      {selectedAvatarFile && (
+                        <>
+                          <button
+                            className={styles.primaryAction}
+                            type="button"
+                            onClick={handleAvatarUpload}
+                            disabled={isAvatarBusy}
+                          >
+                            {isAvatarUploading ? 'Đang tải...' : 'Tải ảnh lên'}
+                          </button>
+                          <button
+                            className={styles.secondaryAction}
+                            type="button"
+                            onClick={() => setSelectedAvatarFile(null)}
+                            disabled={isAvatarBusy}
+                          >
+                            Hủy chọn
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className={styles.dangerAction}
+                        type="button"
+                        onClick={handleAvatarDelete}
+                        disabled={!avatarUrl || isAvatarBusy}
+                      >
+                        {isAvatarDeleting ? 'Đang xóa...' : 'Xóa ảnh'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <form className={styles.profileForm} onSubmit={handleProfileSave}>
+                    <div className={styles.readonlyField}>
+                      <span>Tên đăng nhập</span>
+                      <strong>{profile ? `@${profile.username}` : 'Chưa tải được'}</strong>
+                    </div>
+
+                    <label className={styles.formField} htmlFor="profile-display-name">
+                      <span>Tên hiển thị</span>
+                      <input
+                        id="profile-display-name"
+                        value={displayName}
+                        maxLength={100}
+                        disabled={isProfileSaving}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                      />
+                    </label>
+
+                    <button className={styles.primaryAction} type="submit" disabled={isProfileSaving}>
+                      {isProfileSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                    </button>
+                  </form>
+                </section>
+
+                <section className={`${styles.contentSection} ${styles.securitySection}`}>
+                  <div className={styles.sectionHeading}>
+                    <span className={styles.sectionEyebrow}>Bảo mật</span>
+                    <h2>Mật khẩu & bảo mật</h2>
+                  </div>
+
+                  <div className={styles.securityRow}>
+                    <div>
+                      <strong>Mật khẩu</strong>
+                      <span>••••••••</span>
+                    </div>
+                    <button className={styles.secondaryAction} type="button" onClick={handleOpenPasswordModal}>
+                      Đổi mật khẩu
+                    </button>
+                  </div>
+                </section>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
-    </div>
+
+      <Modal
+        open={isPasswordModalOpen}
+        title="Đổi mật khẩu"
+        size="sm"
+        closeOnOverlayClick={!isPasswordSaving}
+        closeOnEscape={!isPasswordSaving}
+        closeDisabled={isPasswordSaving}
+        onClose={handleClosePasswordModal}
+        footer={(
+          <>
+            <Button
+              className={styles.modalCancelButton}
+              variant="secondary"
+              size="sm"
+              fullWidth={false}
+              disabled={isPasswordSaving}
+              onClick={handleClosePasswordModal}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              form="change-password-form"
+              size="sm"
+              fullWidth={false}
+              loading={isPasswordSaving}
+            >
+              Đổi mật khẩu
+            </Button>
+          </>
+        )}
+      >
+        <form id="change-password-form" className={styles.passwordForm} onSubmit={handlePasswordChange}>
+          <label className={styles.formField} htmlFor="current-password">
+            <span>Mật khẩu hiện tại</span>
+            <input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              disabled={isPasswordSaving}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoFocus
+              required
+            />
+          </label>
+          <label className={styles.formField} htmlFor="new-password">
+            <span>Mật khẩu mới</span>
+            <input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              disabled={isPasswordSaving}
+              onChange={(event) => setNewPassword(event.target.value)}
+              required
+            />
+          </label>
+          <label className={styles.formField} htmlFor="confirm-password">
+            <span>Xác nhận mật khẩu mới</span>
+            <input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              disabled={isPasswordSaving}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+            />
+          </label>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={isLogoutConfirmOpen}
+        title="Đăng xuất"
+        message="Bạn có muốn đăng xuất khỏi tài khoản này?"
+        confirmLabel="Đăng xuất"
+        cancelLabel="Hủy"
+        variant="danger"
+        loading={isLoggingOut}
+        onCancel={() => {
+          if (isLoggingOut) return;
+          setIsLogoutConfirmOpen(false);
+        }}
+        onConfirm={handleLogout}
+      />
+    </>
   );
 };

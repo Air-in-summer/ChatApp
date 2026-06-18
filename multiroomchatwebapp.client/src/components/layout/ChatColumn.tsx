@@ -31,6 +31,7 @@ import { buildMessagePreview, determineMessageType } from '../../utils/chatMessa
 import { getSafeResourceUrl } from '../../utils/safeUrl';
 import { DirectCallButton } from '../call/DirectCallButton';
 import { AddMemberToRoomModal } from '../group/AddMemberToRoomModal';
+import { ConfirmDialog } from '../ui/ConfirmDialog/ConfirmDialog';
 import { UserActionMenu } from '../user/UserActionMenu';
 import styles from './ChatColumn.module.css';
 
@@ -439,6 +440,11 @@ export const ChatColumn = ({
   const voiceConnectionStatus = useVoiceStore((state) => state.connectionStatus);
 
   const roomId = activeChat?.type === 'real' ? activeChat.room.id : null;
+  const headerAvatarUrl = activeChat?.type === 'virtual'
+    ? activeChat.targetUser.avatarUrl
+    : activeChat?.type === 'real' && activeChat.room.type === 'DirectMessage'
+      ? activeChat.room.otherUserAvatarUrl
+      : null;
   const storeMessages = useChatStore(state => roomId ? state.messages[roomId] : undefined);
   const messages = storeMessages || [];
 
@@ -487,6 +493,8 @@ export const ChatColumn = ({
   const [pinnedMessagesError, setPinnedMessagesError] = useState<string | null>(null);
   const [pinnedRefreshRequest, setPinnedRefreshRequest] = useState(0);
   const [mutatingMessageIds, setMutatingMessageIds] = useState<Set<string>>(new Set());
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MessageDto | null>(null);
+  const [hasHeaderAvatarError, setHasHeaderAvatarError] = useState(false);
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
@@ -517,6 +525,18 @@ export const ChatColumn = ({
       localAttachmentUrlsRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    setHasHeaderAvatarError(false);
+  }, [headerAvatarUrl]);
+
+  useLayoutEffect(() => {
+    const textarea = textAreaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+  }, [inputText]);
 
   // States cho tính năng Add Member
   const [currentUserRole, setCurrentUserRole] = useState<GroupRole | null>(null);
@@ -1227,7 +1247,7 @@ export const ChatColumn = ({
 
     const normalizedContent = editingContent.trim();
     if (!normalizedContent && !message.attachments?.length) {
-      toast.error('Noi dung tin nhan khong duoc de trong.');
+      toast.error('Nội dung tin nhắn không được để trống.');
       return;
     }
 
@@ -1241,7 +1261,7 @@ export const ChatColumn = ({
       editStoredMessage(payload);
       handleCancelEditingMessage();
     } catch (error) {
-      toast.error(getRequestErrorMessage(error, 'Khong the sua tin nhan.'));
+      toast.error(getRequestErrorMessage(error, 'Không thể sửa tin nhắn.'));
     } finally {
       setMutatingMessageIds((current) => {
         const next = new Set(current);
@@ -1253,8 +1273,15 @@ export const ChatColumn = ({
 
   const handleDeleteMessage = async (message: MessageDto) => {
     if (!isAuthenticated || mutatingMessageIds.has(message.id)) return;
-    if (!window.confirm('Xoa tin nhan nay voi moi nguoi?')) return;
+    setPendingDeleteMessage(message);
+  };
 
+  const handleConfirmDeleteMessage = async () => {
+    if (!pendingDeleteMessage || !isAuthenticated || mutatingMessageIds.has(pendingDeleteMessage.id)) {
+      return;
+    }
+
+    const message = pendingDeleteMessage;
     setMutatingMessageIds((current) => new Set(current).add(message.id));
     try {
       const payload = await deleteMessage(
@@ -1265,8 +1292,9 @@ export const ChatColumn = ({
       if (editingMessageId === message.id) {
         handleCancelEditingMessage();
       }
+      setPendingDeleteMessage(null);
     } catch (error) {
-      toast.error(getRequestErrorMessage(error, 'Khong the xoa tin nhan.'));
+      toast.error(getRequestErrorMessage(error, 'Không thể xóa tin nhắn.'));
     } finally {
       setMutatingMessageIds((current) => {
         const next = new Set(current);
@@ -1409,6 +1437,7 @@ export const ChatColumn = ({
   const headerName = isVirtual
     ? activeChat.targetUser.displayName
     : (activeChat.room.name || activeChat.room.otherUserDisplayName || "Unknown");
+  const headerAvatarFallback = headerName.trim().charAt(0).toUpperCase() || '?';
   const headerActionTarget = isVirtual
     ? activeChat.targetUser
     : activeChat.room.type === 'DirectMessage' && activeChat.room.otherUserId
@@ -1475,68 +1504,86 @@ export const ChatColumn = ({
       {/* Header Room Info */}
       <div className={styles.header}>
         <div className={styles.avatar}>
-          {headerName[0]?.toUpperCase()}
+          {headerAvatarUrl && !hasHeaderAvatarError ? (
+            <img
+              className={styles.avatarImage}
+              src={headerAvatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={() => setHasHeaderAvatarError(true)}
+            />
+          ) : (
+            headerAvatarFallback
+          )}
         </div>
         <div className={styles.userInfo}>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h2 className={styles.headerTitle}>
             {headerName}
             {activeChat?.type === 'real' && activeChat.room.isPrivate && (
-              <span style={{ fontSize: '0.7rem', backgroundColor: '#f04747', padding: '2px 6px', borderRadius: '4px', color: 'white', fontWeight: 600 }}>PRIVATE</span>
+              <span className={styles.privateBadge} title="Phòng riêng tư" aria-label="Phòng riêng tư">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
             )}
           </h2>
           {isVirtual && <span className={styles.badge}>Chưa có cuộc hội thoại nào</span>}
         </div>
 
-        {canViewPinnedMessages && (
-          <button
-            type="button"
-            className={`${styles.pinnedMessagesButton} ${
-              isPinnedPanelOpen ? styles.pinnedMessagesButtonActive : ''
-            }`}
-            title="Tin nhắn đã ghim"
-            aria-label="Tin nhắn đã ghim"
-            aria-expanded={isPinnedPanelOpen}
-            onClick={() => setIsPinnedPanelOpen((current) => !current)}
-          >
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 17v5" />
-              <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
-            </svg>
-            {pinnedMessages.length > 0 && (
-              <span>{pinnedMessages.length}</span>
-            )}
-          </button>
-        )}
+        <div className={styles.headerActions}>
+          {canViewPinnedMessages && (
+            <button
+              type="button"
+              className={`${styles.pinnedMessagesButton} ${
+                isPinnedPanelOpen ? styles.pinnedMessagesButtonActive : ''
+              }`}
+              title="Tin nhắn đã ghim"
+              aria-label="Tin nhắn đã ghim"
+              aria-expanded={isPinnedPanelOpen}
+              onClick={() => setIsPinnedPanelOpen((current) => !current)}
+            >
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 17v5" />
+                <path d="M5 3h14l-2 6 3 3v2H4v-2l3-3-2-6Z" />
+              </svg>
+              {pinnedMessages.length > 0 && (
+                <span>{pinnedMessages.length}</span>
+              )}
+            </button>
+          )}
 
-        {canStartDirectCall && (
-          <DirectCallButton
-            dmRoomId={activeChat.room.id}
-            displayName={headerName}
-          />
-        )}
+          {canStartDirectCall && (
+            <DirectCallButton
+              dmRoomId={activeChat.room.id}
+              displayName={headerName}
+            />
+          )}
 
-        {headerActionTarget && (
-          <UserActionMenu
-            target={headerActionTarget}
-            hideMessageAction
-          />
-        )}
+          {headerActionTarget && (
+            <UserActionMenu
+              target={headerActionTarget}
+              hideMessageAction
+            />
+          )}
 
-        {/* Nút thêm thành viên (Chỉ hiện cho Owner/Admin trong phòng Private) */}
-        {activeChat?.type === 'real' && activeChat.room.isPrivate && activeChat.room.groupId && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
-          <button 
-            className={styles.addMemberBtn}
-            onClick={() => setIsAddMemberModalOpen(true)}
-            title="Thêm thành viên vào phòng"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="8.5" cy="7" r="4"></circle>
-              <line x1="20" y1="8" x2="20" y2="14"></line>
-              <line x1="23" y1="11" x2="17" y2="11"></line>
-            </svg>
-          </button>
-        )}
+          {/* Nút thêm thành viên (Chỉ hiện cho Owner/Admin trong phòng Private) */}
+          {activeChat?.type === 'real' && activeChat.room.isPrivate && activeChat.room.groupId && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+            <button
+              type="button"
+              className={styles.addMemberBtn}
+              onClick={() => setIsAddMemberModalOpen(true)}
+              title="Thêm thành viên vào phòng"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="8.5" cy="7" r="4"></circle>
+                <line x1="20" y1="8" x2="20" y2="14"></line>
+                <line x1="23" y1="11" x2="17" y2="11"></line>
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {isPinnedPanelOpen && activeChat.type === 'real' && (
@@ -1777,7 +1824,8 @@ export const ChatColumn = ({
                         <button
                           type="button"
                           className={`${styles.messageActionButton} ${styles.deleteMessageAction}`}
-                          title="Xoa tin nhan"
+                          title="Xóa tin nhắn"
+                          aria-label="Xóa tin nhắn"
                           disabled={isMutatingMessage}
                           onClick={() => void handleDeleteMessage(msg)}
                         >
@@ -2063,6 +2111,21 @@ export const ChatColumn = ({
         </button>
       </form>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteMessage)}
+        title="Xóa tin nhắn"
+        message="Xóa tin nhắn này với mọi người?"
+        confirmLabel="Xóa tin nhắn"
+        cancelLabel="Hủy"
+        variant="danger"
+        loading={Boolean(pendingDeleteMessage && mutatingMessageIds.has(pendingDeleteMessage.id))}
+        onCancel={() => {
+          if (pendingDeleteMessage && mutatingMessageIds.has(pendingDeleteMessage.id)) return;
+          setPendingDeleteMessage(null);
+        }}
+        onConfirm={handleConfirmDeleteMessage}
+      />
 
       {/* Modal Add Member */}
       {isAddMemberModalOpen && activeChat?.type === 'real' && activeChat.room.groupId && (

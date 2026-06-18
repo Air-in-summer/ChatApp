@@ -145,7 +145,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
               <span className={styles.charCounter}>{name.length}/{MAX_NAME_LENGTH}</span>
             </div>
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', fontSize: '1.2rem' }}>#</span>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: '1.2rem' }}>#</span>
               <input
                 id="channel-name"
                 className={styles.input}
@@ -181,7 +181,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
           </div>
 
           {error && (
-            <div style={{ color: 'var(--status-danger)', fontSize: '0.85rem' }}>
+            <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem' }}>
               {error}
             </div>
           )}

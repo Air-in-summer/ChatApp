@@ -199,6 +199,7 @@ try
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.MediaService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IMediaValidationService, MultiRoomChatWebApp.Server.Modules.Media.Services.MediaValidationService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IAvatarMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.AvatarMediaService>();
+    builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IGroupIconMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.GroupIconMediaService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IChatMediaService, MultiRoomChatWebApp.Server.Modules.Media.Services.ChatMediaService>();
     builder.Services.AddScoped<MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces.IChatMediaReservationService, MultiRoomChatWebApp.Server.Modules.Media.Services.ChatMediaReservationService>();
     builder.Services.AddHostedService<MultiRoomChatWebApp.Server.Modules.Media.Services.MediaStorageBootstrapService>();

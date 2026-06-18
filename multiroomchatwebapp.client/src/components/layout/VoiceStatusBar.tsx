@@ -31,9 +31,9 @@ export const VoiceStatusBar = () => {
       : isReconnecting
         ? styles.reconnecting
         : styles.error;
-  const statusLabel = activeSession?.kind === 'direct-call' ? 'In Call' : 'Voice Connected';
+  const statusLabel = activeSession?.kind === 'direct-call' ? 'Đang gọi' : 'Đã kết nối voice';
   const displayName = activeSession?.displayName || currentVoiceRoomName || (
-    activeSession?.kind === 'direct-call' ? 'DM Call' : 'Voice Channel'
+    activeSession?.kind === 'direct-call' ? 'Cuộc gọi riêng' : 'Kênh thoại'
   );
 
   return (
@@ -42,9 +42,9 @@ export const VoiceStatusBar = () => {
         <div className={styles.voiceStatusLabel}>
           <span className={`${styles.statusDot} ${statusClass}`} />
           {isConnected && statusLabel}
-          {isConnecting && 'Dang ket noi...'}
-          {isReconnecting && 'Dang ket noi lai...'}
-          {isError && 'Loi ket noi'}
+          {isConnecting && 'Đang kết nối...'}
+          {isReconnecting && 'Đang kết nối lại...'}
+          {isError && 'Lỗi kết nối'}
         </div>
         <div className={styles.voiceStatusRoom}>
           {displayName}
@@ -54,7 +54,8 @@ export const VoiceStatusBar = () => {
       <button
         className={styles.voiceStatusDisconnect}
         onClick={handleLeaveVoiceRoom}
-        title="Ngat ket noi voice"
+        title="Ngắt kết nối voice"
+        aria-label="Ngắt kết nối voice"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

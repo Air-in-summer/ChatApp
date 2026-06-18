@@ -1,37 +1,41 @@
 .menuRoot {
   position: relative;
-  flex-shrink: 0;
+  width: 36px;
+  flex: 0 0 36px;
 }
 
 .trigger {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   cursor: pointer;
+  transition: var(--transition-fast);
 }
 
-.trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .menu {
   position: absolute;
   top: calc(100% + 6px);
   z-index: 30;
-  min-width: 170px;
+  min-width: 184px;
   display: grid;
   gap: 4px;
   padding: 6px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.98);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
 }
 
 .alignRight {
@@ -44,19 +48,19 @@
 
 .menuItem {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 10px;
+  min-height: 36px;
+  padding: 8px 10px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--color-text);
   text-align: left;
   font-size: 0.86rem;
   cursor: pointer;
 }
 
 .menuItem:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-hover);
 }
 
 .menuItem:disabled {
@@ -65,10 +69,10 @@
 }
 
 .dangerItem {
-  color: #fca5a5;
+  color: var(--color-danger);
 }
 
 .dangerItem:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.14);
-  color: #fecaca;
+  color: var(--color-danger);
 }

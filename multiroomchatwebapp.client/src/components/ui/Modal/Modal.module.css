@@ -1,0 +1,132 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  width: 100%;
+  max-height: min(760px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+}
+
+.sm {
+  max-width: 420px;
+}
+
+.md {
+  max-width: 560px;
+}
+
+.lg {
+  max-width: 820px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 64px;
+  padding: 0 var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.description {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.body {
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  min-height: 66px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.confirm .header {
+  align-items: center;
+  min-height: 64px;
+  padding: 0 var(--spacing-lg);
+  border-bottom: 2px solid #e0e0e0;
+  background: var(--color-surface);
+}
+
+.confirm .heading {
+  display: flex;
+  align-items: center;
+}
+
+.confirm .title {
+  color: var(--color-text);
+  font-size: 1.08rem;
+  line-height: 1.2;
+}
+
+.confirm .header button {
+  color: var(--color-text-muted);
+}
+
+.confirm .header button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.confirm .body {
+  padding: var(--spacing-xl) var(--spacing-lg);
+  background: var(--color-surface);
+}
+
+.confirm .footer {
+  min-height: 66px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 2px solid #e0e0e0;
+  background: var(--color-surface);
+}
+
+@media (max-width: 640px) {
+  .overlay {
+    align-items: flex-end;
+    padding: var(--spacing-sm);
+  }
+
+  .modal {
+    max-height: calc(100vh - 16px);
+  }
+}

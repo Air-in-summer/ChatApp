@@ -85,7 +85,7 @@ export const IncomingCallToast = () => {
     const call = incomingCall;
     const sessionId = call.session.sessionId;
 
-    if (!shouldSwitchVoiceSession(sessionId)) {
+    if (!(await shouldSwitchVoiceSession(sessionId))) {
       return;
     }
 

@@ -1,9 +1,20 @@
-import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, type ChangeEvent, type FormEvent } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { deleteGroup, getGroupMembers, kickMember, leaveGroup, updateGroup } from '../../api/groupApi';
+import {
+  deleteGroup,
+  getGroupMembers,
+  kickMember,
+  leaveGroup,
+  transferGroupOwnership,
+  updateGroup,
+  updateGroupMemberRole,
+} from '../../api/groupApi';
+import { uploadGroupIcon } from '../../api/mediaApi';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
-import { UserActionMenu } from '../user/UserActionMenu';
-import type { GroupDto, GroupMemberDto } from '../../types/group';
+import { ConfirmDialog } from '../ui/ConfirmDialog/ConfirmDialog';
+import { UserActionMenu, type UserActionMenuExtraAction } from '../user/UserActionMenu';
+import type { GroupDto, GroupMemberDto, GroupRole } from '../../types/group';
 import styles from './GroupSettingsModal.module.css';
 
 interface GroupSettingsModalProps {
@@ -15,6 +26,14 @@ interface GroupSettingsModalProps {
   onLeaveSuccess?: () => void;
   onGroupUpdated?: (group: GroupDto) => void;
 }
+
+type GroupSettingsConfirmAction =
+  | { type: 'kick'; userId: string; displayName: string }
+  | { type: 'leave-group' }
+  | { type: 'delete-group' }
+  | { type: 'promote-admin'; userId: string; displayName: string }
+  | { type: 'demote-member'; userId: string; displayName: string }
+  | { type: 'transfer-owner'; userId: string; displayName: string };
 
 /**
  * Modal cấu hình và quản trị Server.
@@ -36,10 +55,17 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [copied, setCopied] = useState(false);
+  const inviteUrl = `https://localhost:5173/join/${group.inviteCode}`;
   const [editName, setEditName] = useState(group.name);
   const [editDescription, setEditDescription] = useState(group.description || '');
   const [editIconUrl, setEditIconUrl] = useState(group.iconUrl || '');
+  const [selectedIconFile, setSelectedIconFile] = useState<File | null>(null);
+  const [localIconPreviewUrl, setLocalIconPreviewUrl] = useState<string | null>(null);
+  const [hasIconPreviewError, setHasIconPreviewError] = useState(false);
+  const [overviewNameError, setOverviewNameError] = useState<string | null>(null);
   const [isSavingOverview, setIsSavingOverview] = useState(false);
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<GroupSettingsConfirmAction | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const friends = useUserRelationshipsStore(state => state.friends);
   const blockedUsers = useUserRelationshipsStore(state => state.blockedUsers);
   const presenceByUserId = useUserRelationshipsStore(state => state.presenceByUserId);
@@ -74,7 +100,26 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     setEditName(group.name);
     setEditDescription(group.description || '');
     setEditIconUrl(group.iconUrl || '');
+    setSelectedIconFile(null);
+    setLocalIconPreviewUrl(null);
+    setHasIconPreviewError(false);
+    setOverviewNameError(null);
   }, [group.id, group.name, group.description, group.iconUrl]);
+
+  useEffect(() => {
+    if (!selectedIconFile) {
+      setLocalIconPreviewUrl(null);
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(selectedIconFile);
+    setLocalIconPreviewUrl(previewUrl);
+    setHasIconPreviewError(false);
+
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [selectedIconFile]);
+
+  const iconPreviewUrl = localIconPreviewUrl ?? editIconUrl;
 
   /** Xác định vai trò của người dùng hiện tại trong Server */
   const currentUserRole = useMemo(() => {
@@ -92,89 +137,151 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
     const normalizedName = editName.trim();
     if (!normalizedName) {
-      alert('Ten Server khong duoc bo trong.');
+      setOverviewNameError('Tên Server không được bỏ trống.');
       return;
     }
 
+    setOverviewNameError(null);
     setIsSavingOverview(true);
     try {
+      let nextIconUrl = editIconUrl;
+      if (selectedIconFile) {
+        const iconGroup = await uploadGroupIcon(group.id, selectedIconFile);
+        nextIconUrl = iconGroup.iconUrl || '';
+        setEditIconUrl(nextIconUrl);
+        setSelectedIconFile(null);
+      }
+
       const updatedGroup = await updateGroup(group.id, {
         name: normalizedName,
         description: editDescription,
-        iconUrl: editIconUrl,
+        iconUrl: nextIconUrl,
       });
       onGroupUpdated?.(updatedGroup);
-      alert('Da cap nhat thong tin Server.');
+      toast.success('Đã cập nhật thông tin Server.');
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Khong the cap nhat thong tin Server.';
-      alert(errorMsg);
+      const errorMsg = error.response?.data?.detail || 'Không thể cập nhật thông tin Server.';
+      toast.error(errorMsg);
       console.error('Update group failed:', error);
     } finally {
       setIsSavingOverview(false);
     }
   };
 
+  const handleIconFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setSelectedIconFile(file);
+    event.target.value = '';
+  };
+
   /** Xử lý copy mã mời vào clipboard */
   const handleCopyInvite = () => {
-    navigator.clipboard.writeText(group.inviteCode);
+    navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     // Reset trạng thái nút sau 2 giây
     setTimeout(() => setCopied(false), 2000);
   };
 
   /** [Luồng 14.5]: Trục xuất thành viên */
-  const handleKick = async (targetUserId: string, targetName: string) => {
+  const handleKick = (targetUserId: string, targetName: string) => {
     if (!isAuthenticated) return;
-    if (!window.confirm(`Bạn có chắc chắn muốn trục xuất "${targetName}" khỏi Server không?`)) return;
-
-    try {
-      await kickMember(group.id, targetUserId);
-      // Tải lại danh sách sau khi kick thành công
-      await fetchMembers();
-    } catch (error) {
-      alert('Không thể trục xuất thành viên. Vui lòng thử lại sau.');
-      console.error('Kick failed:', error);
-    }
+    setPendingConfirmAction({
+      type: 'kick',
+      userId: targetUserId,
+      displayName: targetName || 'thành viên này',
+    });
   };
 
   /** [Luồng 14.6]: Rời khỏi Server */
-  const handleLeaveGroup = async () => {
+  const handleLeaveGroup = () => {
     if (!isAuthenticated) return;
 
     // Ràng buộc Owner không được rời nhóm (phải transfer hoặc delete)
     if (currentUserRole === 'Owner') {
-      alert('Chủ sở hữu không thể rời Server. Vui lòng chuyển nhượng quyền sở hữu hoặc giải tán Server.');
+      toast.error('Chủ sở hữu không thể rời Server. Vui lòng chuyển nhượng quyền sở hữu hoặc giải tán Server.');
       return;
     }
 
-    if (!window.confirm(`Bạn có chắc chắn muốn rời khỏi Server "${group.name}"?`)) return;
-
-    try {
-      await leaveGroup(group.id);
-      onClose();
-      if (onLeaveSuccess) onLeaveSuccess();
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Không thể rời khỏi Server. Vui lòng thử lại sau.';
-      alert(errorMsg);
-      console.error('Leave failed:', error);
-    }
+    setPendingConfirmAction({ type: 'leave-group' });
   };
 
   /** [Luồng 14.7]: Giải tán Server */
-  const handleDeleteGroup = async () => {
+  const handleDeleteGroup = () => {
     if (!isAuthenticated) return;
+    setPendingConfirmAction({ type: 'delete-group' });
+  };
 
-    if (!window.confirm(`CẢNH BÁO: Bạn có chắc chắn muốn GIẢI TÁN Server "${group.name}" không? Hành động này không thể hoàn tác.`)) return;
-    if (!window.confirm(`XÁC NHẬN CUỐI CÙNG: Toàn bộ dữ liệu Server sẽ bị xóa mềm. Bạn vẫn muốn tiếp tục?`)) return;
+  const handleConfirmGroupSettingsAction = async () => {
+    if (!pendingConfirmAction || !isAuthenticated || isConfirmingAction) return;
 
+    setIsConfirmingAction(true);
     try {
-      await deleteGroup(group.id);
-      onClose();
-      if (onLeaveSuccess) onLeaveSuccess();
+      switch (pendingConfirmAction.type) {
+        case 'kick':
+          await kickMember(group.id, pendingConfirmAction.userId);
+          await fetchMembers();
+          toast.success(`Đã trục xuất ${pendingConfirmAction.displayName}.`);
+          break;
+
+        case 'leave-group':
+          await leaveGroup(group.id);
+          toast.success('Đã rời khỏi Server.');
+          onClose();
+          onLeaveSuccess?.();
+          break;
+
+        case 'delete-group':
+          await deleteGroup(group.id);
+          toast.success('Đã giải tán Server.');
+          onClose();
+          onLeaveSuccess?.();
+          break;
+
+        case 'promote-admin':
+          await updateGroupMemberRole(group.id, pendingConfirmAction.userId, 'Admin');
+          updateMemberRoleInState(pendingConfirmAction.userId, 'Admin');
+          toast.success('Đã bổ nhiệm Admin.');
+          break;
+
+        case 'demote-member':
+          await updateGroupMemberRole(group.id, pendingConfirmAction.userId, 'Member');
+          updateMemberRoleInState(pendingConfirmAction.userId, 'Member');
+          toast.success('Đã hạ xuống Member.');
+          break;
+
+        case 'transfer-owner':
+          await transferGroupOwnership(group.id, pendingConfirmAction.userId);
+          setMembers(currentMembers => currentMembers.map(currentMember => {
+            if (currentMember.profile.id === pendingConfirmAction.userId) {
+              return { ...currentMember, role: 'Owner' };
+            }
+
+            if (currentMember.profile.id === user?.userId) {
+              return { ...currentMember, role: 'Admin' };
+            }
+
+            return currentMember;
+          }));
+          onGroupUpdated?.({ ...group, ownerId: pendingConfirmAction.userId });
+          toast.success('Đã trao quyền Owner.');
+          break;
+      }
+
+      setPendingConfirmAction(null);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Không thể giải tán Server. Vui lòng thử lại sau.';
-      alert(errorMsg);
-      console.error('Delete failed:', error);
+      const fallbackMessageByType: Record<GroupSettingsConfirmAction['type'], string> = {
+        kick: 'Không thể trục xuất thành viên. Vui lòng thử lại sau.',
+        'leave-group': 'Không thể rời khỏi Server. Vui lòng thử lại sau.',
+        'delete-group': 'Không thể giải tán Server. Vui lòng thử lại sau.',
+        'promote-admin': 'Không thể bổ nhiệm Admin. Vui lòng thử lại sau.',
+        'demote-member': 'Không thể hạ xuống Member. Vui lòng thử lại sau.',
+        'transfer-owner': 'Không thể trao quyền Owner. Vui lòng thử lại sau.',
+      };
+      const errorMsg = error.response?.data?.detail || fallbackMessageByType[pendingConfirmAction.type];
+      toast.error(errorMsg);
+      console.error('Group settings action failed:', error);
+    } finally {
+      setIsConfirmingAction(false);
     }
   };
 
@@ -197,6 +304,75 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     return false;
   };
 
+  const updateMemberRoleInState = (targetUserId: string, nextRole: GroupRole) => {
+    setMembers(currentMembers => currentMembers.map(member => (
+      member.profile.id === targetUserId
+        ? { ...member, role: nextRole }
+        : member
+    )));
+  };
+
+  const getGroupAdminActions = (member: GroupMemberDto): UserActionMenuExtraAction[] => {
+    if (currentUserRole !== 'Owner' || !user || member.profile.id === user.userId) {
+      return [];
+    }
+
+    const displayName = member.profile.displayName || 'thành viên này';
+    const actions: UserActionMenuExtraAction[] = [];
+
+    if (member.role === 'Member') {
+      actions.push({
+        key: `promote-admin:${member.profile.id}`,
+        label: 'Bổ nhiệm Admin',
+        loadingLabel: 'Đang bổ nhiệm...',
+        successMessage: 'Đã bổ nhiệm Admin.',
+        onSelect: () => {
+          setPendingConfirmAction({
+            type: 'promote-admin',
+            userId: member.profile.id,
+            displayName,
+          });
+          return false;
+        },
+      });
+    }
+
+    if (member.role === 'Admin') {
+      actions.push({
+        key: `demote-member:${member.profile.id}`,
+        label: 'Hạ xuống Member',
+        loadingLabel: 'Đang hạ cấp...',
+        successMessage: 'Đã hạ xuống Member.',
+        onSelect: () => {
+          setPendingConfirmAction({
+            type: 'demote-member',
+            userId: member.profile.id,
+            displayName,
+          });
+          return false;
+        },
+      });
+    }
+
+    actions.push({
+      key: `transfer-owner:${member.profile.id}`,
+      label: 'Trao quyền Owner',
+      loadingLabel: 'Đang trao quyền...',
+      successMessage: 'Đã trao quyền Owner.',
+      variant: 'danger',
+      onSelect: () => {
+        setPendingConfirmAction({
+          type: 'transfer-owner',
+          userId: member.profile.id,
+          displayName,
+        });
+        return false;
+      },
+    });
+
+    return actions;
+  };
+
   const canSeeMemberPresence = (targetUserId: string) => {
     if (targetUserId === user?.userId) return false;
     if (!friends.some(friend => friend.user.id === targetUserId)) return false;
@@ -205,10 +381,17 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
   };
 
   const renderPresence = (targetUserId: string) => {
-    if (!canSeeMemberPresence(targetUserId)) return null;
+    const placeholder = (
+      <div className={`${styles.memberPresence} ${styles.memberPresencePlaceholder}`} aria-hidden="true">
+        <span className={styles.offlineDot} />
+        Offline
+      </div>
+    );
+
+    if (!canSeeMemberPresence(targetUserId)) return placeholder;
 
     const presence = presenceByUserId[targetUserId];
-    if (!presence) return null;
+    if (!presence) return placeholder;
 
     return (
       <div className={styles.memberPresence}>
@@ -218,7 +401,79 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     );
   };
 
+  const confirmDialogConfig = (() => {
+    if (!pendingConfirmAction) {
+      return {
+        title: '',
+        message: '',
+        confirmLabel: 'Xác nhận',
+        variant: 'default' as const,
+      };
+    }
+
+    switch (pendingConfirmAction.type) {
+      case 'kick':
+        return {
+          title: 'Trục xuất thành viên',
+          message: `Trục xuất "${pendingConfirmAction.displayName}" khỏi Server?`,
+          confirmLabel: 'Trục xuất',
+          variant: 'danger' as const,
+        };
+
+      case 'leave-group':
+        return {
+          title: 'Rời khỏi Server',
+          message: `Rời khỏi Server "${group.name}"? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong Server này.`,
+          confirmLabel: 'Rời khỏi Server',
+          variant: 'danger' as const,
+        };
+
+      case 'delete-group':
+        return {
+          title: 'Giải tán Server',
+          message: (
+            <>
+              <p>Giải tán Server "{group.name}"?</p>
+              <p>Hành động này không thể hoàn tác.</p>
+            </>
+          ),
+          confirmLabel: 'Giải tán Server',
+          variant: 'danger' as const,
+        };
+
+      case 'promote-admin':
+        return {
+          title: 'Bổ nhiệm Admin',
+          message: `Bổ nhiệm ${pendingConfirmAction.displayName} làm Admin?`,
+          confirmLabel: 'Bổ nhiệm',
+          variant: 'default' as const,
+        };
+
+      case 'demote-member':
+        return {
+          title: 'Hạ xuống Member',
+          message: `Hạ ${pendingConfirmAction.displayName} xuống Member?`,
+          confirmLabel: 'Hạ cấp',
+          variant: 'default' as const,
+        };
+
+      case 'transfer-owner':
+        return {
+          title: 'Trao quyền Owner',
+          message: (
+            <>
+              <p>Trao quyền Owner cho {pendingConfirmAction.displayName}?</p>
+              <p>Bạn sẽ tự động xuống Admin sau khi trao quyền.</p>
+            </>
+          ),
+          confirmLabel: 'Trao quyền',
+          variant: 'danger' as const,
+        };
+    }
+  })();
+
   return (
+    <>
     <div className={styles.overlay} onClick={onClose}>
       {/* Ngăn sự kiện click lan tỏa ra overlay làm đóng modal nhầm */}
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -279,13 +534,27 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
               <h2 className={styles.sectionTitle}>Tổng quan máy chủ</h2>
               
               <div className={styles.groupInfo}>
-                <div className={styles.icon}>
-                  {group.iconUrl ? (
-                    <img src={group.iconUrl} alt={group.name} />
+                <label className={`${styles.icon} ${currentUserRole === 'Owner' ? styles.editableIcon : ''}`}>
+                  {iconPreviewUrl && !hasIconPreviewError ? (
+                    <img
+                      src={iconPreviewUrl}
+                      alt={group.name}
+                      onError={() => setHasIconPreviewError(true)}
+                    />
                   ) : (
                     group.name.substring(0, 2).toUpperCase()
                   )}
-                </div>
+                  {currentUserRole === 'Owner' && (
+                    <>
+                      <span className={styles.iconEditOverlay}>Chỉnh sửa ảnh</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        onChange={handleIconFileChange}
+                      />
+                    </>
+                  )}
+                </label>
                 <div className={styles.groupDetails}>
                   <h3>{group.name}</h3>
                   <p>{group.description || 'Không có mô tả.'}</p>
@@ -295,15 +564,21 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
               {currentUserRole === 'Owner' && (
                 <form className={styles.editForm} onSubmit={handleSaveOverview}>
                   <label className={styles.formField}>
-                    <span>Ten Server</span>
+                    <span>Tên Server</span>
                     <input
                       value={editName}
                       maxLength={100}
-                      onChange={(event) => setEditName(event.target.value)}
+                      onChange={(event) => {
+                        setEditName(event.target.value);
+                        if (overviewNameError) setOverviewNameError(null);
+                      }}
                     />
+                    {overviewNameError && (
+                      <span className={styles.formError}>{overviewNameError}</span>
+                    )}
                   </label>
                   <label className={styles.formField}>
-                    <span>Mo ta</span>
+                    <span>Mô tả</span>
                     <textarea
                       value={editDescription}
                       maxLength={255}
@@ -311,20 +586,12 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                       onChange={(event) => setEditDescription(event.target.value)}
                     />
                   </label>
-                  <label className={styles.formField}>
-                    <span>Icon URL</span>
-                    <input
-                      value={editIconUrl}
-                      maxLength={2048}
-                      onChange={(event) => setEditIconUrl(event.target.value)}
-                    />
-                  </label>
                   <button
                     type="submit"
                     className={styles.saveBtn}
                     disabled={isSavingOverview}
                   >
-                    {isSavingOverview ? 'Dang luu...' : 'Luu thay doi'}
+                    {isSavingOverview ? 'Đang lưu...' : 'Lưu thay đổi'}
                   </button>
                 </form>
               )}
@@ -344,7 +611,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                     Chia sẻ mã mời này với người khác để họ có thể tham gia vào Server của bạn.
                   </p>
                   <div className={styles.inviteBox}>
-                    <div className={styles.inviteCode}>{group.inviteCode}</div>
+                    <div className={styles.inviteCode}>{inviteUrl}</div>
                     <button className={styles.copyBtn} onClick={handleCopyInvite}>
                       {copied ? 'Đã chép!' : 'Sao chép'}
                     </button>
@@ -383,13 +650,16 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                       </div>
 
                       {/* Nút Kick - Chỉ hiện nếu có quyền */}
+                      <div className={styles.memberActions}>
                       {user?.userId !== member.profile.id && (
                         <UserActionMenu
                           target={member.profile}
-                          blockWarningMessage="You may still share group spaces with this user. Group messages are not hidden in this phase."
+                          blockWarningMessage="Bạn vẫn có thể dùng chung không gian nhóm với người này. Tin nhắn nhóm chưa được ẩn trong giai đoạn này."
+                          extraActions={getGroupAdminActions(member)}
                         />
                       )}
 
+                      <div className={styles.memberKickSlot}>
                       {canKickUser(member) && (
                         <button 
                           className={styles.kickBtn}
@@ -404,6 +674,8 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                           </svg>
                         </button>
                       )}
+                      </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -413,5 +685,20 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={Boolean(pendingConfirmAction)}
+      title={confirmDialogConfig.title}
+      message={confirmDialogConfig.message}
+      confirmLabel={confirmDialogConfig.confirmLabel}
+      cancelLabel="Hủy"
+      variant={confirmDialogConfig.variant}
+      loading={isConfirmingAction}
+      onCancel={() => {
+        if (isConfirmingAction) return;
+        setPendingConfirmAction(null);
+      }}
+      onConfirm={handleConfirmGroupSettingsAction}
+    />
+    </>
   );
 };

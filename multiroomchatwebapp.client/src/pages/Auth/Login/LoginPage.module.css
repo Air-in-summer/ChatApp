@@ -28,7 +28,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   margin: var(--spacing-md) 0;
-  color: var(--text-muted);
+  color: var(--color-text-subtle);
   font-size: 0.75rem;
   text-transform: uppercase;
 }
@@ -38,7 +38,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--glass-border);
+  background: var(--color-border);
 }
 
 .googleButton {
@@ -50,7 +50,7 @@
   min-height: 48px;
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: var(--border-radius-md);
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.94);
   color: #111827;
   font-weight: 600;
@@ -86,12 +86,12 @@
   margin-top: var(--spacing-xl);
   text-align: center;
   font-size: 0.875rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
 }
 
 .footerLink a {
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--color-text);
   margin-left: 4px;
 }
 

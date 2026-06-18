@@ -1,18 +1,20 @@
 .chatColumn {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.7);
+  background: var(--color-bg);
 }
 
 .header {
+  min-height: 64px;
   display: flex;
   align-items: center;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--glass-bg);
-  border-bottom: 1px solid var(--glass-border);
-  backdrop-filter: var(--glass-blur);
+  padding: 0 var(--spacing-xl);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  backdrop-filter: none;
   z-index: 10;
   gap: var(--spacing-sm);
 }
@@ -21,8 +23,8 @@
   flex: 0 0 60%;
   min-height: 0;
   overflow: hidden;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(2, 6, 23, 0.72);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
 }
 
 .inlineCallPanel {
@@ -35,17 +37,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
 }
 
 .addMemberBtn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   margin-left: 0;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
   cursor: pointer;
-  padding: 8px;
-  border-radius: 6px;
+  padding: 0;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,33 +59,33 @@
 }
 
 .addMemberBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  color: var(--color-text);
   opacity: 1;
 }
 
 .pinnedMessagesButton {
   min-width: 36px;
   height: 36px;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 0 9px;
   border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .pinnedMessagesButton:hover,
 .pinnedMessagesButtonActive {
-  border-color: var(--glass-border);
-  background: rgba(255, 255, 255, 0.09);
-  color: var(--text-primary);
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .pinnedMessagesButton span {
@@ -93,8 +98,8 @@
   max-height: min(42vh, 420px);
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(15, 23, 42, 0.96);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
   overflow: hidden;
   z-index: 9;
 }
@@ -106,7 +111,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .pinnedPanelHeader > div {
@@ -117,12 +122,12 @@
 }
 
 .pinnedPanelHeader strong {
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.9rem;
 }
 
 .pinnedPanelHeader span {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.72rem;
 }
 
@@ -138,15 +143,15 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .pinnedPanelCloseButton:hover,
 .pinnedMessageUnpinButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .pinnedPanelState,
@@ -157,13 +162,13 @@
   justify-content: center;
   gap: 10px;
   padding: 16px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.84rem;
   text-align: center;
 }
 
 .pinnedPanelError {
-  color: #fca5a5;
+  color: var(--color-danger);
 }
 
 .pinnedPanelError button {
@@ -172,7 +177,7 @@
   border: 1px solid rgba(248, 113, 113, 0.45);
   border-radius: 6px;
   background: rgba(239, 68, 68, 0.12);
-  color: #fecaca;
+  color: var(--color-danger);
   cursor: pointer;
 }
 
@@ -188,9 +193,9 @@
   position: relative;
   min-width: 0;
   padding: 10px 44px 10px 12px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-surface-muted);
 }
 
 .pinnedMessageMeta {
@@ -203,7 +208,7 @@
 .pinnedMessageMeta strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -211,13 +216,13 @@
 
 .pinnedMessageMeta span {
   flex: 0 0 auto;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.68rem;
 }
 
 .pinnedMessageItem p {
   margin: 5px 0 0;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.82rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -235,46 +240,88 @@
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.1rem;
   font-weight: 600;
-  color: white;
+  color: var(--color-text-inverse);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .userInfo {
+  min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
-.userInfo h2 {
+.headerTitle {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.privateBadge {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.privateBadge svg {
+  display: block;
 }
 
 .badge {
   font-size: 0.75rem;
-  color: var(--accent-primary);
+  color: var(--color-primary);
   opacity: 0.9;
   letter-spacing: 0.02em;
 }
 
+.headerActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-left: auto;
+}
+
 .messageList {
   flex: 1;
-  padding: var(--spacing-lg);
+  padding: 28px 32px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: 14px;
 }
 
 .messageList::-webkit-scrollbar {
@@ -282,7 +329,7 @@
 }
 
 .messageList::-webkit-scrollbar-thumb {
-  background: var(--glass-border);
+  background: var(--color-border);
   border-radius: 8px;
 }
 
@@ -291,7 +338,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.95rem;
   opacity: 0.6;
   text-align: center;
@@ -312,19 +359,20 @@
 
 .bubble {
   padding: 10px 14px;
-  border-radius: var(--border-radius-lg);
+  border-radius: var(--radius-lg);
   font-size: 0.95rem;
-  line-height: 1.4;
+  line-height: 1.45;
+  white-space: pre-wrap;
   word-wrap: break-word;
   word-break: break-word;
 }
 
-/* Container bọc bubble + status row + read receipt */
+/* Container b?c bubble + status row + read receipt */
 .messageColumn {
   position: relative;
   display: flex;
   flex-direction: column;
-  max-width: 70%;
+  max-width: min(68%, 760px);
 }
 
 .mine .messageColumn {
@@ -340,7 +388,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.78rem;
 }
 
@@ -353,7 +401,7 @@
 
 .messageActions {
   position: absolute;
-  top: 0;
+  top: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -363,11 +411,11 @@
 }
 
 .mine .messageActions {
-  right: calc(100% + 6px);
+  right: calc(100% + 8px);
 }
 
 .theirs .messageActions {
-  left: calc(100% + 6px);
+  left: calc(100% + 8px);
 }
 
 .messageWrapper:hover .messageActions,
@@ -382,17 +430,18 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: none;
-  border-radius: var(--border-radius-sm);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .messageActionButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  color: var(--color-text);
 }
 
 .messageActionButton:disabled {
@@ -402,16 +451,16 @@
 
 .deleteMessageAction:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.16);
-  color: #f87171;
+  color: var(--color-danger);
 }
 
 .pinMessageActionActive {
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .pinMessageActionActive:hover:not(:disabled) {
   background: rgba(251, 191, 36, 0.14);
-  color: #fcd34d;
+  color: var(--color-warning);
 }
 
 @media (hover: none) {
@@ -421,8 +470,8 @@
 }
 
 .mine .bubble {
-  background: var(--accent-primary);
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
   border-bottom-right-radius: 4px;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
@@ -433,18 +482,19 @@
 }
 
 .theirs .bubble {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: var(--color-surface);
+  color: var(--color-text);
   border-bottom-left-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Dòng trạng thái tin nhắn dưới bubble */
+/* Dòng tr?ng thái tin nh?n du?i bubble */
 .mine .deletedBubble,
 .theirs .deletedBubble {
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   box-shadow: none;
   font-style: italic;
 }
@@ -461,10 +511,10 @@
   min-height: 78px;
   resize: vertical;
   padding: 10px 12px;
-  border: 1px solid var(--accent-primary);
-  border-radius: var(--border-radius-md);
-  background: rgba(15, 23, 42, 0.88);
-  color: var(--text-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
   font: inherit;
   line-height: 1.4;
   outline: none;
@@ -479,17 +529,17 @@
 .inlineEditActions button {
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-sm);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
   cursor: pointer;
 }
 
 .inlineEditActions button[type='submit'] {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-  color: white;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
 }
 
 .inlineEditActions button:disabled {
@@ -499,7 +549,7 @@
 
 .editedLabel {
   margin-top: 3px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.7rem;
   font-style: italic;
 }
@@ -509,7 +559,7 @@
   align-items: center;
   gap: 4px;
   margin-top: 3px;
-  color: #fbbf24;
+  color: var(--color-warning);
   font-size: 0.7rem;
 }
 
@@ -519,10 +569,10 @@
   gap: 2px;
   margin-top: 6px;
   padding: 4px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
 }
 
 .messageReactionPickerButton {
@@ -541,7 +591,7 @@
 }
 
 .messageReactionPickerButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-surface-hover);
 }
 
 .messageReactionPickerButton:disabled {
@@ -572,25 +622,25 @@
   justify-content: center;
   gap: 5px;
   padding: 0 8px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
   font-size: 0.78rem;
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .messageReactionChip:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  border-color: rgba(199, 210, 227, 0.8);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .messageReactionChipActive {
-  border-color: var(--accent-primary);
+  border-color: var(--color-primary);
   background: rgba(59, 130, 246, 0.16);
-  color: #bfdbfe;
+  color: var(--color-primary);
 }
 
 .messageReactionChip:disabled {
@@ -611,9 +661,9 @@
   width: 100%;
   max-width: 360px;
   padding: 0;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--color-surface-muted);
   overflow: hidden;
   cursor: pointer;
 }
@@ -623,15 +673,15 @@
   width: 100%;
   max-height: 320px;
   object-fit: contain;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--color-surface-hover);
 }
 
 .mediaAttachment {
   width: min(360px, 100%);
   padding: 10px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-hover);
 }
 
 .audioAttachment {
@@ -652,10 +702,10 @@
   gap: 10px;
   width: min(320px, 100%);
   padding: 10px 12px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
   text-decoration: none;
 }
 
@@ -667,7 +717,7 @@
   justify-content: center;
   border-radius: 6px;
   background: rgba(59, 130, 246, 0.18);
-  color: var(--accent-primary);
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 
@@ -679,7 +729,7 @@
 }
 
 .attachmentName {
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -687,7 +737,7 @@
 }
 
 .attachmentMeta {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.74rem;
 }
 
@@ -696,14 +746,14 @@
   width: min(280px, 100%);
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
   font-size: 0.82rem;
 }
 
 .attachmentUnavailable {
-  color: #fca5a5;
+  color: var(--color-danger);
   border-color: rgba(239, 68, 68, 0.35);
 }
 
@@ -716,23 +766,23 @@
 }
 
 .statusSending {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   opacity: 0.7;
   font-style: italic;
 }
 
 .statusSent {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   opacity: 0.8;
 }
 
 .statusRead {
-  color: #60a5fa;
+  color: var(--color-primary);
   font-weight: 500;
 }
 
 .statusFailed {
-  color: #f87171;
+  color: var(--color-danger);
   font-weight: 500;
 }
 
@@ -740,14 +790,14 @@
   border: 0;
   padding: 0;
   background: transparent;
-  color: #93c5fd;
+  color: var(--color-primary);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .retryButton:hover:not(:disabled) {
-  color: #bfdbfe;
+  color: var(--color-primary);
   text-decoration: underline;
 }
 
@@ -756,7 +806,7 @@
   opacity: 0.6;
 }
 
-/* Hàng avatar nhỏ "Đã đọc" */
+/* Hàng avatar nh? "Ðã d?c" */
 .readReceiptRow {
   display: flex;
   gap: 2px;
@@ -777,21 +827,21 @@
 .composer {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: var(--spacing-md);
-  background: var(--glass-bg);
-  border-top: 1px solid var(--glass-border);
-  backdrop-filter: var(--glass-blur);
+  gap: 12px;
+  padding: 14px 32px 18px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  backdrop-filter: none;
 }
 
 .emojiPicker {
   max-height: 220px;
   overflow-y: auto;
   padding: 10px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
 }
 
 .emojiGroup + .emojiGroup {
@@ -800,7 +850,7 @@
 
 .emojiGroupLabel {
   margin-bottom: 6px;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -829,12 +879,13 @@
 
 .emojiOption:hover,
 .emojiOption:focus-visible {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-surface-hover);
   outline: none;
 }
 
 .inputArea {
   display: flex;
+  align-items: flex-end;
   gap: var(--spacing-sm);
   padding: 0;
   background: transparent;
@@ -848,15 +899,15 @@
 
 .attachButton,
 .emojiButton {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
-  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
   cursor: pointer;
   transition: var(--transition-fast);
   flex-shrink: 0;
@@ -864,8 +915,8 @@
 
 .attachButton:hover:not(:disabled),
 .emojiButton:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--accent-primary);
+  color: var(--color-text);
+  border-color: var(--color-primary);
   background: rgba(59, 130, 246, 0.16);
 }
 
@@ -889,8 +940,8 @@
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-hover);
 }
 
 .pendingAttachmentPreview {
@@ -898,8 +949,8 @@
   height: 44px;
   border-radius: 6px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--text-secondary);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -920,7 +971,7 @@
 }
 
 .pendingAttachmentName {
-  color: var(--text-primary);
+  color: var(--color-text);
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -928,7 +979,7 @@
 }
 
 .pendingAttachmentMeta {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.72rem;
 }
 
@@ -937,8 +988,8 @@
   height: 28px;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
   cursor: pointer;
   font-size: 1.1rem;
   line-height: 1;
@@ -946,7 +997,7 @@
 
 .pendingRemoveButton:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.22);
-  color: #fecaca;
+  color: var(--color-danger);
 }
 
 .pendingRemoveButton:disabled {
@@ -956,13 +1007,13 @@
 
 .textField {
   flex: 1;
-  min-height: 46px;
+  min-height: 42px;
   max-height: 128px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border);
-  border-radius: 20px;
-  padding: 12px 18px;
-  color: var(--text-primary);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--color-text);
   font-size: 0.95rem;
   line-height: 1.35;
   outline: none;
@@ -973,8 +1024,8 @@
 }
 
 .textField:focus {
-  border-color: var(--accent-primary);
-  background: rgba(0, 0, 0, 0.3);
+  border-color: var(--color-primary);
+  background: var(--color-surface);
 }
 
 .textField:disabled {
@@ -983,21 +1034,22 @@
 }
 
 .sendButton {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  color: white;
+  flex: 0 0 42px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
   border: none;
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .sendButton:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -1013,7 +1065,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   text-align: center;
   padding: var(--spacing-xl);
 }
@@ -1025,7 +1077,7 @@
 .emptyState h3 {
   font-size: 1.1rem;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
 }
 
 .emptyState p {
@@ -1035,7 +1087,7 @@
 }
 
 .statusSpan {
-  /* Giữ lại class này để không bị lỗi, nhưng hiện tại không dùng */
+  /* Gi? l?i class này d? không b? l?i, nhung hi?n t?i không dùng */
   font-size: 0.8em;
   opacity: 0.7;
   margin-left: 4px;
@@ -1047,8 +1099,8 @@
   align-items: center;
   gap: 4px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: var(--border-radius-lg);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-lg);
   border-bottom-left-radius: 4px;
   width: fit-content;
   margin-top: 4px;
@@ -1058,7 +1110,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--text-secondary);
+  background: var(--color-text-muted);
   animation: typing 1.4s infinite ease-in-out both;
 }
 
@@ -1073,7 +1125,7 @@
 .loadingWrapper {
   text-align: center;
   padding: var(--spacing-sm) 0;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   font-size: 0.85rem;
   opacity: 0.8;
   animation: pulse 1.5s infinite;
@@ -1105,7 +1157,7 @@
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 12px;
-  color: #ef4444;
+  color: var(--color-danger);
   font-size: 0.75rem;
   font-weight: 600;
   margin: 0 10px;
