@@ -192,7 +192,8 @@
   transition: var(--transition-fast);
 }
 
-.roomItem:hover {
+.roomItem:hover,
+.roomItem:focus-within {
   background: var(--color-surface-hover);
 }
 
@@ -214,7 +215,7 @@
 
 .roomItem:hover .roomActions,
 .roomItem.active .roomActions,
-.roomItem:focus-visible .roomActions {
+.roomItem:focus-within .roomActions {
   opacity: 1;
 }
 
@@ -517,6 +518,9 @@
 
 .groupColumn .roomItem {
   min-height: 42px;
+  gap: 0;
+  padding: 0;
+  cursor: default;
 }
 
 .groupColumn .avatar,
@@ -541,4 +545,25 @@
   min-width: 16px;
   height: 16px;
   font-size: 0.6rem;
+}
+.roomSelectButton {
+  min-width: 0;
+  min-height: inherit;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-sm);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.roomSelectButton:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-primary);
 }

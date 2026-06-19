@@ -72,6 +72,11 @@
   color: var(--color-primary);
 }
 
+.tabItem:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .flexGrow {
   flex: 1;
 }

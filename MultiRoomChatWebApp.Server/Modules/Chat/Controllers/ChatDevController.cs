@@ -1,3 +1,4 @@
+#if DEBUG
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -74,3 +75,4 @@ public class SendMessageRequestDto
     public Guid ClientMessageId { get; set; }
     public List<Guid> MediaIds { get; set; } = [];
 }
+#endif

@@ -27,41 +27,6 @@
   box-shadow: var(--focus-ring);
 }
 
-.iconButton[data-tooltip]:hover:not(:disabled)::after,
-.iconButton[data-tooltip]:focus-visible:not(:disabled)::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 50;
-  max-width: 220px;
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--color-text);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-md);
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.25;
-  text-align: center;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.iconButton[data-tooltip]:hover:not(:disabled)::before,
-.iconButton[data-tooltip]:focus-visible:not(:disabled)::before {
-  content: '';
-  position: absolute;
-  right: 11px;
-  bottom: calc(100% + 3px);
-  z-index: 51;
-  width: 9px;
-  height: 9px;
-  background: var(--color-text);
-  transform: rotate(45deg);
-  pointer-events: none;
-}
-
 .sm {
   width: 32px;
   height: 32px;

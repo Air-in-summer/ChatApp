@@ -45,21 +45,41 @@ export const ActionMenu = ({
 }: ActionMenuProps) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
   const visibleItems = items.filter((item) => !item.hidden);
+
+  const closeMenu = (restoreFocus = false) => {
+    setOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => triggerRef.current?.focus());
+    }
+  };
+
+  const focusItem = (index: number) => {
+    const enabledItems = itemRefs.current.filter(
+      (item): item is HTMLButtonElement => Boolean(item && !item.disabled),
+    );
+    if (enabledItems.length === 0) return;
+
+    const normalizedIndex = (index + enabledItems.length) % enabledItems.length;
+    enabledItems[normalizedIndex].focus();
+  };
 
   useEffect(() => {
     if (!open) return undefined;
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+        closeMenu();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpen(false);
+        event.preventDefault();
+        closeMenu(true);
       }
     };
 
@@ -71,20 +91,61 @@ export const ActionMenu = ({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current = itemRefs.current.slice(0, visibleItems.length);
+  }, [open, visibleItems.length]);
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const enabledItems = itemRefs.current.filter(
+      (item): item is HTMLButtonElement => Boolean(item && !item.disabled),
+    );
+    if (enabledItems.length === 0) return;
+
+    const currentIndex = enabledItems.findIndex(item => item === document.activeElement);
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        focusItem(currentIndex + 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        focusItem(currentIndex <= 0 ? enabledItems.length - 1 : currentIndex - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        focusItem(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        focusItem(enabledItems.length - 1);
+        break;
+    }
+  };
+
   return (
     <div ref={rootRef} className={`${styles.root} ${className}`}>
       <IconButton
+        ref={triggerRef}
         aria-label={triggerLabel}
         icon={triggerIcon ?? <DotsIcon />}
         variant="subtle"
         size="sm"
         active={open}
         disabled={disabled || visibleItems.length === 0}
-        tooltip={triggerLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          setOpen(true);
+          window.requestAnimationFrame(() => {
+            focusItem(event.key === 'ArrowUp' ? -1 : 0);
+          });
+        }}
       />
 
       {open && (
@@ -92,12 +153,17 @@ export const ActionMenu = ({
           id={menuId}
           className={`${styles.menu} ${align === 'start' ? styles.alignStart : styles.alignEnd} ${menuClassName}`}
           role="menu"
+          aria-label={triggerLabel}
+          onKeyDown={handleMenuKeyDown}
         >
-          {visibleItems.map((item) => {
+          {visibleItems.map((item, index) => {
             const isDisabled = Boolean(item.disabled || item.loading);
 
             return (
               <button
+                ref={(element) => {
+                  itemRefs.current[index] = element;
+                }}
                 key={item.id}
                 type="button"
                 className={`${styles.item} ${item.variant === 'danger' ? styles.dangerItem : ''}`}
@@ -107,7 +173,7 @@ export const ActionMenu = ({
                 onClick={() => {
                   if (isDisabled) return;
                   void item.onSelect();
-                  setOpen(false);
+                  closeMenu(true);
                 }}
               >
                 {item.loading ? (

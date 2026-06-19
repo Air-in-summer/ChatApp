@@ -94,13 +94,21 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
 
         <form className={styles.form} onSubmit={handleSubmit}>
           {/* Loại Kênh - Radio Group */}
-          <div className={styles.formGroup}>
-            <label className={styles.label}>Loại Kênh</label>
+          <fieldset className={`${styles.formGroup} ${styles.fieldset}`}>
+            <legend className={styles.label}>Loại Kênh</legend>
             <div className={styles.radioGroup}>
-              <div 
+              <label
                 className={`${styles.radioItem} ${type === 'Text' ? styles.selected : ''}`}
-                onClick={() => setType('Text')}
               >
+                <input
+                  className={styles.visuallyHidden}
+                  type="radio"
+                  name="channel-type"
+                  value="Text"
+                  checked={type === 'Text'}
+                  onChange={() => setType('Text')}
+                  disabled={isSubmitting}
+                />
                 <div className={styles.radioIcon}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -113,12 +121,20 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                 <div className={styles.radioCheck}>
                   {type === 'Text' && <div style={{ width: 8, height: 8, background: 'white', borderRadius: '50%' }} />}
                 </div>
-              </div>
+              </label>
 
-              <div 
+              <label
                 className={`${styles.radioItem} ${type === 'Voice' ? styles.selected : ''}`}
-                onClick={() => setType('Voice')}
               >
+                <input
+                  className={styles.visuallyHidden}
+                  type="radio"
+                  name="channel-type"
+                  value="Voice"
+                  checked={type === 'Voice'}
+                  onChange={() => setType('Voice')}
+                  disabled={isSubmitting}
+                />
                 <div className={styles.radioIcon}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
@@ -134,9 +150,9 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                 <div className={styles.radioCheck}>
                   {type === 'Voice' && <div style={{ width: 8, height: 8, background: 'white', borderRadius: '50%' }} />}
                 </div>
-              </div>
+              </label>
             </div>
-          </div>
+          </fieldset>
 
           {/* Tên Kênh */}
           <div className={styles.formGroup}>
@@ -172,12 +188,17 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                 <span className={styles.radioDesc}>Chỉ những người được mời mới thấy kênh này.</span>
               </div>
             </div>
-            <div 
+            <button
+              type="button"
               className={`${styles.toggleSwitch} ${isPrivate ? styles.active : ''}`}
               onClick={() => setIsPrivate(!isPrivate)}
+              role="switch"
+              aria-checked={isPrivate}
+              aria-label="Kênh riêng tư"
+              disabled={isSubmitting}
             >
               <div className={styles.toggleHandle} />
-            </div>
+            </button>
           </div>
 
           {error && (

@@ -337,7 +337,6 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
               <div className={styles.content}>
                 <section className={styles.contentSection}>
                   <div className={styles.sectionHeading}>
-                    <span className={styles.sectionEyebrow}>Hồ sơ</span>
                     <h2>Thông tin cá nhân</h2>
                   </div>
 
@@ -429,8 +428,7 @@ export const UserProfileModal = ({ onClose }: UserProfileModalProps) => {
 
                 <section className={`${styles.contentSection} ${styles.securitySection}`}>
                   <div className={styles.sectionHeading}>
-                    <span className={styles.sectionEyebrow}>Bảo mật</span>
-                    <h2>Mật khẩu & bảo mật</h2>
+                    <h2>Mật khẩu & Bảo mật</h2>
                   </div>
 
                   <div className={styles.securityRow}>

@@ -65,6 +65,7 @@ const SectionState = ({ children }: { children: string }) => (
 export const FriendsPanel = () => {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<FriendsTab>('friends');
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -310,14 +311,36 @@ export const FriendsPanel = () => {
 
       <div className={styles.content}>
         <div className={styles.tabRow} role="tablist" aria-label="Các mục bạn bè">
-          {tabs.map(tab => (
+          {tabs.map((tab, index) => (
             <button
+              ref={(element) => {
+                tabRefs.current[index] = element;
+              }}
               key={tab.id}
+              id={`friends-tab-${tab.id}`}
               className={`${styles.tabButton} ${activeTab === tab.id ? styles.activeTab : ''}`}
               type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
+              aria-controls={`friends-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+
+                const currentIndex = tabs.findIndex(currentTab => currentTab.id === activeTab);
+                const nextIndex = event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : event.key === 'ArrowRight'
+                      ? (currentIndex + 1) % tabs.length
+                      : (currentIndex - 1 + tabs.length) % tabs.length;
+
+                setActiveTab(tabs[nextIndex].id);
+                window.requestAnimationFrame(() => tabRefs.current[nextIndex]?.focus());
+              }}
             >
               <span>{tab.label}</span>
               <span className={styles.countBadge}>{counts[tab.id]}</span>
@@ -325,7 +348,13 @@ export const FriendsPanel = () => {
           ))}
         </div>
 
-        <div className={styles.panelBody} role="tabpanel">
+        <div
+          id={`friends-panel-${activeTab}`}
+          className={styles.panelBody}
+          role="tabpanel"
+          aria-labelledby={`friends-tab-${activeTab}`}
+          tabIndex={0}
+        >
           {activeTab === 'friends' && renderFriends()}
           {activeTab === 'pending' && renderPending()}
           {activeTab === 'incoming' && renderIncoming()}

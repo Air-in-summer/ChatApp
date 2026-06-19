@@ -1,4 +1,10 @@
-import { useEffect, useId, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { IconButton } from '../IconButton/IconButton';
 import styles from './Modal.module.css';
 
@@ -16,8 +22,25 @@ export interface ModalProps {
   closeOnOverlayClick?: boolean;
   closeOnEscape?: boolean;
   closeDisabled?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
 }
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+const openModalStack: string[] = [];
+let bodyScrollLockCount = 0;
+let originalBodyOverflow = '';
+
+const isTopModal = (modalId: string): boolean =>
+  openModalStack[openModalStack.length - 1] === modalId;
 
 const CloseIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -37,34 +60,98 @@ export const Modal = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   closeDisabled = false,
+  initialFocusRef,
   onClose,
 }: ModalProps) => {
+  const modalId = useId();
   const titleId = useId();
   const descriptionId = useId();
-
-  useEffect(() => {
-    if (!open || !closeOnEscape) return undefined;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeOnEscape, onClose, open]);
+  const modalRef = useRef<HTMLElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  const closeDisabledRef = useRef(closeDisabled);
+  onCloseRef.current = onClose;
+  closeOnEscapeRef.current = closeOnEscape;
+  closeDisabledRef.current = closeDisabled;
 
   useEffect(() => {
     if (!open) return undefined;
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    openModalStack.push(modalId);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isTopModal(modalId)) return;
+
+      if (event.key === 'Escape' && closeOnEscapeRef.current && !closeDisabledRef.current) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusableElements = Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
+      ).filter(element => !element.hasAttribute('disabled') && element.tabIndex !== -1);
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        modalRef.current?.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey && (activeElement === firstElement || !modalRef.current?.contains(activeElement))) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    const focusTarget =
+      initialFocusRef?.current
+      ?? modalRef.current?.querySelector<HTMLElement>('[autofocus]')
+      ?? modalRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      ?? modalRef.current;
+    window.requestAnimationFrame(() => focusTarget?.focus());
+
+    if (bodyScrollLockCount === 0) {
+      originalBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    bodyScrollLockCount += 1;
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+
+      const stackIndex = openModalStack.lastIndexOf(modalId);
+      if (stackIndex >= 0) {
+        openModalStack.splice(stackIndex, 1);
+      }
+
+      bodyScrollLockCount = Math.max(0, bodyScrollLockCount - 1);
+      if (bodyScrollLockCount === 0) {
+        document.body.style.overflow = originalBodyOverflow;
+      }
+
+      window.requestAnimationFrame(() => {
+        if (returnFocusRef.current?.isConnected) {
+          returnFocusRef.current.focus();
+        }
+      });
     };
-  }, [open]);
+  }, [initialFocusRef, modalId, open]);
 
   if (!open) return null;
 
@@ -72,17 +159,24 @@ export const Modal = ({
     <div
       className={styles.overlay}
       onMouseDown={(event) => {
-        if (closeOnOverlayClick && event.target === event.currentTarget) {
+        if (
+          isTopModal(modalId)
+          && closeOnOverlayClick
+          && !closeDisabled
+          && event.target === event.currentTarget
+        ) {
           onClose();
         }
       }}
     >
       <section
+        ref={modalRef}
         className={`${styles.modal} ${styles[size]} ${styles[chrome]}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {(title || description) && (
@@ -98,7 +192,6 @@ export const Modal = ({
               icon={<CloseIcon />}
               size="sm"
               variant="ghost"
-              tooltip="Đóng"
               disabled={closeDisabled}
               onClick={onClose}
             />

@@ -144,7 +144,8 @@ export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
           // Hiển thị danh sách dạng lưới
           <div className={styles.grid}>
             {groups.map((group) => (
-              <div 
+              <button
+                type="button"
                 key={group.id} 
                 className={styles.card}
                 onClick={() => onSelectGroup(group)}
@@ -161,7 +162,7 @@ export const GroupListPanel = ({ onSelectGroup }: GroupListPanelProps) => {
                   <h3 className={styles.name}>{group.name}</h3>
                   {group.description && <p className={styles.desc}>{group.description}</p>}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

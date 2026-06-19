@@ -554,53 +554,51 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
               {textRooms.map(room => (
                 <div
                   key={room.id}
-                  role="button"
-                  tabIndex={0}
                   className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
                     ? styles.active
                     : ''
                     }`}
-                  onClick={() => {
-                    void handleSelectRoom(room);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    void handleSelectRoom(room);
-                  }}
                 >
-                  {/* Icon tin nhắn cho kênh văn bản */}
-                  <div className={styles.avatar}>
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-                    </svg>
-                  </div>
-                  <div className={styles.roomInfo}>
-                    <span className={`${styles.roomName} ${unreadCount[room.id] > 0 ? styles.unreadBold : ''}`}>
-                      {room.name || 'Unknown Channel'}
-                    </span>
-                  </div>
-                  {unreadCount[room.id] > 0 && (
-                    <div className={styles.unreadBadge}>
-                      {unreadCount[room.id]}
+                  <button
+                    type="button"
+                    className={styles.roomSelectButton}
+                    aria-current={activeChat?.type === 'real' && activeChat.room.id === room.id ? 'page' : undefined}
+                    onClick={() => void handleSelectRoom(room)}
+                  >
+                    {/* Icon tin nhắn cho kênh văn bản */}
+                    <div className={styles.avatar}>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                      </svg>
                     </div>
-                  )}
+                    <div className={styles.roomInfo}>
+                      <span className={`${styles.roomName} ${unreadCount[room.id] > 0 ? styles.unreadBold : ''}`}>
+                        {room.name || 'Unknown Channel'}
+                      </span>
+                    </div>
+                    {unreadCount[room.id] > 0 && (
+                      <div className={styles.unreadBadge}>
+                        {unreadCount[room.id]}
+                      </div>
+                    )}
+                  </button>
                   {canManageGroupRooms && (
-                    <div className={styles.roomActions} onClick={(event) => event.stopPropagation()}>
+                    <div className={styles.roomActions}>
                       <button
                         type="button"
                         className={styles.roomActionBtn}
                         title="Đổi tên phòng"
+                        aria-label={`Đổi tên phòng ${room.name || ''}`}
                         onClick={(event) => void handleRenameGroupRoom(room, event)}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -612,7 +610,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                         type="button"
                         className={`${styles.roomActionBtn} ${styles.deleteRoomActionBtn}`}
                         title="Xóa phòng"
-                        aria-label="Xóa phòng"
+                        aria-label={`Xóa phòng ${room.name || ''}`}
                         onClick={(event) => void handleDeleteTextRoom(room, event)}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -637,40 +635,38 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
                   {voiceRooms.map(room => (
                     <div
                       key={room.id}
-                      role="button"
-                      tabIndex={0}
                       className={`${styles.roomItem} ${activeChat?.type === 'real' && activeChat.room.id === room.id
                         ? styles.active
                         : ''
                         }`}
-                      onClick={() => {
-                        void handleSelectRoom(room);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        void handleSelectRoom(room);
-                      }}
                     >
-                      {/* Icon loa cho kênh thoại (phân biệt trực quan với #) */}
-                      <div className={styles.avatarVoice}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                          stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                        </svg>
-                      </div>
-                      <div className={styles.roomInfo}>
-                        <span className={styles.roomName}>
-                          {room.name || 'Unknown Voice Channel'}
-                        </span>
-                      </div>
+                      <button
+                        type="button"
+                        className={styles.roomSelectButton}
+                        aria-current={activeChat?.type === 'real' && activeChat.room.id === room.id ? 'page' : undefined}
+                        onClick={() => void handleSelectRoom(room)}
+                      >
+                        {/* Icon loa cho kênh thoại (phân biệt trực quan với #) */}
+                        <div className={styles.avatarVoice}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                            stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                          </svg>
+                        </div>
+                        <div className={styles.roomInfo}>
+                          <span className={styles.roomName}>
+                            {room.name || 'Unknown Voice Channel'}
+                          </span>
+                        </div>
+                      </button>
                       {canManageGroupRooms && (
-                        <div className={styles.roomActions} onClick={(event) => event.stopPropagation()}>
+                        <div className={styles.roomActions}>
                           <button
                             type="button"
                             className={styles.roomActionBtn}
                             title="Đổi tên phòng"
+                            aria-label={`Đổi tên phòng ${room.name || ''}`}
                             onClick={(event) => void handleRenameGroupRoom(room, event)}
                           >
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

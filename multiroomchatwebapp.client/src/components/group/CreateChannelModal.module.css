@@ -84,6 +84,25 @@
   gap: var(--spacing-xs);
 }
 
+.fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .labelWrapper {
   display: flex;
   justify-content: space-between;
@@ -141,6 +160,10 @@
 
 .radioItem:hover {
   background: var(--color-surface-hover);
+}
+
+.radioItem:focus-within {
+  box-shadow: var(--focus-ring);
 }
 
 .radioItem.selected {
@@ -215,11 +238,24 @@
 .toggleSwitch {
   width: 40px;
   height: 22px;
+  flex: 0 0 40px;
+  padding: 0;
+  border: 0;
   background: var(--color-surface-hover);
   border-radius: 11px;
   position: relative;
   cursor: pointer;
   transition: var(--transition-fast);
+}
+
+.toggleSwitch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.toggleSwitch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .toggleSwitch.active {

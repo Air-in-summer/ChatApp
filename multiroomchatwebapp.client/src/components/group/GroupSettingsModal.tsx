@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ChangeEvent, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -52,10 +52,11 @@ type GroupSettingsConfirmAction =
 export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpdated }: GroupSettingsModalProps) => {
   const { isAuthenticated, user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'members'>('overview');
+  const settingsTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [members, setMembers] = useState<GroupMemberDto[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [copied, setCopied] = useState(false);
-  const inviteUrl = `https://localhost:5173/join/${group.inviteCode}`;
+  const inviteUrl = `${window.location.origin}/join/${group.inviteCode}`;
   const [editName, setEditName] = useState(group.name);
   const [editDescription, setEditDescription] = useState(group.description || '');
   const [editIconUrl, setEditIconUrl] = useState(group.iconUrl || '');
@@ -479,17 +480,49 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         
         {/* Sidebar điều hướng Tab */}
-        <div className={styles.sidebar}>
+        <div className={styles.sidebar} role="tablist" aria-label="Mục cài đặt Server">
           <div className={styles.sidebarTitle}>{group.name}</div>
           <button 
+            ref={(element) => {
+              settingsTabRefs.current[0] = element;
+            }}
+            id="group-settings-tab-overview"
+            type="button"
+            role="tab"
             className={`${styles.tabItem} ${activeTab === 'overview' ? styles.active : ''}`}
+            aria-selected={activeTab === 'overview'}
+            aria-controls="group-settings-panel-overview"
+            tabIndex={activeTab === 'overview' ? 0 : -1}
             onClick={() => setActiveTab('overview')}
+            onKeyDown={(event) => {
+              if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const nextIndex = event.key === 'ArrowDown' || event.key === 'End' ? 1 : 0;
+              setActiveTab(nextIndex === 0 ? 'overview' : 'members');
+              window.requestAnimationFrame(() => settingsTabRefs.current[nextIndex]?.focus());
+            }}
           >
             Tổng quan
           </button>
           <button 
+            ref={(element) => {
+              settingsTabRefs.current[1] = element;
+            }}
+            id="group-settings-tab-members"
+            type="button"
+            role="tab"
             className={`${styles.tabItem} ${activeTab === 'members' ? styles.active : ''}`}
+            aria-selected={activeTab === 'members'}
+            aria-controls="group-settings-panel-members"
+            tabIndex={activeTab === 'members' ? 0 : -1}
             onClick={() => setActiveTab('members')}
+            onKeyDown={(event) => {
+              if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const nextIndex = event.key === 'ArrowUp' || event.key === 'Home' ? 0 : 1;
+              setActiveTab(nextIndex === 0 ? 'overview' : 'members');
+              window.requestAnimationFrame(() => settingsTabRefs.current[nextIndex]?.focus());
+            }}
           >
             Thành viên
           </button>
@@ -530,7 +563,12 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
           </button>
 
           {activeTab === 'overview' && (
-            <div className={styles.section}>
+            <div
+              id="group-settings-panel-overview"
+              className={styles.section}
+              role="tabpanel"
+              aria-labelledby="group-settings-tab-overview"
+            >
               <h2 className={styles.sectionTitle}>Tổng quan máy chủ</h2>
               
               <div className={styles.groupInfo}>
@@ -622,7 +660,12 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
           )}
 
           {activeTab === 'members' && (
-            <div className={styles.section}>
+            <div
+              id="group-settings-panel-members"
+              className={styles.section}
+              role="tabpanel"
+              aria-labelledby="group-settings-tab-members"
+            >
               <h2 className={styles.sectionTitle}>Quản lý thành viên ({members.length})</h2>
               
               {isLoadingMembers ? (

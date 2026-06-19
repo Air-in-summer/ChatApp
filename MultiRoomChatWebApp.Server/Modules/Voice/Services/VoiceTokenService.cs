@@ -16,8 +16,7 @@ namespace MultiRoomChatWebApp.Server.Modules.Voice.Services;
 /// </remarks>
 public class VoiceTokenService : IVoiceTokenService
 {
-    //private static readonly TimeSpan TokenTtl = TimeSpan.FromHours(1);
-    private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TokenTtl = TimeSpan.FromHours(1);
 
     private readonly string _apiKey;
     private readonly string _apiSecret;

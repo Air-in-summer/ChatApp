@@ -31,7 +31,7 @@ export const NavColumn = ({
   }, [profileAvatarUrl]);
 
   return (
-    <nav className={styles.navColumn}>
+    <nav className={styles.navColumn} aria-label="Điều hướng chính">
       <div className={styles.logo}>
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2">
@@ -43,8 +43,10 @@ export const NavColumn = ({
 
       <button
         className={`${styles.navBtn} ${activeContext === 'friends' ? styles.active : ''}`}
+        type="button"
         onClick={() => onContextChange('friends')}
-        title="Ban be"
+        aria-label="Bạn bè"
+        aria-current={activeContext === 'friends' ? 'page' : undefined}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2">
@@ -59,8 +61,10 @@ export const NavColumn = ({
 
       <button
         className={`${styles.navBtn} ${activeContext === 'dm' ? styles.active : ''}`}
+        type="button"
         onClick={() => onContextChange('dm')}
-        title="Tin nhắn riêng"
+        aria-label="Tin nhắn riêng"
+        aria-current={activeContext === 'dm' ? 'page' : undefined}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2">
@@ -70,8 +74,10 @@ export const NavColumn = ({
 
       <button
         className={`${styles.navBtn} ${activeContext === 'group' ? styles.active : ''}`}
+        type="button"
         onClick={() => onContextChange('group')}
-        title="Nhóm"
+        aria-label="Nhóm"
+        aria-current={activeContext === 'group' ? 'page' : undefined}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2">
@@ -86,8 +92,9 @@ export const NavColumn = ({
 
       <button
         className={`${styles.navBtn} ${styles.profileBtn}`}
+        type="button"
         onClick={onProfileClick}
-        title="Tài khoản"
+        aria-label="Tài khoản"
       >
         {profileAvatarUrl && !hasAvatarError ? (
           <img

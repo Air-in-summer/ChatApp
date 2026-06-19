@@ -76,6 +76,15 @@
   background: var(--color-surface-hover);
 }
 
+.tabButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.panelBody:focus {
+  outline: none;
+}
+
 .activeTab {
   background: rgba(59, 130, 246, 0.16);
   color: var(--color-primary);

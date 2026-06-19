@@ -105,7 +105,11 @@ export const AddMemberToRoomModal = ({
         </header>
 
         <div className={styles.searchContainer}>
+          <label className={styles.visuallyHidden} htmlFor="add-member-search">
+            Tìm kiếm thành viên
+          </label>
           <input
+            id="add-member-search"
             type="text"
             className={styles.searchInput}
             placeholder="Tìm kiếm thành viên..."
@@ -127,11 +131,17 @@ export const AddMemberToRoomModal = ({
             <div className={styles.emptyState}>Không tìm thấy thành viên nào phù hợp.</div>
           ) : (
             filteredMembers.map(member => (
-              <div 
+              <label
                 key={member.profile.id} 
                 className={styles.memberItem}
-                onClick={() => toggleSelect(member.profile.id)}
               >
+                <input
+                  className={styles.visuallyHidden}
+                  type="checkbox"
+                  checked={selectedIds.has(member.profile.id)}
+                  onChange={() => toggleSelect(member.profile.id)}
+                  disabled={isSubmitting}
+                />
                 <div className={styles.avatar}>
                   {member.profile.displayName.charAt(0).toUpperCase()}
                 </div>
@@ -145,7 +155,7 @@ export const AddMemberToRoomModal = ({
                     </svg>
                   </div>
                 </div>
-              </div>
+              </label>
             ))
           )}
         </div>

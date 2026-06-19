@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
+import { ActionMenu, type ActionMenuItem } from '../ui/ActionMenu/ActionMenu';
 import { ConfirmDialog } from '../ui/ConfirmDialog/ConfirmDialog';
 import styles from './UserActionMenu.module.css';
 
@@ -48,7 +49,6 @@ export const UserActionMenu = ({
   extraActions = [],
 }: UserActionMenuProps) => {
   const { isAuthenticated } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
   const [actionInFlightByKey, setActionInFlightByKey] = useState<Record<string, boolean>>({});
   const [pendingConfirmAction, setPendingConfirmAction] = useState<PendingConfirmAction | null>(null);
   const actionInFlightRef = useRef<Record<string, boolean>>({});
@@ -85,7 +85,6 @@ export const UserActionMenu = ({
     try {
       await action();
       toast.success(successMessage);
-      setIsOpen(false);
     } catch {
       toast.error(RELATIONSHIP_ACTION_ERROR);
     } finally {
@@ -113,7 +112,6 @@ export const UserActionMenu = ({
         if (shouldNotify === false) return;
 
         toast.success(extraAction.successMessage ?? 'Đã cập nhật.');
-        setIsOpen(false);
       } catch {
         toast.error(RELATIONSHIP_ACTION_ERROR);
       } finally {
@@ -177,147 +175,131 @@ export const UserActionMenu = ({
     runRemoveFriendAction(pendingConfirmAction.userId);
   };
 
-  const renderRelationshipActions = () => {
+  const buildRelationshipItems = (): ActionMenuItem[] => {
     if (isBlocked) {
-      return (
-        <button
-          className={styles.menuItem}
-          type="button"
-          disabled={!isAuthenticated || isActionInFlight(`unblock:${target.id}`)}
-          onClick={() => void runAction(
+      return [{
+        id: `unblock:${target.id}`,
+        label: isActionInFlight(`unblock:${target.id}`) ? 'Đang bỏ chặn...' : 'Bỏ chặn',
+        disabled: !isAuthenticated,
+        loading: isActionInFlight(`unblock:${target.id}`),
+        onSelect: () => runAction(
             `unblock:${target.id}`,
             async () => {
               await unblockUser(target.id);
             },
             'Đã bỏ chặn người dùng.',
-          )}
-        >
-          {isActionInFlight(`unblock:${target.id}`) ? 'Đang bỏ chặn...' : 'Bỏ chặn'}
-        </button>
-      );
+        ),
+      }];
     }
 
     if (friend) {
-      return (
-        <>
-          <button
-            className={styles.menuItem}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`remove:${friend.user.id}`)}
-            onClick={handleRemoveFriend}
-          >
-            {isActionInFlight(`remove:${friend.user.id}`) ? 'Đang xóa...' : 'Xóa bạn bè'}
-          </button>
-          <button
-            className={`${styles.menuItem} ${styles.dangerItem}`}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
-            onClick={handleBlock}
-          >
-            {isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn'}
-          </button>
-        </>
-      );
+      return [
+        {
+          id: `remove:${friend.user.id}`,
+          label: isActionInFlight(`remove:${friend.user.id}`) ? 'Đang xóa...' : 'Xóa bạn bè',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`remove:${friend.user.id}`),
+          onSelect: handleRemoveFriend,
+        },
+        {
+          id: `block:${target.id}`,
+          label: isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn',
+          variant: 'danger',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`block:${target.id}`),
+          onSelect: handleBlock,
+        },
+      ];
     }
 
     if (outgoingRequest) {
-      return (
-        <>
-          <button
-            className={styles.menuItem}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`cancel:${outgoingRequest.id}`)}
-            onClick={() => void runAction(
+      return [
+        {
+          id: `cancel:${outgoingRequest.id}`,
+          label: isActionInFlight(`cancel:${outgoingRequest.id}`) ? 'Đang hủy...' : 'Hủy lời mời',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`cancel:${outgoingRequest.id}`),
+          onSelect: () => runAction(
               `cancel:${outgoingRequest.id}`,
               async () => {
                 await cancelFriendRequest(outgoingRequest.id);
               },
               'Đã hủy lời mời kết bạn.',
-            )}
-          >
-            {isActionInFlight(`cancel:${outgoingRequest.id}`) ? 'Đang hủy...' : 'Hủy lời mời'}
-          </button>
-          <button
-            className={`${styles.menuItem} ${styles.dangerItem}`}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
-            onClick={handleBlock}
-          >
-            {isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn'}
-          </button>
-        </>
-      );
+          ),
+        },
+        {
+          id: `block:${target.id}`,
+          label: isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn',
+          variant: 'danger',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`block:${target.id}`),
+          onSelect: handleBlock,
+        },
+      ];
     }
 
     if (incomingRequest) {
-      return (
-        <>
-          <button
-            className={styles.menuItem}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`accept:${incomingRequest.id}`)}
-            onClick={() => void runAction(
+      return [
+        {
+          id: `accept:${incomingRequest.id}`,
+          label: isActionInFlight(`accept:${incomingRequest.id}`) ? 'Đang chấp nhận...' : 'Chấp nhận',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`accept:${incomingRequest.id}`),
+          onSelect: () => runAction(
               `accept:${incomingRequest.id}`,
               async () => {
                 await acceptFriendRequest(incomingRequest.id);
               },
               'Đã chấp nhận lời mời kết bạn.',
-            )}
-          >
-            {isActionInFlight(`accept:${incomingRequest.id}`) ? 'Đang chấp nhận...' : 'Chấp nhận'}
-          </button>
-          <button
-            className={styles.menuItem}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`decline:${incomingRequest.id}`)}
-            onClick={() => void runAction(
+          ),
+        },
+        {
+          id: `decline:${incomingRequest.id}`,
+          label: isActionInFlight(`decline:${incomingRequest.id}`) ? 'Đang từ chối...' : 'Từ chối',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`decline:${incomingRequest.id}`),
+          onSelect: () => runAction(
               `decline:${incomingRequest.id}`,
               async () => {
                 await declineFriendRequest(incomingRequest.id);
               },
               'Đã từ chối lời mời kết bạn.',
-            )}
-          >
-            {isActionInFlight(`decline:${incomingRequest.id}`) ? 'Đang từ chối...' : 'Từ chối'}
-          </button>
-          <button
-            className={`${styles.menuItem} ${styles.dangerItem}`}
-            type="button"
-            disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
-            onClick={handleBlock}
-          >
-            {isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn'}
-          </button>
-        </>
-      );
+          ),
+        },
+        {
+          id: `block:${target.id}`,
+          label: isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn',
+          variant: 'danger',
+          disabled: !isAuthenticated,
+          loading: isActionInFlight(`block:${target.id}`),
+          onSelect: handleBlock,
+        },
+      ];
     }
 
-    return (
-      <>
-        <button
-          className={styles.menuItem}
-          type="button"
-          disabled={!isAuthenticated || isActionInFlight(`send:${target.id}`)}
-          onClick={() => void runAction(
+    return [
+      {
+        id: `send:${target.id}`,
+        label: isActionInFlight(`send:${target.id}`) ? 'Đang gửi...' : 'Thêm bạn',
+        disabled: !isAuthenticated,
+        loading: isActionInFlight(`send:${target.id}`),
+        onSelect: () => runAction(
             `send:${target.id}`,
             async () => {
               await sendFriendRequest(target.id);
             },
             'Đã gửi lời mời kết bạn.',
-          )}
-        >
-          {isActionInFlight(`send:${target.id}`) ? 'Đang gửi...' : 'Thêm bạn'}
-        </button>
-        <button
-          className={`${styles.menuItem} ${styles.dangerItem}`}
-          type="button"
-          disabled={!isAuthenticated || isActionInFlight(`block:${target.id}`)}
-          onClick={handleBlock}
-        >
-          {isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn'}
-        </button>
-      </>
-    );
+        ),
+      },
+      {
+        id: `block:${target.id}`,
+        label: isActionInFlight(`block:${target.id}`) ? 'Đang chặn...' : 'Chặn',
+        variant: 'danger',
+        disabled: !isAuthenticated,
+        loading: isActionInFlight(`block:${target.id}`),
+        onSelect: handleBlock,
+      },
+    ];
   };
 
   const pendingConfirmLoading = pendingConfirmAction?.type === 'block'
@@ -336,63 +318,36 @@ export const UserActionMenu = ({
   const pendingConfirmLabel = pendingConfirmAction?.type === 'block'
     ? 'Chặn'
     : 'Xóa bạn bè';
+  const menuItems: ActionMenuItem[] = [
+    ...(!hideMessageAction && onMessage && !isBlocked
+      ? [{
+          id: `message:${target.id}`,
+          label: 'Nhắn tin',
+          onSelect: () => onMessage(target),
+        }]
+      : []),
+    ...buildRelationshipItems(),
+    ...extraActions.map((extraAction): ActionMenuItem => ({
+      id: `extra:${extraAction.key}`,
+      label: isActionInFlight(`extra:${extraAction.key}`)
+        ? extraAction.loadingLabel ?? 'Đang xử lý...'
+        : extraAction.label,
+      variant: extraAction.variant,
+      disabled: !isAuthenticated || extraAction.disabled,
+      loading: isActionInFlight(`extra:${extraAction.key}`),
+      onSelect: () => handleExtraAction(extraAction),
+    })),
+  ];
 
   return (
     <>
-      <div className={styles.menuRoot}>
-        <button
-          className={styles.trigger}
-          type="button"
-          onClick={() => setIsOpen(open => !open)}
-          aria-haspopup="menu"
-          aria-expanded={isOpen}
-          title="Thao tác với người dùng"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-            <circle cx="5" cy="12" r="1" />
-          </svg>
-        </button>
-
-        {isOpen && (
-          <div className={`${styles.menu} ${align === 'left' ? styles.alignLeft : styles.alignRight}`} role="menu">
-            {!hideMessageAction && onMessage && !isBlocked && (
-              <button className={styles.menuItem} type="button" onClick={() => onMessage(target)}>
-                Nhắn tin
-              </button>
-            )}
-            {renderRelationshipActions()}
-            {extraActions.map(extraAction => (
-              <button
-                key={extraAction.key}
-                className={`${styles.menuItem} ${extraAction.variant === 'danger' ? styles.dangerItem : ''}`}
-                type="button"
-                disabled={
-                  !isAuthenticated
-                  || extraAction.disabled
-                  || isActionInFlight(`extra:${extraAction.key}`)
-                }
-                onClick={() => handleExtraAction(extraAction)}
-              >
-                {isActionInFlight(`extra:${extraAction.key}`)
-                  ? extraAction.loadingLabel ?? 'Đang xử lý...'
-                  : extraAction.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <ActionMenu
+        triggerLabel={`Thao tác với ${target.displayName}`}
+        items={menuItems}
+        align={align === 'left' ? 'start' : 'end'}
+        className={styles.menuRoot}
+        menuClassName={styles.menu}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingConfirmAction)}

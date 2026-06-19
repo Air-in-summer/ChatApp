@@ -1,78 +1,9 @@
 .menuRoot {
-  position: relative;
   width: 36px;
   flex: 0 0 36px;
 }
 
-.trigger {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.trigger:hover,
-.trigger[aria-expanded='true'] {
-  border-color: rgba(59, 130, 246, 0.35);
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
 .menu {
-  position: absolute;
-  top: calc(100% + 6px);
   z-index: 30;
   min-width: 184px;
-  display: grid;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
-}
-
-.alignRight {
-  right: 0;
-}
-
-.alignLeft {
-  left: 0;
-}
-
-.menuItem {
-  width: 100%;
-  min-height: 36px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text);
-  text-align: left;
-  font-size: 0.86rem;
-  cursor: pointer;
-}
-
-.menuItem:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-}
-
-.menuItem:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
-}
-
-.dangerItem {
-  color: var(--color-danger);
-}
-
-.dangerItem:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.14);
-  color: var(--color-danger);
 }

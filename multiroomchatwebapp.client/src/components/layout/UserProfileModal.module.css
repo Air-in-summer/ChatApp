@@ -223,13 +223,6 @@
   gap: 4px;
 }
 
-.sectionEyebrow {
-  color: var(--color-primary);
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
 .sectionHeading h2 {
   margin: 0;
   color: var(--color-text);
@@ -342,7 +335,7 @@
 }
 
 .profileForm {
-  width: min(100%, 620px);
+  width: 100%;
 }
 
 .readonlyField,

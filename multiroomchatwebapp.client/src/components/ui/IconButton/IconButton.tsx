@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import styles from './IconButton.module.css';
 
 export type IconButtonVariant = 'ghost' | 'subtle' | 'primary' | 'danger' | 'success';
@@ -11,23 +11,20 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   size?: IconButtonSize;
   active?: boolean;
   loading?: boolean;
-  tooltip?: string;
 }
 
-export const IconButton = ({
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(({
   'aria-label': ariaLabel,
   icon,
   variant = 'ghost',
   size = 'md',
   active = false,
   loading = false,
-  tooltip,
   className = '',
   disabled,
-  title,
   type = 'button',
   ...props
-}: IconButtonProps) => {
+}, ref) => {
   const buttonClassName = [
     styles.iconButton,
     styles[variant],
@@ -36,18 +33,15 @@ export const IconButton = ({
     loading ? styles.loading : '',
     className,
   ].filter(Boolean).join(' ');
-  const tooltipText = tooltip ?? title ?? ariaLabel;
-
   return (
     <button
+      ref={ref}
       type={type}
       className={buttonClassName}
       disabled={disabled || loading}
       aria-label={ariaLabel}
       aria-busy={loading || undefined}
       aria-pressed={active || undefined}
-      title={tooltipText}
-      data-tooltip={tooltipText}
       {...props}
     >
       {loading ? (
@@ -57,4 +51,6 @@ export const IconButton = ({
       )}
     </button>
   );
-};
+});
+
+IconButton.displayName = 'IconButton';
