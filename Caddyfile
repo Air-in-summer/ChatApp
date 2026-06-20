@@ -1,0 +1,11 @@
+{$APP_HOST} {
+	header Strict-Transport-Security "max-age=604800"
+
+	reverse_proxy app:8080
+}
+
+{$MEDIA_HOST} {
+	header Strict-Transport-Security "max-age=604800"
+
+	reverse_proxy minio:9000
+}

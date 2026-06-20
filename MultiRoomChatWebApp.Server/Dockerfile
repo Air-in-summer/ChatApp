@@ -1,42 +1,69 @@
-# See https://aka.ms/customizecontainer to learn how to customize your debug container and how Visual Studio uses this Dockerfile to build your images for faster debugging.
+# syntax=docker/dockerfile:1
 
-# Depending on the operating system of the host machines(s) that will build or run the containers, the image specified in the FROM statement may need to be changed.
-# For more information, please see https://aka.ms/containercompat
+# Build React/Vite frontend bằng đúng major Node đang dùng trong development.
+FROM node:22-alpine AS frontend-build
+WORKDIR /src/client
 
-# This stage is used when running from VS in fast mode (Default for Debug configuration)
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-nanoserver-1809 AS base
+COPY multiroomchatwebapp.client/package.json multiroomchatwebapp.client/package-lock.json ./
+RUN npm ci
+
+COPY multiroomchatwebapp.client/ ./
+RUN npm run build \
+    && test -f /src/client/dist/index.html
+
+# Restore và publish ASP.NET Core bằng Linux .NET SDK.
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-publish
+ARG BUILD_CONFIGURATION=Release
+WORKDIR /src
+
+COPY MultiRoomChatWebApp.Server/MultiRoomChatWebApp.Server.csproj MultiRoomChatWebApp.Server/
+RUN dotnet restore MultiRoomChatWebApp.Server/MultiRoomChatWebApp.Server.csproj \
+    /p:SkipSpaProjectReference=true
+
+COPY MultiRoomChatWebApp.Server/ MultiRoomChatWebApp.Server/
+RUN rm -rf MultiRoomChatWebApp.Server/Publish
+
+RUN dotnet publish MultiRoomChatWebApp.Server/MultiRoomChatWebApp.Server.csproj \
+    --configuration ${BUILD_CONFIGURATION} \
+    --output /app/publish \
+    --no-restore \
+    /p:SkipSpaProjectReference=true \
+    /p:UseAppHost=false
+
+# Frontend production được phục vụ cùng origin từ ASP.NET Core.
+RUN rm -rf /app/publish/wwwroot
+COPY --from=frontend-build /src/client/dist /app/publish/wwwroot
+
+# Production nhận toàn bộ config qua environment variables.
+# Build phải dừng ngay nếu config Development hoặc secret file lọt vào publish.
+RUN rm -f /app/publish/appsettings*.json \
+    && forbidden_files="$(find /app/publish -type f \
+        \( -name 'appsettings*.json' \
+        -o -name '.env' \
+        -o -name '.env.*' \) \
+        -print)" \
+    && if [ -n "${forbidden_files}" ]; then \
+        printf 'Forbidden files found in publish output:\n%s\n' "${forbidden_files}"; \
+        exit 1; \
+    fi
+RUN test -f /app/publish/wwwroot/index.html \
+    && test -f /app/publish/MultiRoomChatWebApp.Server.dll
+
+# Runtime image chỉ chứa ASP.NET runtime, app publish và curl cho healthcheck.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+ENV ASPNETCORE_URLS=http://+:8080
 WORKDIR /app
+
+USER root
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/Logs \
+    && chown -R ${APP_UID}:${APP_UID} /app
+
+COPY --from=backend-publish --chown=${APP_UID}:${APP_UID} /app/publish ./
+
+USER ${APP_UID}
 EXPOSE 8080
-EXPOSE 8081
 
-
-# This stage is used to build the service project
-FROM mcr.microsoft.com/dotnet/sdk:8.0-nanoserver-1809 AS with-node
-WORKDIR /src
-RUN curl https://nodejs.org/dist/v18.18.0/node-v18.18.0-win-x64.zip --output node.zip
-RUN tar -xf node.zip
-USER ContainerAdministrator
-RUN setx /M path "%path%;C:\src\node-v18.18.0-win-x64"
-USER ContainerUser
-
-
-FROM with-node AS build
-ARG BUILD_CONFIGURATION=Release
-WORKDIR /src
-COPY ["MultiRoomChatWebApp.Server/MultiRoomChatWebApp.Server.csproj", "MultiRoomChatWebApp.Server/"]
-COPY ["multiroomchatwebapp.client/multiroomchatwebapp.client.esproj", "multiroomchatwebapp.client/"]
-RUN dotnet restore "./MultiRoomChatWebApp.Server/MultiRoomChatWebApp.Server.csproj"
-COPY . .
-WORKDIR "/src/MultiRoomChatWebApp.Server"
-RUN dotnet build "./MultiRoomChatWebApp.Server.csproj" -c %BUILD_CONFIGURATION% -o /app/build
-
-# This stage is used to publish the service project to be copied to the final stage
-FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./MultiRoomChatWebApp.Server.csproj" -c %BUILD_CONFIGURATION% -o /app/publish /p:UseAppHost=false
-
-# This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
-FROM base AS final
-WORKDIR /app
-COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "MultiRoomChatWebApp.Server.dll"]

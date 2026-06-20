@@ -1,0 +1,285 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    environment:
+      APP_HOST: ${APP_HOST:?APP_HOST is required}
+      MEDIA_HOST: ${MEDIA_HOST:?MEDIA_HOST is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        aliases:
+          - ${APP_HOST:?APP_HOST is required}
+          - ${MEDIA_HOST:?MEDIA_HOST is required}
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    logging: *default-logging
+
+  app:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      CHAT_APP_INSTANCE_ID: ${CHAT_APP_INSTANCE_ID:-app-1}
+
+      AllowedHosts: ${APP_HOST:?APP_HOST is required}
+      APP_HEALTH_HOST: ${APP_HOST:?APP_HOST is required}
+      Cors__AllowedOrigins__0: ${APP_ORIGIN:?APP_ORIGIN is required}
+
+      ConnectionStrings__PostgreSQL: ${ConnectionStrings__PostgreSQL:?PostgreSQL connection string is required}
+      ConnectionStrings__MongoDB: ${ConnectionStrings__MongoDB:?MongoDB connection string is required}
+      ConnectionStrings__Redis: ${ConnectionStrings__Redis:?Redis connection string is required}
+      ConnectionStrings__ChatBrokerRedis: ${ConnectionStrings__ChatBrokerRedis:?Chat broker Redis connection string is required}
+
+      Auth__SessionCleanup__ScanIntervalMinutes: ${Auth__SessionCleanup__ScanIntervalMinutes:-60}
+      Auth__SessionCleanup__ExpiredRetentionDays: ${Auth__SessionCleanup__ExpiredRetentionDays:-7}
+      Auth__SessionCleanup__RevokedRetentionDays: ${Auth__SessionCleanup__RevokedRetentionDays:-7}
+      Auth__SessionCleanup__BatchSize: ${Auth__SessionCleanup__BatchSize:-500}
+
+      Auth__Bff__Enabled: "true"
+      Auth__Bff__RequireCsrf: "true"
+      Auth__Bff__CsrfHeaderName: ${Auth__Bff__CsrfHeaderName:-X-CSRF-TOKEN}
+      Auth__Bff__CsrfCookieName: ${Auth__Bff__CsrfCookieName:-__Host-chatapp_csrf}
+      Auth__Bff__CookieName: ${Auth__Bff__CookieName:-__Host-chatapp_session}
+      Auth__Bff__CookiePath: /
+      Auth__Bff__HttpOnly: "true"
+      Auth__Bff__Secure: "true"
+      Auth__Bff__SameSite: Lax
+      Auth__Bff__SessionLifetimeMinutes: ${Auth__Bff__SessionLifetimeMinutes:-1440}
+      Auth__Bff__SlidingExpiration: "true"
+      Auth__Bff__RenewalThresholdMinutes: ${Auth__Bff__RenewalThresholdMinutes:-240}
+      Auth__Bff__LastSeenUpdateIntervalMinutes: ${Auth__Bff__LastSeenUpdateIntervalMinutes:-5}
+
+      Authentication__Google__ClientId: ${Authentication__Google__ClientId:?Google ClientId is required}
+      Authentication__Google__ClientSecret: ${Authentication__Google__ClientSecret:?Google ClientSecret is required}
+      Authentication__Google__CallbackPath: ${Authentication__Google__CallbackPath:-/api/auth/google/callback}
+      Authentication__Google__FrontendCallbackUrl: ${Authentication__Google__FrontendCallbackUrl:?Google frontend callback URL is required}
+
+      SecurityHeaders__CspEnabled: "true"
+      SecurityHeaders__CspReportOnly: ${SecurityHeaders__CspReportOnly:-true}
+
+      LiveKit__Host: ${LiveKit__Host:?LiveKit host is required}
+      LiveKit__ApiKey: ${LiveKit__ApiKey:?LiveKit API key is required}
+      LiveKit__ApiSecret: ${LiveKit__ApiSecret:?LiveKit API secret is required}
+
+      ChatBroker__ConnectionStringName: ChatBrokerRedis
+      ChatBroker__Database: ${ChatBroker__Database:-0}
+      ChatBroker__InstanceIdEnvironmentVariable: CHAT_APP_INSTANCE_ID
+      ChatBroker__ConsumerNamePrefix: ${ChatBroker__ConsumerNamePrefix:-chatapp}
+      ChatBroker__StreamName: ${ChatBroker__StreamName:-chat:{messages}:v1}
+      ChatBroker__PersistenceGroupName: ${ChatBroker__PersistenceGroupName:-message-persistence-v1}
+      ChatBroker__DeliveryGroupName: ${ChatBroker__DeliveryGroupName:-message-delivery-v1}
+      ChatBroker__ReadBatchSize: ${ChatBroker__ReadBatchSize:-10}
+      ChatBroker__VisibilityTimeoutSeconds: ${ChatBroker__VisibilityTimeoutSeconds:-60}
+      ChatBroker__MaxAttempts: ${ChatBroker__MaxAttempts:-5}
+      ChatBroker__RetryBaseDelaySeconds: ${ChatBroker__RetryBaseDelaySeconds:-60}
+      ChatBroker__RetryMaxDelaySeconds: ${ChatBroker__RetryMaxDelaySeconds:-900}
+      ChatBroker__RetryStateTtlHours: ${ChatBroker__RetryStateTtlHours:-168}
+      ChatBroker__ProcessedStreamGraceMinutes: ${ChatBroker__ProcessedStreamGraceMinutes:-5}
+      ChatBroker__DeadLetterRetentionHours: ${ChatBroker__DeadLetterRetentionHours:-168}
+      ChatBroker__IdempotencyTtlMinutes: ${ChatBroker__IdempotencyTtlMinutes:-30}
+      ChatBroker__MaintenanceIntervalSeconds: ${ChatBroker__MaintenanceIntervalSeconds:-300}
+      ChatBroker__MaintenanceLockSeconds: ${ChatBroker__MaintenanceLockSeconds:-120}
+
+      MediaStorage__Provider: S3
+      MediaStorage__Endpoint: ${MEDIA_ORIGIN:?MEDIA_ORIGIN is required}
+      MediaStorage__PublicEndpoint: ${MEDIA_ORIGIN:?MEDIA_ORIGIN is required}
+      MediaStorage__AccessKey: ${MediaStorage__AccessKey:?Media access key is required}
+      MediaStorage__SecretKey: ${MediaStorage__SecretKey:?Media secret key is required}
+      MediaStorage__PublicBucket: ${MediaStorage__PublicBucket:-chatapp-public-media}
+      MediaStorage__PrivateBucket: ${MediaStorage__PrivateBucket:-chatapp-private-media}
+      MediaStorage__ForcePathStyle: "true"
+      MediaStorage__SignedUrlMinutes: ${MediaStorage__SignedUrlMinutes:-15}
+      MediaStorage__MaxAvatarBytes: ${MediaStorage__MaxAvatarBytes:-2097152}
+      MediaStorage__MaxImageBytes: ${MediaStorage__MaxImageBytes:-10485760}
+      MediaStorage__MaxAudioBytes: ${MediaStorage__MaxAudioBytes:-26214400}
+      MediaStorage__MaxVideoBytes: ${MediaStorage__MaxVideoBytes:-104857600}
+      MediaStorage__MaxFileBytes: ${MediaStorage__MaxFileBytes:-26214400}
+      MediaStorage__PendingCleanupIntervalMinutes: ${MediaStorage__PendingCleanupIntervalMinutes:-30}
+      MediaStorage__PendingMediaTtlHours: ${MediaStorage__PendingMediaTtlHours:-3}
+      MediaStorage__ReservationTtlHours: ${MediaStorage__ReservationTtlHours:-24}
+      MediaStorage__PendingCleanupBatchSize: ${MediaStorage__PendingCleanupBatchSize:-100}
+
+      Voice__DirectCallRingingTimeoutSeconds: ${Voice__DirectCallRingingTimeoutSeconds:-60}
+      Voice__MissedCallScanIntervalSeconds: ${Voice__MissedCallScanIntervalSeconds:-5}
+    expose:
+      - "8080"
+    networks:
+      - edge
+      - data
+    depends_on:
+      caddy:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-broker:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error --header \"Host: $${APP_HEALTH_HOST}\" http://localhost:8080/health/chat-broker"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 1280m
+    logging: *default-logging
+
+  postgres:
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ChatAppDB}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 768m
+    logging: *default-logging
+
+  mongodb:
+    image: mongo:7.0@sha256:f2b40853c0f796b105e672e04045d2b3e127bd54782dfe7e9b08aebbd9f602ce
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Mongo root username is required}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Mongo root password is required}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"quit(db.adminCommand('ping').ok ? 0 : 2)\""
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1536m
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - "60"
+      - "1"
+      - --loglevel
+      - warning
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    logging: *default-logging
+
+  redis-broker:
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - ""
+      - --loglevel
+      - warning
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis_broker_data:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    command: server /data --console-address ":9001"
+    expose:
+      - "9000"
+      - "9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 768m
+    logging: *default-logging
+
+networks:
+  edge:
+  data:
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  redis_broker_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
