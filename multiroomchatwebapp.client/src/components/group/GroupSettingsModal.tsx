@@ -18,7 +18,7 @@ import type { GroupDto, GroupMemberDto, GroupRole } from '../../types/group';
 import styles from './GroupSettingsModal.module.css';
 
 interface GroupSettingsModalProps {
-  /** Thông tin Server hiện tại */
+  /** Thông tin nhóm hiện tại */
   group: GroupDto;
   /** Đóng modal */
   onClose: () => void;
@@ -36,10 +36,10 @@ type GroupSettingsConfirmAction =
   | { type: 'transfer-owner'; userId: string; displayName: string };
 
 /**
- * Modal cấu hình và quản trị Server.
+ * Modal cấu hình và quản trị nhóm.
  * Hỗ trợ phân tách các Tab chức năng (Tổng quan, Thành viên, Bảo mật).
  * 
- * @param group - Dữ liệu Server
+ * @param group - Dữ liệu nhóm
  * @param onClose - Hàm đóng modal
  * 
  * @remarks
@@ -47,7 +47,7 @@ type GroupSettingsConfirmAction =
  * Bước 14.4: Tab Thành viên - Hiển thị danh sách thành viên.
  * Bước 14.5: Chức năng Trục xuất (Kick) thành viên - Phân quyền Owner/Admin.
  * Bước 14.6: Chức năng Rời Nhóm.
- * Bước 14.7: Chức năng Giải tán (Xóa) Server - Chỉ dành cho Owner.
+ * Bước 14.7: Chức năng giải tán nhóm - Chỉ dành cho Owner.
  */
 export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpdated }: GroupSettingsModalProps) => {
   const { isAuthenticated, user } = useAuth();
@@ -122,7 +122,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
   const iconPreviewUrl = localIconPreviewUrl ?? editIconUrl;
 
-  /** Xác định vai trò của người dùng hiện tại trong Server */
+  /** Xác định vai trò của người dùng hiện tại trong nhóm */
   const currentUserRole = useMemo(() => {
     if (!user) return 'Member';
     // [Ưu tiên]: Check Owner nhanh qua ownerId có sẵn trong GroupDto
@@ -138,7 +138,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
     const normalizedName = editName.trim();
     if (!normalizedName) {
-      setOverviewNameError('Tên Server không được bỏ trống.');
+      setOverviewNameError('Tên nhóm không được bỏ trống.');
       return;
     }
 
@@ -159,9 +159,9 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
         iconUrl: nextIconUrl,
       });
       onGroupUpdated?.(updatedGroup);
-      toast.success('Đã cập nhật thông tin Server.');
+      toast.success('Đã cập nhật thông tin nhóm.');
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Không thể cập nhật thông tin Server.';
+      const errorMsg = error.response?.data?.detail || 'Không thể cập nhật thông tin nhóm.';
       toast.error(errorMsg);
       console.error('Update group failed:', error);
     } finally {
@@ -193,20 +193,20 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     });
   };
 
-  /** [Luồng 14.6]: Rời khỏi Server */
+  /** [Luồng 14.6]: Rời khỏi nhóm */
   const handleLeaveGroup = () => {
     if (!isAuthenticated) return;
 
     // Ràng buộc Owner không được rời nhóm (phải transfer hoặc delete)
     if (currentUserRole === 'Owner') {
-      toast.error('Chủ sở hữu không thể rời Server. Vui lòng chuyển nhượng quyền sở hữu hoặc giải tán Server.');
+      toast.error('Chủ sở hữu không thể rời nhóm. Vui lòng chuyển nhượng quyền sở hữu hoặc giải tán nhóm.');
       return;
     }
 
     setPendingConfirmAction({ type: 'leave-group' });
   };
 
-  /** [Luồng 14.7]: Giải tán Server */
+  /** [Luồng 14.7]: Giải tán nhóm */
   const handleDeleteGroup = () => {
     if (!isAuthenticated) return;
     setPendingConfirmAction({ type: 'delete-group' });
@@ -226,14 +226,14 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
         case 'leave-group':
           await leaveGroup(group.id);
-          toast.success('Đã rời khỏi Server.');
+          toast.success('Đã rời khỏi nhóm.');
           onClose();
           onLeaveSuccess?.();
           break;
 
         case 'delete-group':
           await deleteGroup(group.id);
-          toast.success('Đã giải tán Server.');
+          toast.success('Đã giải tán nhóm.');
           onClose();
           onLeaveSuccess?.();
           break;
@@ -272,8 +272,8 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
     } catch (error: any) {
       const fallbackMessageByType: Record<GroupSettingsConfirmAction['type'], string> = {
         kick: 'Không thể trục xuất thành viên. Vui lòng thử lại sau.',
-        'leave-group': 'Không thể rời khỏi Server. Vui lòng thử lại sau.',
-        'delete-group': 'Không thể giải tán Server. Vui lòng thử lại sau.',
+        'leave-group': 'Không thể rời khỏi nhóm. Vui lòng thử lại sau.',
+        'delete-group': 'Không thể giải tán nhóm. Vui lòng thử lại sau.',
         'promote-admin': 'Không thể bổ nhiệm Admin. Vui lòng thử lại sau.',
         'demote-member': 'Không thể hạ xuống Member. Vui lòng thử lại sau.',
         'transfer-owner': 'Không thể trao quyền Owner. Vui lòng thử lại sau.',
@@ -416,29 +416,29 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
       case 'kick':
         return {
           title: 'Trục xuất thành viên',
-          message: `Trục xuất "${pendingConfirmAction.displayName}" khỏi Server?`,
+          message: `Trục xuất "${pendingConfirmAction.displayName}" khỏi nhóm?`,
           confirmLabel: 'Trục xuất',
           variant: 'danger' as const,
         };
 
       case 'leave-group':
         return {
-          title: 'Rời khỏi Server',
-          message: `Rời khỏi Server "${group.name}"? Bạn sẽ không còn thấy các kênh và tin nhắn mới trong Server này.`,
-          confirmLabel: 'Rời khỏi Server',
+          title: 'Rời khỏi nhóm',
+          message: `Rời khỏi nhóm "${group.name}"? Bạn sẽ không còn thấy các phòng và tin nhắn mới trong nhóm này.`,
+          confirmLabel: 'Rời khỏi nhóm',
           variant: 'danger' as const,
         };
 
       case 'delete-group':
         return {
-          title: 'Giải tán Server',
+          title: 'Giải tán nhóm',
           message: (
             <>
-              <p>Giải tán Server "{group.name}"?</p>
+              <p>Giải tán nhóm "{group.name}"?</p>
               <p>Hành động này không thể hoàn tác.</p>
             </>
           ),
-          confirmLabel: 'Giải tán Server',
+          confirmLabel: 'Giải tán nhóm',
           variant: 'danger' as const,
         };
 
@@ -480,7 +480,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         
         {/* Sidebar điều hướng Tab */}
-        <div className={styles.sidebar} role="tablist" aria-label="Mục cài đặt Server">
+        <div className={styles.sidebar} role="tablist" aria-label="Mục cài đặt nhóm">
           <div className={styles.sidebarTitle}>{group.name}</div>
           <button 
             ref={(element) => {
@@ -529,7 +529,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
 
           <div className={styles.flexGrow}></div>
 
-          {/* Nút Giải tán Server (Bước 14.7 - Chỉ Owner) */}
+          {/* Nút giải tán nhóm (Bước 14.7 - Chỉ Owner) */}
           {currentUserRole === 'Owner' && (
             <button className={styles.deleteBtn} onClick={handleDeleteGroup}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -538,18 +538,18 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                 <line x1="10" y1="11" x2="10" y2="17" />
                 <line x1="14" y1="11" x2="14" y2="17" />
               </svg>
-              Giải tán Server
+              Giải tán nhóm
             </button>
           )}
 
-          {/* Nút Rời Nhóm (Bước 14.6) */}
+          {/* Nút rời nhóm (Bước 14.6) */}
           <button className={styles.leaveBtn} onClick={handleLeaveGroup}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
-            Rời khỏi Server
+            Rời khỏi nhóm
           </button>
         </div>
 
@@ -569,7 +569,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
               role="tabpanel"
               aria-labelledby="group-settings-tab-overview"
             >
-              <h2 className={styles.sectionTitle}>Tổng quan máy chủ</h2>
+              <h2 className={styles.sectionTitle}>Tổng quan nhóm</h2>
               
               <div className={styles.groupInfo}>
                 <label className={`${styles.icon} ${currentUserRole === 'Owner' ? styles.editableIcon : ''}`}>
@@ -602,7 +602,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
               {currentUserRole === 'Owner' && (
                 <form className={styles.editForm} onSubmit={handleSaveOverview}>
                   <label className={styles.formField}>
-                    <span>Tên Server</span>
+                    <span>Tên nhóm</span>
                     <input
                       value={editName}
                       maxLength={100}
@@ -646,7 +646,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                     Mời bạn bè tham gia
                   </div>
                   <p className={styles.inviteDesc}>
-                    Chia sẻ mã mời này với người khác để họ có thể tham gia vào Server của bạn.
+                    Chia sẻ mã mời này với người khác để họ có thể tham gia vào nhóm của bạn.
                   </p>
                   <div className={styles.inviteBox}>
                     <div className={styles.inviteCode}>{inviteUrl}</div>
@@ -707,7 +707,7 @@ export const GroupSettingsModal = ({ group, onClose, onLeaveSuccess, onGroupUpda
                         <button 
                           className={styles.kickBtn}
                           onClick={() => handleKick(member.profile.id, member.profile.displayName)}
-                          title="Trục xuất khỏi Server"
+                          title="Trục xuất khỏi nhóm"
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />

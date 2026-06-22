@@ -12,8 +12,8 @@ interface CreateGroupModalProps {
 }
 
 /**
- * [Bước 13.1, 13.2]: Component Modal dùng để tạo Server (Nhóm) mới.
- * Cung cấp giao diện nhập tên và mô tả Server với hiệu ứng glassmorphism.
+ * [Bước 13.1, 13.2]: Component Modal dùng để tạo nhóm mới.
+ * Cung cấp giao diện nhập tên và mô tả nhóm với hiệu ứng glassmorphism.
  * 
  * @param onClose - Hàm đóng modal
  * @param onSubmit - Hàm xử lý khi gửi form
@@ -36,14 +36,14 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
   const MAX_DESC_LENGTH = 255;
 
   /**
-   * Xử lý gửi form tạo Server
+   * Xử lý gửi form tạo nhóm
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validate cơ bản
     if (!name.trim()) {
-      setError('Tên Server không được để trống');
+      setError('Tên nhóm không được để trống');
       return;
     }
 
@@ -54,7 +54,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
       await onSubmit(name.trim(), description.trim() || undefined);
       // Lưu ý: Việc đóng modal nên do component cha quyết định sau khi xử lý thành công
     } catch (err: any) {
-      setError(err.message || 'Đã có lỗi xảy ra khi tạo Server. Vui lòng thử lại.');
+      setError(err.message || 'Đã có lỗi xảy ra khi tạo nhóm. Vui lòng thử lại.');
       setIsSubmitting(false);
     }
   };
@@ -71,18 +71,18 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
         </button>
 
         <header className={styles.header}>
-          <h2 className={styles.title}>Tạo Server của bạn</h2>
+          <h2 className={styles.title}>Tạo nhóm của bạn</h2>
           <p className={styles.subtitle}>
-            Server là nơi bạn và bạn bè cùng trò chuyện. Hãy tạo một cái và bắt đầu cuộc vui!
+            Nhóm là nơi bạn và bạn bè cùng trò chuyện. Hãy tạo một nhóm và bắt đầu cuộc vui!
           </p>
         </header>
 
         <form className={styles.form} onSubmit={handleSubmit}>
-          {/* Tên Server (Bắt buộc) - [Bước 13.2] */}
+          {/* Tên nhóm (Bắt buộc) - [Bước 13.2] */}
           <div className={styles.formGroup}>
             <div className={styles.labelWrapper}>
               <label className={styles.label} htmlFor="group-name">
-                Tên Server <span style={{ color: 'var(--color-danger)' }}>*</span>
+                Tên nhóm <span style={{ color: 'var(--color-danger)' }}>*</span>
               </label>
               <span className={styles.charCounter}>
                 {name.length}/{MAX_NAME_LENGTH}
@@ -92,7 +92,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
               id="group-name"
               type="text"
               className={styles.input}
-              placeholder="Nhập tên server của bạn..."
+              placeholder="Nhập tên nhóm của bạn..."
               value={name}
               maxLength={MAX_NAME_LENGTH}
               onChange={(e) => {
@@ -104,7 +104,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
             />
           </div>
 
-          {/* Mô tả Server (Tùy chọn) - [Bước 13.2] */}
+          {/* Mô tả nhóm (Tùy chọn) - [Bước 13.2] */}
           <div className={styles.formGroup}>
             <div className={styles.labelWrapper}>
               <label className={styles.label} htmlFor="group-desc">Mô tả</label>
@@ -115,7 +115,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
             <textarea
               id="group-desc"
               className={styles.textarea}
-              placeholder="Một vài dòng giới thiệu về server này..."
+              placeholder="Một vài dòng giới thiệu về nhóm này..."
               value={description}
               maxLength={MAX_DESC_LENGTH}
               onChange={(e) => setDescription(e.target.value)}
@@ -150,7 +150,7 @@ export const CreateGroupModal = ({ onClose, onSubmit }: CreateGroupModalProps) =
                   Đang tạo...
                 </>
               ) : (
-                'Tạo Server'
+                'Tạo nhóm'
               )}
             </button>
           </div>

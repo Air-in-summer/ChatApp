@@ -13,6 +13,9 @@ namespace MultiRoomChatWebApp.Server.Modules.User.Controllers;
 [Authorize]
 public class UserController : ControllerBase
 {
+    private const int DefaultSearchPageSize = 10;
+    private const int MaxSearchPageSize = 50;
+
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IUserService _userService;
 
@@ -76,25 +79,33 @@ public class UserController : ControllerBase
     }
 
     /// <summary>
-    /// [GET] /api/v1/users/search?keyword=... - Tìm kiếm người dùng theo Username hoặc DisplayName
+    /// [GET] /api/v1/users/search?keyword=...&page=1&pageSize=10 - Tìm kiếm người dùng theo Username hoặc DisplayName.
     /// </summary>
     /// <param name="keyword">Từ khóa tìm kiếm (tối thiểu 1 ký tự)</param>
-    /// <returns>Danh sách tối đa 10 người dùng khớp với từ khóa</returns>
+    /// <param name="page">Trang kết quả cần lấy, bắt đầu từ 1.</param>
+    /// <param name="pageSize">Số kết quả mỗi trang, tối đa 50.</param>
+    /// <returns>Kết quả tìm kiếm kèm thông tin phân trang.</returns>
     /// <remarks>
     /// Response Success (200):
-    /// [
-    ///   { "id": "guid", "username": "imgemini", "displayName": "Gemini AI" },
-    ///   ...
-    /// ]
+    /// {
+    ///   "items": [{ "id": "guid", "username": "imgemini", "displayName": "Gemini AI" }],
+    ///   "page": 1,
+    ///   "pageSize": 10,
+    ///   "totalCount": 100,
+    ///   "totalPages": 10
+    /// }
     ///
     /// Response Error:
-    /// - 400: Keyword rỗng hoặc không hợp lệ.
+    /// - 400: Keyword rỗng, page/pageSize không hợp lệ.
     /// - 401: Chưa đăng nhập (thiếu JWT token).
     /// </remarks>
     [HttpGet("search")]
-    [ProducesResponseType(typeof(IEnumerable<UserSearchDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(UserSearchResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> SearchUsers([FromQuery] string keyword)
+    public async Task<IActionResult> SearchUsers(
+        [FromQuery] string keyword,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = DefaultSearchPageSize)
     {
         // Parse userId từ JWT claim
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -104,7 +115,13 @@ public class UserController : ControllerBase
         if (string.IsNullOrWhiteSpace(keyword) || keyword.Length < 1)
             throw ApiException.BadRequest("invalid_search_keyword", "Từ khóa tìm kiếm không được để trống.");
 
-        var results = await _userService.SearchByKeywordAsync(keyword, currentUserId);
+        if (page < 1)
+            throw ApiException.BadRequest("invalid_search_page", "Trang tìm kiếm phải lớn hơn hoặc bằng 1.");
+
+        if (pageSize < 1 || pageSize > MaxSearchPageSize)
+            throw ApiException.BadRequest("invalid_search_page_size", $"Số kết quả mỗi trang phải từ 1 đến {MaxSearchPageSize}.");
+
+        var results = await _userService.SearchByKeywordAsync(keyword, currentUserId, page, pageSize);
         return Ok(results);
     }
 

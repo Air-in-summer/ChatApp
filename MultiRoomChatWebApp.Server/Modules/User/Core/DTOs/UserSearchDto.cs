@@ -11,3 +11,15 @@ public class UserSearchDto
     public string DisplayName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
 }
+
+/// <summary>
+/// DTO trả về kết quả tìm kiếm người dùng theo trang.
+/// </summary>
+public class UserSearchResponseDto
+{
+    public IReadOnlyList<UserSearchDto> Items { get; set; } = Array.Empty<UserSearchDto>();
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}

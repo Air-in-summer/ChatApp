@@ -32,6 +32,14 @@ export interface UserSearchResult {
   avatarUrl?: string | null;
 }
 
+export interface UserSearchResponse {
+  items: UserSearchResult[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 /**
  * Trạng thái "Phòng Ảo" (Virtual Room) - Chưa được tạo trong DB.
  * Chỉ tồn tại trên RAM, khi gửi tin nhắn đầu tiên mới tạo phòng thật.

@@ -1,8 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../api/apiClient';
-import type { UserSearchResult } from '../../types/chat';
+import type { UserSearchResponse, UserSearchResult } from '../../types/chat';
 import styles from './UserSearchModal.module.css';
+
+const USER_SEARCH_PAGE_SIZE = 10;
+
+const getPaginationItems = (currentPage: number, totalPages: number): Array<number | 'ellipsis'> => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const normalizedPages = Array.from(pages)
+    .filter(page => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right);
+
+  return normalizedPages.flatMap((page, index) => {
+    const previousPage = normalizedPages[index - 1];
+    if (!previousPage || page - previousPage === 1) {
+      return [page];
+    }
+
+    return ['ellipsis' as const, page];
+  });
+};
 
 interface UserSearchModalProps {
   onClose: () => void;
@@ -27,8 +49,11 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
   const { isAuthenticated } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchRequestIdRef = useRef(0);
 
   // Focus vào input khi Modal mở
   useEffect(() => {
@@ -46,8 +71,13 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
 
   // Debounce search - gọi API sau 300ms idle
   useEffect(() => {
+    searchRequestIdRef.current += 1;
+    const requestId = searchRequestIdRef.current;
+
     if (!query.trim() || query.length < 2) {
       setResults([]);
+      setTotalPages(0);
+      setIsSearching(false);
       return;
     }
 
@@ -56,19 +86,69 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const response = await apiClient.get<UserSearchResult[]>(
-          `/api/v1/users/search?keyword=${encodeURIComponent(query)}`
+        const response = await apiClient.get<UserSearchResponse>(
+          `/api/v1/users/search?keyword=${encodeURIComponent(query)}&page=${page}&pageSize=${USER_SEARCH_PAGE_SIZE}`
         );
-        setResults(response.data);
+
+        if (searchRequestIdRef.current !== requestId) return;
+
+        setResults(response.data.items);
+        setTotalPages(response.data.totalPages);
       } catch {
+        if (searchRequestIdRef.current !== requestId) return;
+
         setResults([]);
+        setTotalPages(0);
       } finally {
-        setIsSearching(false);
+        if (searchRequestIdRef.current === requestId) {
+          setIsSearching(false);
+        }
       }
     }, 300);
 
     return () => clearTimeout(timer); // Cleanup debounce
-  }, [query, isAuthenticated]);
+  }, [query, page, isAuthenticated]);
+
+  const renderPagination = () => {
+    if (totalPages <= 1 || query.trim().length < 2) return null;
+
+    return (
+      <nav className={styles.pagination} aria-label="Phân trang kết quả tìm kiếm">
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => setPage(currentPage => Math.max(1, currentPage - 1))}
+          disabled={page === 1 || isSearching}
+        >
+          ‹
+        </button>
+        {getPaginationItems(page, totalPages).map((item, index) =>
+          item === 'ellipsis' ? (
+            <span key={`ellipsis-${index}`} className={styles.paginationEllipsis}>…</span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              className={`${styles.pageButton} ${item === page ? styles.activePageButton : ''}`}
+              aria-current={item === page ? 'page' : undefined}
+              onClick={() => setPage(item)}
+              disabled={isSearching}
+            >
+              {item}
+            </button>
+          ),
+        )}
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => setPage(currentPage => Math.min(totalPages, currentPage + 1))}
+          disabled={page >= totalPages || isSearching}
+        >
+          ›
+        </button>
+      </nav>
+    );
+  };
 
   return (
     <>
@@ -91,7 +171,10 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
             type="text"
             placeholder="Tìm theo tên hoặc username..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
             autoComplete="off"
           />
 
@@ -135,6 +218,7 @@ export const UserSearchModal = ({ onClose, onSelectUser }: UserSearchModalProps)
               </div>
             </button>
           ))}
+          {!isSearching && renderPagination()}
         </div>
       </div>
     </>

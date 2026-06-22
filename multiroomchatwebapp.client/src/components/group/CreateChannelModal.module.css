@@ -139,7 +139,7 @@
   background: var(--color-surface);
 }
 
-/* Radio Group for Channel Type */
+/* Radio Group for room type */
 .radioGroup {
   display: flex;
   flex-direction: column;
@@ -196,8 +196,10 @@
 }
 
 .radioDesc {
+  display: block;
   font-size: 0.8rem;
   color: var(--color-text-muted);
+  line-height: 1.45;
 }
 
 .radioCheck {
@@ -231,8 +233,10 @@
 }
 
 .toggleTitle {
+  display: block;
   font-weight: 600;
   color: var(--color-text);
+  margin-bottom: 2px;
 }
 
 .toggleSwitch {

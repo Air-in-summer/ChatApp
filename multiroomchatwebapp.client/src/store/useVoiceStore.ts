@@ -125,6 +125,9 @@ interface VoiceState {
   /** Đang chia sẻ màn hình không */
   isScreenSharing: boolean;
 
+  /** Participant remote đang được focus để phát audio từ screen share */
+  focusedScreenShareAudioParticipantId: string | null;
+
   // ──────────────────────────────────────────────
   // Cài đặt thiết bị (persist vào localStorage)
   // ──────────────────────────────────────────────
@@ -212,6 +215,9 @@ interface VoiceState {
   /** Bật/tắt Screen Share */
   setScreenSharing: (sharing: boolean) => void;
 
+  /** Chọn participant remote được phép phát audio screen share */
+  setFocusedScreenShareAudioParticipant: (participantId: string | null) => void;
+
   // --- Device settings ---
 
   /** Chọn thiết bị Mic (lưu vào localStorage) */
@@ -282,6 +288,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   isDeafened: false,
   isCameraEnabled: false, // Mặc định tắt cam (giống Discord)
   isScreenSharing: false,
+  focusedScreenShareAudioParticipantId: null,
   deviceSettings: loadDeviceSettings(),
 
   // --- Connection actions ---
@@ -299,6 +306,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       },
       tokenMetadata: null,
       liveKitRoom: null,
+      focusedScreenShareAudioParticipantId: null,
       errorMessage: null,
     }),
 
@@ -310,6 +318,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       activeSession: session,
       tokenMetadata: null,
       liveKitRoom: null,
+      focusedScreenShareAudioParticipantId: null,
       errorMessage: null,
     }),
 
@@ -370,6 +379,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     set({
       connectionStatus: 'error',
       liveKitRoom: null,
+      focusedScreenShareAudioParticipantId: null,
       errorMessage: message,
     }),
 
@@ -394,6 +404,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       isDeafened: false,
       isCameraEnabled: false,
       isScreenSharing: false,
+      focusedScreenShareAudioParticipantId: null,
     });
   },
 
@@ -412,6 +423,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setCameraEnabled: (enabled) => set({ isCameraEnabled: enabled }),
 
   setScreenSharing: (sharing) => set({ isScreenSharing: sharing }),
+
+  setFocusedScreenShareAudioParticipant: (participantId) =>
+    set({ focusedScreenShareAudioParticipantId: participantId }),
 
   // --- Device settings (persist vào localStorage) ---
 

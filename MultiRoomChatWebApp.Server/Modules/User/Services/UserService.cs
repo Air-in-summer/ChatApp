@@ -13,6 +13,7 @@ public class UserService : IUserService
     private const int MaxAvatarUrlLength = 2048;
     private const int MinPasswordLength = 8;
     private const int MaxPasswordLength = 100;
+    private const int MaxSearchPageSize = 50;
 
     private readonly AppDbContext _dbContext;
     private readonly IAuthSessionService _authSessionService;
@@ -37,23 +38,37 @@ public class UserService : IUserService
     /// </summary>
     /// <param name="keyword">Chuỗi tìm kiếm bất kỳ (Contains)</param>
     /// <param name="currentUserId">Loại bản thân khỏi kết quả</param>
-    /// <returns>Tối đa 10 user khớp nhất</returns>
+    /// <param name="page">Trang kết quả cần lấy, bắt đầu từ 1.</param>
+    /// <param name="pageSize">Số kết quả mỗi trang, tối đa 50.</param>
+    /// <returns>Kết quả tìm kiếm kèm metadata phân trang.</returns>
     /// <remarks>
     /// Luồng xử lý:
     /// 1. Cắt khoảng trắng chuẩn bị chuỗi kw.
     /// 2. Áp dụng EF.Functions.ILike thay thế StartsWith. Hàm này tự bỏ qua phân biệt hoa thường.
     /// 3. Sử dụng ký tự đại diện % ở 2 đầu (Contains Search).
-    /// 4. LUÔN LUÔN Bắt buộc có .OrderBy để chống lại lỗi Unpredictable Results của PostgreSQL.
+    /// 4. Đếm tổng số kết quả sau khi áp dụng block policy.
+    /// 5. LUÔN LUÔN bắt buộc có .OrderBy ổn định trước khi Skip/Take để phân trang không bị nhảy kết quả.
     /// </remarks>
-    public async Task<IEnumerable<UserSearchDto>> SearchByKeywordAsync(string keyword, Guid currentUserId)
+    public async Task<UserSearchResponseDto> SearchByKeywordAsync(string keyword, Guid currentUserId, int page, int pageSize)
     {
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Clamp(pageSize, 1, MaxSearchPageSize);
         var kw = keyword.Trim()
             .Replace("\\", "\\\\")
             .Replace("%", "\\%")
             .Replace("_", "\\_");
 
         if (string.IsNullOrEmpty(kw))
-            return Enumerable.Empty<UserSearchDto>();
+        {
+            return new UserSearchResponseDto
+            {
+                Items = Array.Empty<UserSearchDto>(),
+                Page = safePage,
+                PageSize = safePageSize,
+                TotalCount = 0,
+                TotalPages = 0
+            };
+        }
 
         var excludedUserIds = await _relationshipGraphService.GetBlockedOrBlockingUserIdsAsync(currentUserId);
 
@@ -69,8 +84,13 @@ public class UserService : IUserService
             query = query.Where(u => !excludedUserIds.Contains(u.Id));
         }
 
+        var totalCount = await query.CountAsync();
         var users = await query
             .OrderBy(u => u.DisplayName)
+            .ThenBy(u => u.Username)
+            .ThenBy(u => u.Id)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
             .Select(u => new UserSearchDto
             {
                 Id = u.Id,
@@ -78,10 +98,16 @@ public class UserService : IUserService
                 DisplayName = u.DisplayName,
                 AvatarUrl = u.AvatarUrl
             })
-            .Take(10)
             .ToListAsync();
 
-        return users;
+        return new UserSearchResponseDto
+        {
+            Items = users,
+            Page = safePage,
+            PageSize = safePageSize,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)safePageSize)
+        };
     }
 
     /// <summary>

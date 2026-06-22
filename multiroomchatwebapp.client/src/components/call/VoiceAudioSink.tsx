@@ -12,23 +12,58 @@ import { useVoiceStore } from '../../store/useVoiceStore';
 
 interface AudioTrackElementProps {
   track: AudioTrack;
+  muted?: boolean;
 }
 
-const AudioTrackElement = ({ track }: AudioTrackElementProps) => {
+const AudioTrackElement = ({ track, muted = false }: AudioTrackElementProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const audioElement = audioRef.current;
     if (!audioElement) return;
 
+    audioElement.muted = muted;
     track.attach(audioElement);
 
     return () => {
       track.detach(audioElement);
+      audioElement.pause();
+      audioElement.srcObject = null;
+      audioElement.removeAttribute('src');
+      audioElement.load();
     };
   }, [track]);
 
-  return <audio ref={audioRef} autoPlay />;
+  useEffect(() => {
+    const audioElement = audioRef.current;
+    if (!audioElement) return;
+
+    audioElement.muted = muted;
+  }, [muted]);
+
+  return <audio ref={audioRef} autoPlay muted={muted} />;
+};
+
+const getParticipantAudioFocusId = (participant: Participant) =>
+  participant.sid || participant.identity || null;
+
+const isPlayableAudioPublication = (
+  publication: TrackPublication,
+) => {
+  if (!publication.audioTrack || publication.isMuted) return false;
+
+  return publication.source === Track.Source.Microphone ||
+    publication.source === Track.Source.ScreenShareAudio;
+};
+
+const shouldMuteAudioPublication = (
+  publication: TrackPublication,
+  participant: Participant,
+  focusedScreenShareAudioParticipantId: string | null,
+) => {
+  if (publication.source !== Track.Source.ScreenShareAudio) return false;
+
+  return getParticipantAudioFocusId(participant) !== focusedScreenShareAudioParticipantId;
 };
 
 /**
@@ -38,6 +73,7 @@ const AudioTrackElement = ({ track }: AudioTrackElementProps) => {
 export const VoiceAudioSink = () => {
   const liveKitRoom = useVoiceStore((s) => s.liveKitRoom);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
+  const focusedScreenShareAudioParticipantId = useVoiceStore((s) => s.focusedScreenShareAudioParticipantId);
   const [, forceRender] = useState(0);
 
   useEffect(() => {
@@ -87,28 +123,24 @@ export const VoiceAudioSink = () => {
     return null;
   }
 
-  const localParticipant = liveKitRoom.localParticipant;
-  const participants = [localParticipant, ...Array.from(liveKitRoom.remoteParticipants.values())];
-  const remoteAudioTracks = participants
-    .filter((participant) => participant !== localParticipant)
+  const remoteAudioTracks = Array.from(liveKitRoom.remoteParticipants.values())
     .flatMap((participant) =>
       participant
         .getTrackPublications()
         .filter((publication) =>
-          (publication.source === Track.Source.Microphone || publication.source === Track.Source.ScreenShareAudio) &&
-          publication.audioTrack &&
-          !publication.isMuted
+          isPlayableAudioPublication(publication)
         )
         .map((publication) => ({
           id: `${participant.sid}-${publication.trackSid}`,
           track: publication.audioTrack as AudioTrack,
+          muted: shouldMuteAudioPublication(publication, participant, focusedScreenShareAudioParticipantId),
         })),
     );
 
   return (
     <>
-      {remoteAudioTracks.map(({ id, track }) => (
-        <AudioTrackElement key={id} track={track} />
+      {remoteAudioTracks.map(({ id, track, muted }) => (
+        <AudioTrackElement key={id} track={track} muted={muted} />
       ))}
     </>
   );

@@ -3,7 +3,7 @@ import { apiClient } from '../../api/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { useUserRelationshipsStore } from '../../store/useUserRelationshipsStore';
 import { UserActionMenu } from '../user/UserActionMenu';
-import type { UserSearchResult } from '../../types/chat';
+import type { UserSearchResponse, UserSearchResult } from '../../types/chat';
 import type {
   BlockedUserDto,
   FriendDto,
@@ -13,6 +13,8 @@ import type {
 import styles from './FriendsPanel.module.css';
 
 type FriendsTab = 'friends' | 'pending' | 'incoming' | 'blocked';
+
+const USER_SEARCH_PAGE_SIZE = 10;
 
 const tabs: Array<{ id: FriendsTab; label: string }> = [
   { id: 'friends', label: 'Bạn bè' },
@@ -62,12 +64,34 @@ const SectionState = ({ children }: { children: string }) => (
   <div className={styles.sectionState}>{children}</div>
 );
 
+const getPaginationItems = (currentPage: number, totalPages: number): Array<number | 'ellipsis'> => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const normalizedPages = Array.from(pages)
+    .filter(page => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right);
+
+  return normalizedPages.flatMap((page, index) => {
+    const previousPage = normalizedPages[index - 1];
+    if (!previousPage || page - previousPage === 1) {
+      return [page];
+    }
+
+    return ['ellipsis' as const, page];
+  });
+};
+
 export const FriendsPanel = () => {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<FriendsTab>('friends');
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchTotalPages, setSearchTotalPages] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchRequestIdRef = useRef(0);
@@ -118,6 +142,7 @@ export const FriendsPanel = () => {
 
     if (!isAuthenticated || keyword.length < 2) {
       setSearchResults([]);
+      setSearchTotalPages(0);
       setIsSearching(false);
       setSearchError(null);
       return;
@@ -128,16 +153,18 @@ export const FriendsPanel = () => {
 
     const timer = window.setTimeout(async () => {
       try {
-        const response = await apiClient.get<UserSearchResult[]>(
-          `/api/v1/users/search?keyword=${encodeURIComponent(keyword)}`,
+        const response = await apiClient.get<UserSearchResponse>(
+          `/api/v1/users/search?keyword=${encodeURIComponent(keyword)}&page=${searchPage}&pageSize=${USER_SEARCH_PAGE_SIZE}`,
         );
 
         if (searchRequestIdRef.current !== requestId) return;
 
-        setSearchResults(response.data.filter(user => !isBlockedByCurrentUser(user.id)));
+        setSearchResults(response.data.items.filter(user => !isBlockedByCurrentUser(user.id)));
+        setSearchTotalPages(response.data.totalPages);
       } catch {
         if (searchRequestIdRef.current !== requestId) return;
         setSearchResults([]);
+        setSearchTotalPages(0);
         setSearchError('Không thể tìm kiếm người dùng.');
       } finally {
         if (searchRequestIdRef.current === requestId) {
@@ -147,7 +174,7 @@ export const FriendsPanel = () => {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [isAuthenticated, isBlockedByCurrentUser, searchQuery]);
+  }, [isAuthenticated, isBlockedByCurrentUser, searchPage, searchQuery]);
 
   const counts = useMemo(
     () => ({
@@ -204,6 +231,47 @@ export const FriendsPanel = () => {
     </div>
   );
 
+  const renderSearchPagination = () => {
+    if (searchTotalPages <= 1 || searchQuery.trim().length < 2) return null;
+
+    return (
+      <nav className={styles.searchPagination} aria-label="Phân trang kết quả tìm kiếm">
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => setSearchPage(page => Math.max(1, page - 1))}
+          disabled={searchPage === 1 || isSearching}
+        >
+          ‹
+        </button>
+        {getPaginationItems(searchPage, searchTotalPages).map((item, index) =>
+          item === 'ellipsis' ? (
+            <span key={`ellipsis-${index}`} className={styles.paginationEllipsis}>…</span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              className={`${styles.pageButton} ${item === searchPage ? styles.activePageButton : ''}`}
+              aria-current={item === searchPage ? 'page' : undefined}
+              onClick={() => setSearchPage(item)}
+              disabled={isSearching}
+            >
+              {item}
+            </button>
+          ),
+        )}
+        <button
+          type="button"
+          className={styles.pageButton}
+          onClick={() => setSearchPage(page => Math.min(searchTotalPages, page + 1))}
+          disabled={searchPage >= searchTotalPages || isSearching}
+        >
+          ›
+        </button>
+      </nav>
+    );
+  };
+
   const renderFriends = () => (
     <PanelSection isLoading={isLoadingFriends} error={friendsError} empty={friends.length === 0} emptyText="Chưa có bạn bè.">
       {friends.map((friend: FriendDto) =>
@@ -227,7 +295,10 @@ export const FriendsPanel = () => {
           className={styles.searchInput}
           type="text"
           value={searchQuery}
-          onChange={event => setSearchQuery(event.target.value)}
+          onChange={event => {
+            setSearchQuery(event.target.value);
+            setSearchPage(1);
+          }}
           placeholder="Tìm theo tên hiển thị hoặc username"
           autoComplete="off"
         />
@@ -246,6 +317,7 @@ export const FriendsPanel = () => {
               setSearchResults(results => results.filter(result => result.id !== targetUserId));
             }),
           )}
+          {!isSearching && !searchError && renderSearchPagination()}
         </div>
       </section>
 

@@ -3,9 +3,9 @@ import type { CreateGroupChannelRequest } from '../../types/group';
 import styles from './CreateChannelModal.module.css';
 
 interface CreateChannelModalProps {
-  /** ID của Server đang thực hiện tạo kênh */
+  /** ID của nhóm đang thực hiện tạo phòng */
   groupId: string;
-  /** Tên của Server để hiển thị trong tiêu đề */
+  /** Tên nhóm để hiển thị trong tiêu đề */
   groupName: string;
   /** Đóng modal */
   onClose: () => void;
@@ -17,19 +17,19 @@ interface CreateChannelModalProps {
 }
 
 /**
- * [Bước 15.3]: Component Modal dùng để tạo Kênh (Channel) mới trong Server.
- * Thiết kế tinh tế với các tùy chọn Loại kênh (Text/Voice) và Chế độ riêng tư.
+ * [Bước 15.3]: Component Modal dùng để tạo phòng mới trong nhóm.
+ * Thiết kế tinh tế với các tùy chọn loại phòng (Text/Voice) và chế độ riêng tư.
  * 
- * @param groupId - ID Server
- * @param groupName - Tên Server
+ * @param groupId - ID nhóm
+ * @param groupName - Tên nhóm
  * @param onClose - Hàm đóng modal
  * @param onSubmit - Hàm xử lý khi gửi form
  * 
  * @remarks
  * Luồng xử lý:
- * 1. Nhập Tên Kênh (bắt buộc, max 100 ký tự).
- * 2. Chọn Loại Kênh (Text - Mặc định, Voice).
- * 3. Tùy chọn Kênh riêng tư (Toggle).
+ * 1. Nhập tên phòng (bắt buộc, max 100 ký tự).
+ * 2. Chọn loại phòng (Text - Mặc định, Voice).
+ * 3. Tùy chọn phòng riêng tư (Toggle).
  * 4. Validate: Tên không trống và không chứa ký tự đặc biệt gây lỗi URL (Discord style).
  */
 export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChannelModalProps) => {
@@ -42,7 +42,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
   const MAX_NAME_LENGTH = 100;
 
   /**
-   * Xử lý gửi form tạo Kênh
+   * Xử lý gửi form tạo phòng
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +50,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
     // Validate cơ bản
     const cleanName = name.trim().toLowerCase().replace(/\s+/g, '-');
     if (!cleanName) {
-      setError('Tên kênh không được để trống');
+      setError('Tên phòng không được để trống');
       return;
     }
 
@@ -65,12 +65,12 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
       });
       // Component cha sẽ chịu trách nhiệm đóng modal khi API thành công
     } catch (err: any) {
-      setError(err.message || 'Đã có lỗi xảy ra khi tạo kênh. Vui lòng thử lại.');
+      setError(err.message || 'Đã có lỗi xảy ra khi tạo phòng. Vui lòng thử lại.');
       setIsSubmitting(false);
     }
   };
 
-  /** Format tên kênh khi nhập (discord-style: lowercase, no spaces) */
+  /** Format tên phòng khi nhập (discord-style: lowercase, no spaces) */
   const handleNameChange = (val: string) => {
     const formatted = val.toLowerCase().replace(/\s+/g, '-');
     setName(formatted);
@@ -88,14 +88,14 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
         </button>
 
         <header className={styles.header}>
-          <h2 className={styles.title}>Tạo Kênh</h2>
+          <h2 className={styles.title}>Tạo Phòng</h2>
           <p className={styles.subtitle}>trong {groupName}</p>
         </header>
 
         <form className={styles.form} onSubmit={handleSubmit}>
-          {/* Loại Kênh - Radio Group */}
+          {/* Loại Phòng - Radio Group */}
           <fieldset className={`${styles.formGroup} ${styles.fieldset}`}>
-            <legend className={styles.label}>Loại Kênh</legend>
+            <legend className={styles.label}>Loại Phòng</legend>
             <div className={styles.radioGroup}>
               <label
                 className={`${styles.radioItem} ${type === 'Text' ? styles.selected : ''}`}
@@ -154,10 +154,10 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
             </div>
           </fieldset>
 
-          {/* Tên Kênh */}
+          {/* Tên Phòng */}
           <div className={styles.formGroup}>
             <div className={styles.labelWrapper}>
-              <label className={styles.label} htmlFor="channel-name">Tên Kênh</label>
+              <label className={styles.label} htmlFor="channel-name">Tên Phòng</label>
               <span className={styles.charCounter}>{name.length}/{MAX_NAME_LENGTH}</span>
             </div>
             <div style={{ position: 'relative' }}>
@@ -166,7 +166,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                 id="channel-name"
                 className={styles.input}
                 style={{ paddingLeft: '32px' }}
-                placeholder="ten-kenh-moi"
+                placeholder="ten-phong-moi"
                 value={name}
                 maxLength={MAX_NAME_LENGTH}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -176,7 +176,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
             </div>
           </div>
 
-          {/* Kênh riêng tư - Toggle */}
+          {/* Phòng riêng tư - Toggle */}
           <div className={styles.toggleGroup}>
             <div className={styles.toggleLabelWrapper}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -184,8 +184,8 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
               <div className={styles.radioInfo}>
-                <span className={styles.toggleTitle}>Kênh riêng tư</span>
-                <span className={styles.radioDesc}>Chỉ những người được mời mới thấy kênh này.</span>
+                <span className={styles.toggleTitle}>Phòng riêng tư</span>
+                <span className={styles.radioDesc}>Chỉ những người được mời mới thấy phòng này.</span>
               </div>
             </div>
             <button
@@ -194,7 +194,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
               onClick={() => setIsPrivate(!isPrivate)}
               role="switch"
               aria-checked={isPrivate}
-              aria-label="Kênh riêng tư"
+              aria-label="Phòng riêng tư"
               disabled={isSubmitting}
             >
               <div className={styles.toggleHandle} />
@@ -218,7 +218,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
                   Đang tạo...
                 </>
               ) : (
-                'Tạo Kênh'
+                'Tạo Phòng'
               )}
             </button>
           </div>

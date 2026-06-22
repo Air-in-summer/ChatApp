@@ -527,7 +527,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
         )}
 
         <div className={styles.sectionHeader}>
-          <span className={styles.sectionTitle}>Kênh văn bản</span>
+          <span className={styles.sectionTitle}>Phòng Chat</span>
           {/* [Bước 15.2]: Nút tạo kênh mới - Chỉ hiện cho Owner/Admin */}
           {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
             <button 
@@ -630,7 +630,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
               {voiceRooms.length > 0 && (
                 <>
                   <div className={styles.sectionHeader}>
-                    <span className={styles.sectionTitle}>Kênh thoại</span>
+                    <span className={styles.sectionTitle}>Phòng Thoại</span>
                   </div>
                   {voiceRooms.map(room => (
                     <div

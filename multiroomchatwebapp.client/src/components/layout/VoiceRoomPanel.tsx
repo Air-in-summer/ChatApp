@@ -57,6 +57,9 @@ const getParticipantDisplayName = (participant: Participant, isLocal: boolean) =
 const getParticipantStableId = (participant: Participant) =>
   participant.sid || participant.identity || participant.name || 'unknown';
 
+const getParticipantAudioFocusId = (participant: Participant) =>
+  participant.sid || participant.identity || null;
+
 const getActiveVideoTrack = (participant: Participant, source: Track.Source): VideoTrack | null => {
   const publication = participant.getTrackPublication(source);
   if (!publication?.videoTrack || publication.isMuted) return null;
@@ -181,6 +184,7 @@ export const VoiceRoomPanel = ({
   const setDeafened = useVoiceStore((s) => s.setDeafened);
   const setCameraEnabled = useVoiceStore((s) => s.setCameraEnabled);
   const setScreenSharing = useVoiceStore((s) => s.setScreenSharing);
+  const setFocusedScreenShareAudioParticipant = useVoiceStore((s) => s.setFocusedScreenShareAudioParticipant);
 
   // Hook kết nối Voice
   const { joinVoiceRoom, leaveActiveVoiceSession } = useVoiceConnection();
@@ -267,7 +271,14 @@ export const VoiceRoomPanel = ({
     if (mediaTiles.some((tile) => tile.id === focusedTileId)) return;
 
     setFocusedTileId(null);
-  }, [focusedTileId, tileIdsKey, mediaTiles]);
+    setFocusedScreenShareAudioParticipant(null);
+  }, [focusedTileId, tileIdsKey, mediaTiles, setFocusedScreenShareAudioParticipant]);
+
+  useEffect(() => {
+    return () => {
+      setFocusedScreenShareAudioParticipant(null);
+    };
+  }, [setFocusedScreenShareAudioParticipant]);
 
   useEffect(() => {
     if (currentTilePage <= tilePageCount - 1) return;
@@ -276,6 +287,14 @@ export const VoiceRoomPanel = ({
   }, [currentTilePage, tilePageCount]);
 
   const handleSelectTile = (tileId: string) => {
+    const selectedTile = mediaTiles.find((tile) => tile.id === tileId);
+    const focusedParticipantId =
+      selectedTile?.kind === 'screen' && !selectedTile.isLocal
+        ? getParticipantAudioFocusId(selectedTile.participant)
+        : null;
+
+    setFocusedScreenShareAudioParticipant(focusedParticipantId);
+
     if (focusedTileId === tileId) {
       return;
     }
@@ -287,6 +306,7 @@ export const VoiceRoomPanel = ({
   const handleClearTileFocus = () => {
     setFocusedTileId(null);
     setCurrentTilePage(0);
+    setFocusedScreenShareAudioParticipant(null);
   };
 
   const handlePreviousTilePage = () => {

@@ -28,6 +28,8 @@ dist/
 build/
 .env
 .env.*.local
+deploy-out/
+*.tar
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
