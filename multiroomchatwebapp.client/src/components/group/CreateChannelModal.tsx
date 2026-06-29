@@ -30,7 +30,7 @@ interface CreateChannelModalProps {
  * 1. Nhập tên phòng (bắt buộc, max 100 ký tự).
  * 2. Chọn loại phòng (Text - Mặc định, Voice).
  * 3. Tùy chọn phòng riêng tư (Toggle).
- * 4. Validate: Tên không trống và không chứa ký tự đặc biệt gây lỗi URL (Discord style).
+ * 4. Validate: Tên không trống và không chứa ký tự đặc biệt gây lỗi URL
  */
 export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChannelModalProps) => {
   const [name, setName] = useState('');
@@ -70,7 +70,7 @@ export const CreateChannelModal = ({ groupName, onClose, onSubmit }: CreateChann
     }
   };
 
-  /** Format tên phòng khi nhập (discord-style: lowercase, no spaces) */
+  /** Format tên phòng khi nhập (style: lowercase, no spaces) */
   const handleNameChange = (val: string) => {
     const formatted = val.toLowerCase().replace(/\s+/g, '-');
     setName(formatted);

@@ -60,7 +60,7 @@ interface DeviceSettings {
  * State của Voice Module - GLOBAL và ĐỘCLẬP hoàn toàn với Chat UI.
  * 
  * @remarks
- * Nguyên tắc thiết kế (theo Discord):
+ * Nguyên tắc thiết kế :
  * - Voice session là global: user có thể đang trong phòng Voice và tự do
  *   chuyển sang bất kỳ Text Room/DM nào để chat. Voice vẫn chạy ngầm.
  * - `useVoiceStore` sống độc lập với `useChatStore`: việc thay đổi 
@@ -114,7 +114,7 @@ interface VoiceState {
   isMicEnabled: boolean;
 
   /** 
-   * Deafen = tắt cả nghe lẫn nói (giống Discord).
+   * Deafen = tắt cả nghe lẫn nói.
    * Khi Deafen = true → tự động mute Mic + không nhận audio từ người khác.
    */
   isDeafened: boolean;
@@ -284,9 +284,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   callUiStatus: null,
   liveKitRoom: null,
   errorMessage: null,
-  isMicEnabled: true,    // Mặc định bật mic khi join (giống Discord)
+  isMicEnabled: true,    // Mặc định bật mic khi join 
   isDeafened: false,
-  isCameraEnabled: false, // Mặc định tắt cam (giống Discord)
+  isCameraEnabled: false, // Mặc định tắt cam 
   isScreenSharing: false,
   focusedScreenShareAudioParticipantId: null,
   deviceSettings: loadDeviceSettings(),
@@ -415,7 +415,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setDeafened: (deafened) =>
     set({
       isDeafened: deafened,
-      // Khi Deafen → tự động mute Mic (giống Discord)
+      // Khi Deafen → tự động mute Mic 
       // Khi Un-deafen → KHÔNG tự động unmute (user phải tự bật lại)
       ...(deafened ? { isMicEnabled: false } : {}),
     }),

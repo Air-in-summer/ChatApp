@@ -4,7 +4,9 @@
 .vs/
 docker/
 Latex/
+Latex_In/
 Slides - Copy/
+tmp/
 docker-compose.yml
 livekit.yaml
 bin/

@@ -679,7 +679,7 @@ export const ChatColumn = ({
   // Ref giữ roomId trước đó để gọi trimRoom khi user chuyển phòng
   const prevRoomIdRef = useRef<string | null>(null);
 
-  // Hook: Trim phòng cũ khi chuyển sang phòng mới (Discord pattern)
+  // Hook: Trim phòng cũ khi chuyển sang phòng mới 
   // Giữ lại 50 tin mới nhất để dùng lại làm cache khi quay lại, xóa tin cũ để tiết kiệm RAM
   useEffect(() => {
     const prevRoomId = prevRoomIdRef.current;

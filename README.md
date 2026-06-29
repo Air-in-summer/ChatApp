@@ -1,192 +1,294 @@
-# Ứng dụng Giao tiếp Nhóm Đa phòng Thời gian Thực
+# MultiRoomChatWebApp
 
-> **Tên đề tài**: Xây dựng ứng dụng giao tiếp nhóm đa phòng với văn bản và thoại thời gian thực  
-> **Mô tả ngắn**: "Light Discord" - Web app chat nhóm với kiến trúc phân cấp Group → Room, hỗ trợ text/voice real-time.
+MultiRoomChatWebApp là ứng dụng chat web thời gian thực theo mô hình nhóm nhiều phòng: người dùng có thể đăng ký/đăng nhập, kết bạn, tạo nhóm, tạo phòng text/voice, nhắn tin, gửi media và gọi voice/direct call qua LiveKit.
 
----
+Project hiện là monorepo full-stack:
 
-## 🎯 Mục tiêu dự án
+- Frontend: React + TypeScript + Vite.
+- Backend: ASP.NET Core Web API + SignalR.
+- Dữ liệu: PostgreSQL, MongoDB, Redis, Redis Streams.
+- Media/voice: S3-compatible storage/MinIO và LiveKit.
 
-- Xây dựng ứng dụng web cho phép tạo **nhóm (Group)** chứa nhiều **phòng (Room)** độc lập
-- Hỗ trợ **chat văn bản** và **thoại thời gian thực** trong từng phòng
-- Đảm bảo đồng bộ trạng thái tức thì (online, typing, voice status) không cần reload
-- Áp dụng kiến trúc **Modular Monolith** với **3 lớp database**: PostgreSQL + MongoDB + Redis
+> Lưu ý bảo mật: ứng dụng dùng BFF session cookie + CSRF. Browser không lưu bearer access token cho API chính.
 
----
+## Tính năng chính
 
-## 📐 Phạm vi (Scope)
+- Xác thực bằng email/password, Google OAuth, BFF session cookie, CSRF protection và session cleanup.
+- Hồ sơ người dùng, tìm kiếm người dùng, kết bạn, chặn người dùng và trạng thái online/offline.
+- Nhóm/phòng theo mô hình Group -> Room, hỗ trợ room text, room voice, DM, room private, mã mời, role Owner/Admin/Member, chuyển quyền sở hữu, kick/leave/delete group.
+- Chat realtime qua SignalR: gửi tin, lịch sử tin nhắn, typing indicator, read receipt, sửa/xóa tin, reaction và ghim tin nhắn.
+- Chat broker dựa trên Redis Streams: tách luồng admission, persistence, delivery, retry/dead-letter và idempotency.
+- Lưu trữ message/media: MongoDB cho message, PostgreSQL cho dữ liệu quan hệ, MinIO/S3-compatible storage cho avatar, icon nhóm và attachment.
+- Voice qua LiveKit: voice channel trong group, direct call trong DM, mic/camera/screen share, floating call UI và xử lý missed call.
+- Production/demo compose với Caddy reverse proxy, app container, PostgreSQL, MongoDB, Redis, Redis broker và MinIO.
 
-| Hạng mục | Chi tiết |
-|----------|----------|
-| **Loại hình** | Web Application (SPA) |
-| **Thời gian** | 13 tuần |
-| **Nhân sự** | 1 Developer (Full-stack) |
-| **Ràng buộc** | Không AI/Bot, không Mobile App native, không video call/screen share |
+## Kiến trúc tổng quan
 
-### ✅ Trong scope (Must-have)
+```text
+React/Vite SPA
+  |  HTTPS + BFF cookie + CSRF
+  |  SignalR WebSocket (/hub/chat)
+  v
+ASP.NET Core API
+  |-- Auth/User/Group/Room modules
+  |-- Chat module + SignalR hub
+  |-- Media module + S3-compatible storage
+  |-- Voice module + LiveKit token/session
+  |
+  |-- PostgreSQL: users, sessions, groups, rooms, memberships, read receipts
+  |-- MongoDB: messages, attachments, voice session records
+  |-- Redis: cache, presence, read receipt buffer
+  `-- Redis Streams: durable chat broker
 
-- Auth: Đăng ký, đăng nhập, JWT
-- Group: Tạo, mời thành viên, quản lý cơ bản
-- Room: Tạo phòng Text/Voice, phân loại, xóa
-- Chat: Gửi tin text/ảnh, lịch sử theo phòng, typing indicator
-- Voice: Join/leave, audio 2 chiều, mute/deafen, visualizer người đang nói
-- Real-time: Online status, sync danh sách member, không cần F5
-- Database: PostgreSQL (structured) + MongoDB (logs) + Redis (cache/state)
-
-### ❕ Ngoài scope (Cần mở rộng sau này)
-
-- Video call / Screen sharing
-- Push notification mobile
-- Phân quyền phức tạp (chỉ Admin/Member)
-- Search tin nhắn nâng cao (chỉ query cơ bản)
-- Reaction/emoji tùy chỉnh
-- Quick Room auto-delete (tính năng mở rộng, làm nếu còn thời gian)
-
----
-
-## 🛠️ Tech Stack
-
-**Frontend:**
-
-- React 18 + TypeScript
-- Vite (build tool)
-- Redux Toolkit / Zustand (state management)
-- Socket.IO Client / SignalR Client
-- Ant Design / MUI (UI library)
-- Simple-Peer / WebRTC API (voice)
-
-**Backend:**
-
-- .NET 8 + ASP.NET Core Web API
-- C# 12, async/await throughout
-- SignalR (WebSocket management)
-- Entity Framework Core (PostgreSQL)
-- MongoDB.Driver (MongoDB)
-- StackExchange.Redis (Redis)
-- FluentValidation, AutoMapper
-
-**Database:**
-
-- PostgreSQL: Users, Groups, Rooms, Memberships, Roles
-- MongoDB: Messages, ActivityLogs, CallMetadata
-- Redis: Session cache, typing state, online status, SignalR backplane
-
-**Infrastructure:** (để sau)
-
----
-
-## 🏗️ Kiến trúc hệ thống
-
-```
-┌─────────────────┐
-│    Frontend     │
-│   (ReactTS)     │
-└────┬────────────┘
-     │ HTTPS / WSS
-     ▼
-┌─────────────────┐
-│     Nginx       │
-│ (Reverse Proxy) │
-└────┬────────────┘
-     │
-     ▼
-┌─────────────────┐
-│    Backend      │
-│    (.NET 8)     │
-│                 │
-│  ┌───────────┐  │
-│  │   Auth    │  │
-│  ├───────────┤  │
-│  │   Group   │  │
-│  ├───────────┤  │
-│  │   Chat    │◄─┼── SignalR Hub
-│  ├───────────┤  │
-│  │   Voice   │  │
-│  └───────────┘  │
-└────┬────┬────┬──┘
-     │    │    │
-     ▼    ▼    ▼
-┌────────┐ ┌────────┐ ┌────────┐
-│PostgreSQL│ │MongoDB │ │ Redis  │
-│(Users,  │ │(Messages│ │(Cache, │
-│ Groups, │ │  Logs)  │ │ State, │
-│ Rooms)  │ │         │ │Backplane│
-└────────┘ └────────┘ └────────┘
+LiveKit handles browser media transport directly.
+Caddy fronts the production/demo app and media endpoint.
 ```
 
-### Modular Monolith Structure (Backend)
+## Tech stack
 
-Sử dụng kiến trúc lai giữa **Modular Monolith** và **Vertical Slice**: Mọi logic từ đường dẫn API đến xử lý nghiệp vụ đều đóng gói gọn trong một module.
+| Phần | Công nghệ |
+| --- | --- |
+| Frontend | React 19, TypeScript 5.9, Vite 8, React Router 7, Zustand, Axios, SignalR client, LiveKit client |
+| Backend | .NET 8, ASP.NET Core, SignalR, EF Core/Npgsql, MongoDB.Driver, StackExchange.Redis, MediatR, FluentValidation, Serilog |
+| Database/cache | PostgreSQL 16, MongoDB 7, Redis 7 |
+| Media/voice | MinIO hoặc S3-compatible storage, LiveKit |
+| Deploy | Docker multi-stage build, `compose.demo.yml`, Caddy |
 
+## Cấu trúc repo
+
+```text
+.
+|-- MultiRoomChatWebApp.Server/        # ASP.NET Core API + SignalR
+|   |-- Modules/
+|   |   |-- Auth/
+|   |   |-- Chat/
+|   |   |-- Group/
+|   |   |-- Media/
+|   |   |-- Notification/
+|   |   |-- Room/
+|   |   |-- User/
+|   |   `-- Voice/
+|   |-- Infrastructure/Database/       # DbContext + EF migrations
+|   |-- Shared/                        # middleware, options, exceptions
+|   |-- Dockerfile
+|   `-- Program.cs
+|-- multiroomchatwebapp.client/        # React/Vite SPA
+|   |-- src/api/
+|   |-- src/components/
+|   |-- src/context/
+|   |-- src/hooks/
+|   |-- src/pages/
+|   |-- src/services/
+|   |-- src/store/
+|   `-- src/types/
+|-- deploy/migrations/                 # SQL migration artifact cho deploy
+|-- compose.demo.yml                   # Production/demo compose
+|-- Caddyfile                          # Reverse proxy cho app/media
+|-- .env.example                       # Template biến môi trường production/demo
+`-- MultiRoomChatWebApp.sln
 ```
-Backend/
-├── Modules/                   # 📦 CHIA THEO NGHIỆP VỤ (Tính năng)
-│   ├── Auth/
-│   │   ├── Controllers/       # API Endpoints (Vd: Login, Register)
-│   │   ├── Core/              # Entities, Interfaces, DTOs
-│   │   └── Services/          # Business Logic
-│   ├── Group/                 # (Tương tự Auth)
-│   ├── Chat/
-│   │   ├── Core/
-│   │   ├── Hubs/              # SignalR Hub của riêng Chat
-│   │   └── Services/
-│   └── Voice/                 # Xử lý WebRTC Signaling
-├── Infrastructure/            # 🔌 CẤU HÌNH HẠ TẦNG (Không chứa logic nghiệp vụ)
-│   ├── Database/              # Chứa Postgres DbContext & Mongo Config
-│   └── Cache/                 # Code cấu hình kết nối Redis
-├── Shared/                    # 🤝 CODE DÙNG CHUNG CỦA TOÀN APP
-│   ├── Exceptions/            # Custom Exceptions (NotFound, BadRequest...)
-│   └── Middleware/            # Global Error Handler, JWT Validation
-└── Program.cs                 # File khởi chạy duy nhất (Composition Root)
-```
 
----
+Một số file dùng cho máy local như `appsettings*.json`, `.env`, `docker-compose.yml`, `livekit.yaml`, build output, log và tài liệu nội bộ đang được ignore để tránh đẩy nhầm secret hoặc artifact lên GitHub.
 
-## 🚀 Quick Start (Local Development)
+## Yêu cầu môi trường
+
+- .NET SDK 8.
+- Node.js 22 và npm.
+- Docker/Docker Compose nếu chạy hạ tầng bằng container.
+- PostgreSQL, MongoDB, Redis, Redis broker, MinIO/S3-compatible storage.
+- LiveKit local hoặc LiveKit Cloud.
+- Tuỳ chọn: `dotnet-ef` nếu cần chạy EF migrations từ CLI.
+
+## Chạy local development
+
+### 1. Cài dependency
 
 ```bash
-# 1. Clone repo
-git clone <repo-url>
-cd Solution
+dotnet restore MultiRoomChatWebApp.sln
 
-# 2. Start infrastructure (Docker)
-docker-compose up -d postgres mongodb redis redis-broker
-
-# 3. Backend setup
-cd Backend
-dotnet restore
-dotnet ef database update  # PostgreSQL migration
-dotnet run
-
-# 4. Frontend setup
-cd ../Frontend
-npm install
-npm run dev
-
-# 5. Access
-# Frontend: http://localhost:5173
-# Backend API: http://localhost:5000
-# Swagger: http://localhost:5000/swagger
+cd multiroomchatwebapp.client
+npm ci
 ```
 
----
+### 2. Chuẩn bị hạ tầng local
 
-## Testing Strategy
+Backend cần các service sau:
 
-| Loại test | Công cụ | Phạm vi |
-|-----------|---------|---------|
-| Unit Test | xUnit + Moq | Services, Validators, Helpers |
-| Integration Test | WebApplicationFactory + TestServer | API Endpoints, SignalR Hub |
-| E2E Test | Playwright (optional) | User flow: login → join room → chat |
-| Load Test | k6 / Artillery | SignalR connection concurrency, message throughput |
+| Service | Gợi ý port local |
+| --- | --- |
+| PostgreSQL | `5433 -> 5432` |
+| MongoDB | `27018 -> 27017` |
+| Redis cache/presence | `6379` |
+| Redis broker | `6380` |
+| MinIO/S3 API | `9000` |
+| MinIO Console | `9001` |
+| LiveKit | `7880`, `7881`, UDP `50000-50100` |
 
----
+Bạn có thể tự dựng bằng Docker Compose local, Docker run, service có sẵn trên máy, hoặc LiveKit Cloud. Miễn là connection string trong bước tiếp theo trỏ đúng.
 
-## Tài liệu liên quan
+### 3. Tạo cấu hình backend local
 
-- `.agent/Agent.md` → Entry point cho AI Agent
-- `.agent/rules/` → Luật hành vi cốt lõi (AI đọc đầu tiên)
-- `.agent/behaviors/` → Knowledge base, hướng dẫn chi tiết
-- `.agent/memory/` → Trạng thái làm việc hiện tại
-- `.agent/skills/` → Kỹ năng chuyên biệt của AI
-- `.agent/commands/` → Slash commands để tương tác
+Tạo file:
+
+```text
+MultiRoomChatWebApp.Server/appsettings.Development.json
+```
+
+File này đã được `.gitignore` ignore. Không commit secret thật. Ví dụ tối giản:
+
+```json
+{
+  "ConnectionStrings": {
+    "PostgreSQL": "Host=127.0.0.1;Port=5433;Database=ChatAppDB;User Id=<user>;Password=<password>",
+    "MongoDB": "mongodb://<user>:<password>@127.0.0.1:27018",
+    "Redis": "127.0.0.1:6379",
+    "ChatBrokerRedis": "127.0.0.1:6380"
+  },
+  "Auth": {
+    "Bff": {
+      "Enabled": true,
+      "RequireCsrf": true
+    }
+  },
+  "Authentication": {
+    "Google": {
+      "ClientId": "",
+      "ClientSecret": "",
+      "CallbackPath": "/api/auth/google/callback",
+      "FrontendCallbackUrl": "https://localhost:5173/oauth/callback"
+    }
+  },
+  "Cors": {
+    "AllowedOrigins": [
+      "https://localhost:5173",
+      "http://localhost:5173"
+    ]
+  },
+  "LiveKit": {
+    "Host": "ws://localhost:7880",
+    "ApiKey": "<livekit-api-key>",
+    "ApiSecret": "<livekit-api-secret>"
+  },
+  "MediaStorage": {
+    "Provider": "S3",
+    "Endpoint": "http://127.0.0.1:9000",
+    "PublicEndpoint": "http://127.0.0.1:9000",
+    "AccessKey": "<minio-access-key>",
+    "SecretKey": "<minio-secret-key>",
+    "PublicBucket": "chatapp-public-media",
+    "PrivateBucket": "chatapp-private-media",
+    "ForcePathStyle": true
+  }
+}
+```
+
+### 4. Apply database migration
+
+```bash
+dotnet tool install --global dotnet-ef
+dotnet ef database update --project MultiRoomChatWebApp.Server
+```
+
+Nếu máy đã có `dotnet-ef`, bỏ qua lệnh install.
+
+### 5. Chạy backend
+
+```bash
+dotnet run --project MultiRoomChatWebApp.Server
+```
+
+Backend dev thường chạy HTTPS ở `https://localhost:7222` và Swagger có ở `/swagger` khi môi trường là Development.
+
+### 6. Chạy frontend
+
+```bash
+cd multiroomchatwebapp.client
+npm run dev
+```
+
+Frontend chạy ở:
+
+```text
+https://localhost:5173
+```
+
+Vite dev server proxy:
+
+- `/api/*` -> backend.
+- `/hub/*` -> backend SignalR.
+
+Mặc định proxy trỏ tới `https://localhost:7222`. Có thể đổi bằng biến:
+
+```bash
+VITE_DEV_BACKEND_TARGET=https://localhost:<backend-port>
+```
+
+## Lệnh phát triển thường dùng
+
+```bash
+# Build toàn solution
+dotnet build MultiRoomChatWebApp.sln
+
+# Build frontend production bundle
+cd multiroomchatwebapp.client
+npm run build
+
+# Lint frontend
+cd multiroomchatwebapp.client
+npm run lint
+```
+
+Hiện solution chỉ gồm project backend và frontend; chưa có test project tự động được track trong solution.
+
+## API và realtime endpoints
+
+| Endpoint | Mục đích |
+| --- | --- |
+| `/api/auth/*` | Register, login, logout, session, CSRF, Google OAuth |
+| `/api/v1/users/*` | Hồ sơ, đổi mật khẩu, tìm kiếm user |
+| `/api/v1/users/relationships/*` | Bạn bè, lời mời kết bạn, block, presence |
+| `/api/v1/groups/*` | Nhóm, invite, members, roles, ownership, room trong group |
+| `/api/v1/rooms/*` | Room của user và direct message |
+| `/api/v1/chat/*` | Lịch sử tin, edit/delete/reaction/pin |
+| `/api/v1/media/*` | Avatar, icon group, attachment, signed URL/content |
+| `/api/v1/voice/*` | LiveKit token, voice channel, direct call session |
+| `/hub/chat` | SignalR hub cho chat/presence/typing/read receipt/call events |
+| `/health/chat-broker` | Healthcheck Redis Streams chat broker |
+
+## Production/demo deploy
+
+Các file đã được track cho production/demo:
+
+- `.env.example`: template biến môi trường, không chứa secret thật.
+- `compose.demo.yml`: compose stack app + Caddy + PostgreSQL + MongoDB + Redis + Redis broker + MinIO.
+- `Caddyfile`: reverse proxy app domain và media domain.
+- `MultiRoomChatWebApp.Server/Dockerfile`: build React frontend, publish .NET backend và serve SPA cùng origin từ ASP.NET Core.
+
+Quy trình tổng quát:
+
+```bash
+# Build image từ root repo
+docker build -f MultiRoomChatWebApp.Server/Dockerfile -t multiroomchat:<tag> .
+
+# Trên server, tạo .env từ template rồi điền secret thật
+cp .env.example .env
+
+# Chạy stack demo/production
+docker compose -f compose.demo.yml --env-file .env up -d
+```
+
+Dockerfile production cố ý loại `appsettings*.json` và `.env*` khỏi publish output. Runtime production nhận cấu hình qua environment variables.
+
+## Checklist trước khi push GitHub
+
+- Chỉ commit README, source code, migration và template an toàn.
+- Không commit `.env`, `appsettings*.json`, secret LiveKit/Google/MinIO, log, build output, local Docker Compose hoặc file tài liệu nội bộ nếu chúng chứa thông tin riêng.
+- Không dùng `git add -f` với file đang bị ignore nếu chưa rà soát kỹ.
+- Kiểm tra nhanh trước khi commit:
+
+```bash
+git status --short --ignored
+git ls-files | rg -i "(\.env|appsettings|secret|credential|token|\.pem|\.key|\.pfx)"
+```
+
+Nếu secret từng bị commit vào lịch sử Git, hãy rotate secret đó trước khi public repo.

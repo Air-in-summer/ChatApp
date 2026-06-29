@@ -68,7 +68,7 @@ const DmRoomAvatar = ({ room }: { room: RoomDto }) => {
  * 2. Đồng bộ số tin nhắn chưa đọc (unreadCount) vào global store.
  * 3. Sử dụng Ref để theo dõi snapshot danh sách phòng nhằm tránh re-render/re-fetch vô hạn.
  * 4. Tự động tải lại danh sách khi có phòng mới được tạo hoặc có tin nhắn chưa đọc từ phòng lạ.
- * 5. Render giao diện khác nhau tùy thuộc vào ngữ cảnh DM (phong cách Messenger) hay Group (phong cách Discord).
+ * 5. Render giao diện khác nhau tùy thuộc vào ngữ cảnh DM (phong cách Messenger) hay Group .
  */
 export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectChat, onGroupUpdated, className }: RoomListColumnProps) => {
   const { isAuthenticated, user } = useAuth();
@@ -429,7 +429,7 @@ export const RoomListColumn = ({ context, group, onBack, activeChat, onSelectCha
   };
 
   // [Nhánh Render: Ngữ cảnh Group]
-  // Hiển thị danh sách kênh của một Server (Discord style)
+  // Hiển thị danh sách kênh của một Server 
   // Phân tách kênh Text và Voice ra 2 section riêng biệt
   const handleDismissBlockedGroupWarning = () => {
     if (!group) return;

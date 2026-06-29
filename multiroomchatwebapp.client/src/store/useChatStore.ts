@@ -347,7 +347,7 @@ interface ChatState {
 
   /**
    * Cắt bớt tin nhắn của phòng xuống còn `keepCount` tin MỚI NHẤT.
-   * Gọi khi user thoát phòng để giải phóng bộ nhớ (Discord pattern).
+   * Gọi khi user thoát phòng để giải phóng bộ nhớ .
    * Reset `hasMore = true` để cho phép lazy load lại lịch sử từ điểm mới.
    */
   trimRoom: (roomId: string, keepCount?: number) => void;
@@ -983,7 +983,7 @@ export const useChatStore = create<ChatState>((set) => ({
       },
     })),
 
-  // Giữ bộ nhớ gọn: cắt xuống keepCount tin mới nhất, reset hasMore (Discord pattern)
+  // Giữ bộ nhớ gọn: cắt xuống keepCount tin mới nhất, reset hasMore
   trimRoom: (roomId, keepCount = 50) =>
     set((state) => {
       const roomMsgs = state.messages[roomId];

@@ -196,7 +196,7 @@ export const MainLayout = () => {
         <GroupListPanel onSelectGroup={handleSelectGroup} />
       )}
 
-      {/* [Nhánh 3]: Chi tiết một Server (Channels + Chat) - Kiểu Discord */}
+      {/* [Nhánh 3]: Chi tiết một Server (Channels + Chat)  */}
       {navContext === 'group' && selectedGroup && (
         <>
           <RoomListColumn
