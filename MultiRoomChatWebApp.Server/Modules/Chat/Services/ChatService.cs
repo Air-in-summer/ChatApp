@@ -1,18 +1,25 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using MultiRoomChatWebApp.Server.Infrastructure.Database;
+using MultiRoomChatWebApp.Server.Modules.Chat.Core.DTOs;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Entities;
 using MultiRoomChatWebApp.Server.Modules.Chat.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Enums;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
 using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
+using MultiRoomChatWebApp.Server.Shared.Exceptions;
 using StackExchange.Redis;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
 public class ChatService : IChatService
 {
+    private const int MaxSearchPageSize = 50;
+    private const int MaxSearchQueryLength = 100;
+
     private readonly IMongoCollection<Message> _messagesCollection;
     private readonly AppDbContext _dbContext;
     private readonly IConnectionMultiplexer _redis;
@@ -68,6 +75,187 @@ public class ChatService : IChatService
         await EnrichAttachmentUrlsAsync(messages);
 
         return messages;
+    }
+
+    /// <inheritdoc />
+    public async Task<MessageContextResponseDto> GetMessageContextAsync(
+        Guid roomId,
+        string messageId,
+        int before = 20,
+        int after = 20,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (roomId == Guid.Empty)
+        {
+            throw ApiException.BadRequest(
+                "message_context_room_invalid",
+                "Phong chat khong hop le.");
+        }
+
+        if (before < 0 || before > 50 || after < 0 || after > 50)
+        {
+            throw ApiException.BadRequest(
+                "message_context_window_invalid",
+                "So tin nhan truoc/sau phai nam trong khoang 0 den 50.");
+        }
+
+        if (string.IsNullOrWhiteSpace(messageId) ||
+            !ObjectId.TryParse(messageId, out _))
+        {
+            throw ApiException.BadRequest(
+                "message_id_invalid",
+                "Ma tin nhan khong hop le.");
+        }
+
+        var filterBuilder = Builders<Message>.Filter;
+        var roomFilter = filterBuilder.Eq(message => message.RoomId, roomId);
+        var target = await _messagesCollection
+            .Find(roomFilter & filterBuilder.Eq(message => message.Id, messageId))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (target is null)
+        {
+            throw ApiException.NotFound(
+                "message_not_found",
+                "Khong tim thay tin nhan trong phong nay.");
+        }
+
+        var beforeCandidates = await _messagesCollection
+            .Find(roomFilter & filterBuilder.Lt(message => message.Id, target.Id))
+            .SortByDescending(message => message.Id)
+            .Limit(before + 1)
+            .ToListAsync(cancellationToken);
+        var hasMoreBefore = beforeCandidates.Count > before;
+        var beforeMessages = beforeCandidates
+            .Take(before)
+            .Reverse()
+            .ToList();
+
+        var afterCandidates = await _messagesCollection
+            .Find(roomFilter & filterBuilder.Gt(message => message.Id, target.Id))
+            .SortBy(message => message.Id)
+            .Limit(after + 1)
+            .ToListAsync(cancellationToken);
+        var hasMoreAfter = afterCandidates.Count > after;
+        var afterMessages = afterCandidates
+            .Take(after)
+            .ToList();
+
+        // Context la timeline that quanh target, nen khong loc Message.Type hoac DeletedAt.
+        var seenMessageIds = new HashSet<string>(StringComparer.Ordinal);
+        var contextMessages = beforeMessages
+            .Concat([target])
+            .Concat(afterMessages)
+            .Where(message => seenMessageIds.Add(message.Id))
+            .ToList();
+
+        await EnrichAttachmentUrlsAsync(contextMessages);
+
+        return new MessageContextResponseDto
+        {
+            TargetMessageId = target.Id,
+            Messages = contextMessages,
+            HasMoreBefore = hasMoreBefore,
+            HasMoreAfter = hasMoreAfter,
+            BeforeCursor = hasMoreBefore && beforeMessages.Count > 0
+                ? beforeMessages[0].Id
+                : null,
+            AfterCursor = hasMoreAfter && afterMessages.Count > 0
+                ? afterMessages[^1].Id
+                : null
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<MessageSearchResponseDto> SearchMessagesAsync(
+        Guid roomId,
+        string query,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (roomId == Guid.Empty)
+        {
+            throw ApiException.BadRequest(
+                "message_search_room_invalid",
+                "Phong chat khong hop le.");
+        }
+
+        var searchQuery = query?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(searchQuery))
+        {
+            throw ApiException.BadRequest(
+                "message_search_query_empty",
+                "Tu khoa tim kiem khong duoc de trong.");
+        }
+
+        if (searchQuery.Length > MaxSearchQueryLength)
+        {
+            throw ApiException.BadRequest(
+                "message_search_query_too_long",
+                $"Tu khoa tim kiem khong duoc vuot qua {MaxSearchQueryLength} ky tu.");
+        }
+
+        if (page < 1)
+        {
+            throw ApiException.BadRequest(
+                "message_search_page_invalid",
+                "Trang tim kiem phai lon hon hoac bang 1.");
+        }
+
+        if (pageSize < 1 || pageSize > MaxSearchPageSize)
+        {
+            throw ApiException.BadRequest(
+                "message_search_page_size_invalid",
+                $"So ket qua moi trang phai tu 1 den {MaxSearchPageSize}.");
+        }
+
+        var filterBuilder = Builders<Message>.Filter;
+        var filter = filterBuilder.And(
+            filterBuilder.Eq(message => message.RoomId, roomId),
+            filterBuilder.Eq(message => message.DeletedAt, null),
+            filterBuilder.Ne(message => message.Content, string.Empty),
+            filterBuilder.Regex(
+                message => message.Content,
+                new BsonRegularExpression(Regex.Escape(searchQuery), "i")));
+
+        var totalCount = await _messagesCollection
+            .CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var skip = (page - 1L) * pageSize;
+        IReadOnlyList<MessageSearchResultDto> items = Array.Empty<MessageSearchResultDto>();
+
+        if (skip <= int.MaxValue && skip < totalCount)
+        {
+            items = await _messagesCollection
+                .Find(filter)
+                .SortByDescending(message => message.Id)
+                .Skip((int)skip)
+                .Limit(pageSize)
+                .Project(message => new MessageSearchResultDto
+                {
+                    MessageId = message.Id,
+                    RoomId = message.RoomId,
+                    SenderId = message.SenderId,
+                    Content = message.Content,
+                    CreatedAt = message.CreatedAt
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        return new MessageSearchResponseDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = ToBoundedInt(totalCount),
+            TotalPages = totalCount == 0
+                ? 0
+                : ToBoundedInt(((totalCount - 1) / pageSize) + 1)
+        };
     }
 
     public async Task<Dictionary<Guid, (Message? LastMessage, int UnreadCount, string? LastReadMessageId)>> GetRoomOverviewsAsync(Guid userId, List<Guid> roomIds)
@@ -157,8 +345,10 @@ public class ChatService : IChatService
         return result;
     }
 
-    private static int ToUnreadCount(long count) =>
+    private static int ToBoundedInt(long count) =>
         count >= int.MaxValue ? int.MaxValue : (int)count;
+
+    private static int ToUnreadCount(long count) => ToBoundedInt(count);
 
     private async Task EnrichAttachmentUrlsAsync(List<Message> messages)
     {

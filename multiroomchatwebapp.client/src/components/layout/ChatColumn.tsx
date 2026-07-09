@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { lazy, Suspense, useCallback, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../api/apiClient';
@@ -6,9 +6,11 @@ import {
   addMessageReaction,
   deleteMessage,
   editMessage,
+  getMessageContext,
   getPinnedMessages,
   pinMessage,
   removeMessageReaction,
+  searchMessages,
   unpinMessage,
 } from '../../api/chatApi';
 import { getGroupMembers } from '../../api/groupApi';
@@ -25,6 +27,7 @@ import type {
   MessageAcceptedResult,
   MessageAttachmentDto,
   MessageReactionDto,
+  MessageSearchResult,
 } from '../../types/chat';
 import type { GroupMemberDto, GroupRole } from '../../types/group';
 import { buildMessagePreview, determineMessageType } from '../../utils/chatMessagePreview';
@@ -83,6 +86,8 @@ const BASIC_EMOJI_GROUPS = [
 
 const MESSAGE_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 const EMPTY_MESSAGES: MessageDto[] = [];
+const MESSAGE_SEARCH_PAGE_SIZE = 20;
+const MESSAGE_SEARCH_DEBOUNCE_MS = 300;
 
 interface MessageReactionSummary {
   emoji: string;
@@ -492,8 +497,19 @@ export const ChatColumn = ({
   const [isLoadingPinnedMessages, setIsLoadingPinnedMessages] = useState(false);
   const [pinnedMessagesError, setPinnedMessagesError] = useState<string | null>(null);
   const [pinnedRefreshRequest, setPinnedRefreshRequest] = useState(0);
+  const [isSearchPanelOpen, setIsSearchPanelOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [messageSearchPage, setMessageSearchPage] = useState(1);
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
+  const [messageSearchTotalCount, setMessageSearchTotalCount] = useState(0);
+  const [messageSearchTotalPages, setMessageSearchTotalPages] = useState(0);
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState<string | null>(null);
+  const [messageSearchRefreshRequest, setMessageSearchRefreshRequest] = useState(0);
   const [mutatingMessageIds, setMutatingMessageIds] = useState<Set<string>>(new Set());
   const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MessageDto | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [pendingJumpTargetId, setPendingJumpTargetId] = useState<string | null>(null);
   const [hasHeaderAvatarError, setHasHeaderAvatarError] = useState(false);
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
@@ -503,6 +519,10 @@ export const ChatColumn = ({
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const localAttachmentUrlsRef = useRef<Set<string>>(new Set());
   const lastHistorySyncVersionByRoomRef = useRef<Record<string, number>>({});
+  const activeRoomIdRef = useRef<string | null>(roomId);
+  const pendingJumpTargetRef = useRef<string | null>(null);
+  const jumpHighlightTimeoutRef = useRef<number | undefined>(undefined);
+  const jumpToMessageRef = useRef<((messageId: string) => Promise<void>) | null>(null);
 
   const createLocalAttachmentUrl = (file: File): string => {
     const objectUrl = URL.createObjectURL(file);
@@ -518,11 +538,19 @@ export const ChatColumn = ({
   };
 
   useEffect(() => {
+    activeRoomIdRef.current = roomId;
+  }, [roomId]);
+
+  useEffect(() => {
     return () => {
       localAttachmentUrlsRef.current.forEach((objectUrl) => {
         URL.revokeObjectURL(objectUrl);
       });
       localAttachmentUrlsRef.current.clear();
+
+      if (jumpHighlightTimeoutRef.current) {
+        window.clearTimeout(jumpHighlightTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -565,7 +593,22 @@ export const ChatColumn = ({
     setReactionPickerMessageId(null);
     setIsPinnedPanelOpen(false);
     setPinnedMessagesError(null);
+    setIsSearchPanelOpen(false);
+    setMessageSearchQuery('');
+    setMessageSearchPage(1);
+    setMessageSearchResults([]);
+    setMessageSearchTotalCount(0);
+    setMessageSearchTotalPages(0);
+    setMessageSearchError(null);
+    setIsSearchingMessages(false);
     setMutatingMessageIds(new Set());
+    setHighlightedMessageId(null);
+    setPendingJumpTargetId(null);
+    pendingJumpTargetRef.current = null;
+    if (jumpHighlightTimeoutRef.current) {
+      window.clearTimeout(jumpHighlightTimeoutRef.current);
+      jumpHighlightTimeoutRef.current = undefined;
+    }
     setPendingAttachments((current) => {
       current.forEach((attachment) => {
         releaseLocalAttachmentUrl(attachment.localPreviewUrl);
@@ -643,7 +686,178 @@ export const ChatColumn = ({
     setPinnedMessages,
   ]);
 
-  // Hook: JoinRoom SignalR Group khi chọn phòng — BẮT BUỘC để nhận broadcast
+  useEffect(() => {
+    if (!isSearchPanelOpen || !roomId || !isAuthenticated) {
+      setIsSearchingMessages(false);
+      return;
+    }
+
+    const query = messageSearchQuery.trim();
+    if (!query) {
+      setIsSearchingMessages(false);
+      setMessageSearchError(null);
+      setMessageSearchResults([]);
+      setMessageSearchTotalCount(0);
+      setMessageSearchTotalPages(0);
+      return;
+    }
+
+    let isCancelled = false;
+    const targetRoomId = roomId;
+    const timeoutId = window.setTimeout(() => {
+      setIsSearchingMessages(true);
+      setMessageSearchError(null);
+
+      searchMessages(
+        targetRoomId,
+        query,
+        messageSearchPage,
+        MESSAGE_SEARCH_PAGE_SIZE
+      )
+        .then((response) => {
+          if (isCancelled || activeRoomIdRef.current !== targetRoomId) {
+            return;
+          }
+
+          setMessageSearchResults(response.items);
+          setMessageSearchTotalCount(response.totalCount);
+          setMessageSearchTotalPages(response.totalPages);
+        })
+        .catch((error) => {
+          if (isCancelled || activeRoomIdRef.current !== targetRoomId) {
+            return;
+          }
+
+          setMessageSearchResults([]);
+          setMessageSearchTotalCount(0);
+          setMessageSearchTotalPages(0);
+          setMessageSearchError(getRequestErrorMessage(
+            error,
+            'Không thể tìm kiếm tin nhắn.'
+          ));
+        })
+        .finally(() => {
+          if (!isCancelled && activeRoomIdRef.current === targetRoomId) {
+            setIsSearchingMessages(false);
+          }
+        });
+    }, MESSAGE_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    isAuthenticated,
+    isSearchPanelOpen,
+    messageSearchPage,
+    messageSearchQuery,
+    messageSearchRefreshRequest,
+    roomId,
+  ]);
+
+  // Manual navigation: scroll/highlight message ma khong dung vao luong initial unread scroll.
+  const scrollToMessageElement = useCallback((
+    messageId: string,
+    behavior: ScrollBehavior = 'smooth'
+  ): boolean => {
+    const listElement = messageListRef.current;
+    if (!listElement) return false;
+
+    const messageElement = Array
+      .from(listElement.querySelectorAll<HTMLElement>('[data-message-id]'))
+      .find((element) => element.dataset.messageId === messageId);
+    if (!messageElement) return false;
+
+    messageElement.scrollIntoView({
+      behavior,
+      block: 'center',
+    });
+    setHighlightedMessageId(messageId);
+
+    if (jumpHighlightTimeoutRef.current) {
+      window.clearTimeout(jumpHighlightTimeoutRef.current);
+    }
+    jumpHighlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightedMessageId((current) =>
+        current === messageId ? null : current
+      );
+      jumpHighlightTimeoutRef.current = undefined;
+    }, 1600);
+
+    return true;
+  }, []);
+
+  const jumpToMessage = useCallback(async (messageId: string) => {
+    const targetMessageId = messageId.trim();
+    if (!targetMessageId || !roomId || !isAuthenticated) {
+      return;
+    }
+
+    if (scrollToMessageElement(targetMessageId)) {
+      return;
+    }
+
+    const targetRoomId = roomId;
+    pendingJumpTargetRef.current = targetMessageId;
+    setPendingJumpTargetId(targetMessageId);
+
+    try {
+      const context = await getMessageContext(targetRoomId, targetMessageId);
+      if (activeRoomIdRef.current !== targetRoomId) {
+        return;
+      }
+
+      if (context.messages.length === 0) {
+        pendingJumpTargetRef.current = null;
+        setPendingJumpTargetId(null);
+        toast.error('Khong tim thay tin nhan can nhay toi.');
+        return;
+      }
+
+      setMessages(targetRoomId, context.messages);
+    } catch (error) {
+      if (activeRoomIdRef.current === targetRoomId) {
+        pendingJumpTargetRef.current = null;
+        setPendingJumpTargetId(null);
+        toast.error(getRequestErrorMessage(
+          error,
+          'Khong tai duoc khu vuc quanh tin nhan.'
+        ));
+      }
+    }
+  }, [
+    isAuthenticated,
+    roomId,
+    scrollToMessageElement,
+    setMessages,
+  ]);
+
+  // Giu handler trong ref de buoc sau co the noi click pinned/search ma khong doi flow scroll.
+  useEffect(() => {
+    jumpToMessageRef.current = jumpToMessage;
+    return () => {
+      if (jumpToMessageRef.current === jumpToMessage) {
+        jumpToMessageRef.current = null;
+      }
+    };
+  }, [jumpToMessage]);
+
+  // Cho React render context window xong roi moi scroll den message dich.
+  useEffect(() => {
+    if (!pendingJumpTargetId) return;
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (scrollToMessageElement(pendingJumpTargetId)) {
+        pendingJumpTargetRef.current = null;
+        setPendingJumpTargetId(null);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [messages.length, pendingJumpTargetId, scrollToMessageElement]);
+
+  // Hook: JoinRoom SignalR Group khi chon phong de nhan broadcast.
   useEffect(() => {
     if (roomId) {
       joinRoom(roomId).catch(e => console.error('Lỗi JoinRoom:', e));
@@ -785,7 +999,12 @@ export const ChatColumn = ({
     // 1. Không phải đang lazy load (isLoadingMore)
     // 2. Không phải lần đầu tiên nạp tin nhắn (số lượng tin nhắn cũ phải > 0)
     // 3. Số lượng tin nhắn hiện tại phải lớn hơn số lượng trước đó (có tin mới)
-    if (!isLoadingMore && prevMsgCountRef.current > 0 && messages.length > prevMsgCountRef.current) {
+    if (
+      !pendingJumpTargetRef.current &&
+      !isLoadingMore &&
+      prevMsgCountRef.current > 0 &&
+      messages.length > prevMsgCountRef.current
+    ) {
       console.log(`[Scroll] Có tin nhắn mới (${prevMsgCountRef.current} -> ${messages.length}) -> Cuộn xuống đáy.`);
       endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -1469,6 +1688,15 @@ export const ChatColumn = ({
   const canViewPinnedMessages =
     activeChat.type === 'real' &&
     activeChat.room.type !== 'Voice';
+  const canSearchMessages = activeChat.type === 'real';
+  const normalizedMessageSearchQuery = messageSearchQuery.trim();
+  const hasMessageSearchQuery = normalizedMessageSearchQuery.length > 0;
+  const hasMessageSearchResults = messageSearchResults.length > 0;
+  const canGoToPreviousSearchPage = messageSearchPage > 1 && !isSearchingMessages;
+  const canGoToNextSearchPage =
+    messageSearchTotalPages > 0 &&
+    messageSearchPage < messageSearchTotalPages &&
+    !isSearchingMessages;
   const groupMemberByUserId = new Map(groupMembers.map(member => [member.profile.id, member]));
   const getMessageAuthorTarget = (message: MessageDto) => {
     if (message.senderId === userId) return null;
@@ -1479,6 +1707,21 @@ export const ChatColumn = ({
     if (message.senderId === userId) return 'Bạn';
 
     const groupMember = groupMemberByUserId.get(message.senderId);
+    if (groupMember) return groupMember.profile.displayName;
+
+    if (
+      activeChat.type === 'real' &&
+      activeChat.room.type === 'DirectMessage'
+    ) {
+      return activeChat.room.otherUserDisplayName ?? 'Người dùng';
+    }
+
+    return 'Người dùng';
+  };
+  const getSearchResultAuthorName = (result: MessageSearchResult): string => {
+    if (result.senderId === userId) return 'Bạn';
+
+    const groupMember = groupMemberByUserId.get(result.senderId);
     if (groupMember) return groupMember.profile.displayName;
 
     if (
@@ -1532,6 +1775,27 @@ export const ChatColumn = ({
         </div>
 
         <div className={styles.headerActions}>
+          {canSearchMessages && (
+            <button
+              type="button"
+              className={`${styles.messageSearchButton} ${
+                isSearchPanelOpen ? styles.messageSearchButtonActive : ''
+              }`}
+              title="Tìm kiếm tin nhắn"
+              aria-label="Tìm kiếm tin nhắn"
+              aria-expanded={isSearchPanelOpen}
+              onClick={() => {
+                setIsPinnedPanelOpen(false);
+                setIsSearchPanelOpen((current) => !current);
+              }}
+            >
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m16 16 4 4" />
+              </svg>
+            </button>
+          )}
+
           {canViewPinnedMessages && (
             <button
               type="button"
@@ -1541,7 +1805,10 @@ export const ChatColumn = ({
               title="Tin nhắn đã ghim"
               aria-label="Tin nhắn đã ghim"
               aria-expanded={isPinnedPanelOpen}
-              onClick={() => setIsPinnedPanelOpen((current) => !current)}
+              onClick={() => {
+                setIsSearchPanelOpen(false);
+                setIsPinnedPanelOpen((current) => !current);
+              }}
             >
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 17v5" />
@@ -1586,12 +1853,140 @@ export const ChatColumn = ({
         </div>
       </div>
 
+      {isSearchPanelOpen && activeChat.type === 'real' && (
+        <aside className={styles.messageSearchPanel} aria-label="Tìm kiếm tin nhắn">
+          <div className={styles.messageSearchHeader}>
+            <div>
+              <strong>Tìm kiếm tin nhắn</strong>
+              <span>
+                {messageSearchTotalCount > 0
+                  ? `${messageSearchTotalCount} kết quả`
+                  : 'Chỉ tìm tin nhắn có chữ'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className={styles.messageSearchCloseButton}
+              title="Đóng tìm kiếm"
+              aria-label="Đóng tìm kiếm tin nhắn"
+              onClick={() => setIsSearchPanelOpen(false)}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className={styles.messageSearchControls}>
+            <label className={styles.messageSearchInputWrap}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m16 16 4 4" />
+              </svg>
+              <input
+                type="search"
+                value={messageSearchQuery}
+                maxLength={100}
+                autoFocus
+                placeholder="Tìm trong phòng này"
+                onChange={(event) => {
+                  setMessageSearchQuery(event.target.value);
+                  setMessageSearchPage(1);
+                }}
+              />
+            </label>
+          </div>
+
+          {!hasMessageSearchQuery && (
+            <div className={styles.messageSearchState}>
+              Nhập từ khóa để tìm trong tin nhắn của phòng này.
+            </div>
+          )}
+
+          {hasMessageSearchQuery && isSearchingMessages && (
+            <div className={styles.messageSearchState}>Đang tìm...</div>
+          )}
+
+          {hasMessageSearchQuery && !isSearchingMessages && messageSearchError && (
+            <div className={styles.messageSearchError}>
+              <span>{messageSearchError}</span>
+              <button
+                type="button"
+                onClick={() => setMessageSearchRefreshRequest((current) => current + 1)}
+              >
+                Thử lại
+              </button>
+            </div>
+          )}
+
+          {hasMessageSearchQuery &&
+            !isSearchingMessages &&
+            !messageSearchError &&
+            !hasMessageSearchResults && (
+              <div className={styles.messageSearchState}>Không có kết quả phù hợp.</div>
+            )}
+
+          {hasMessageSearchQuery &&
+            !isSearchingMessages &&
+            !messageSearchError &&
+            hasMessageSearchResults && (
+              <div className={styles.messageSearchResultList}>
+                {messageSearchResults.map((result) => (
+                  <button
+                    key={result.messageId}
+                    type="button"
+                    className={styles.messageSearchResultItem}
+                    aria-label={`Nhảy đến tin nhắn của ${getSearchResultAuthorName(result)}`}
+                    onClick={() => {
+                      setIsSearchPanelOpen(false);
+                      void jumpToMessage(result.messageId);
+                    }}
+                  >
+                    <div className={styles.messageSearchResultMeta}>
+                      <strong>{getSearchResultAuthorName(result)}</strong>
+                      <span>{formatPinnedAt(result.createdAt)}</span>
+                    </div>
+                    <p>{result.content}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+          {hasMessageSearchQuery && !messageSearchError && messageSearchTotalPages > 1 && (
+            <div className={styles.messageSearchPagination}>
+              <button
+                type="button"
+                disabled={!canGoToPreviousSearchPage}
+                onClick={() => setMessageSearchPage((current) => Math.max(1, current - 1))}
+              >
+                Trước
+              </button>
+              <span>
+                Trang {messageSearchPage} / {messageSearchTotalPages}
+              </span>
+              <button
+                type="button"
+                disabled={!canGoToNextSearchPage}
+                onClick={() => setMessageSearchPage((current) => current + 1)}
+              >
+                Sau
+              </button>
+            </div>
+          )}
+        </aside>
+      )}
+
       {isPinnedPanelOpen && activeChat.type === 'real' && (
         <aside className={styles.pinnedPanel} aria-label="Danh sách tin nhắn đã ghim">
           <div className={styles.pinnedPanelHeader}>
             <div>
               <strong>Tin nhắn đã ghim</strong>
-              <span>Tối đa 50 tin mới nhất</span>
+              <span>
+                {pinnedMessages.length > 0
+                  ? `${pinnedMessages.length}/50 tin đã ghim`
+                  : 'Tối đa 50 tin'}
+              </span>
             </div>
             <button
               type="button"
@@ -1634,18 +2029,31 @@ export const ChatColumn = ({
             <div className={styles.pinnedMessageList}>
               {pinnedMessages.map((message) => (
                 <div key={message.id} className={styles.pinnedMessageItem}>
-                  <div className={styles.pinnedMessageMeta}>
-                    <strong>{getPinnedMessageAuthorName(message)}</strong>
-                    <span>{formatPinnedAt(message.pinnedAt)}</span>
-                  </div>
-                  <p>{buildMessagePreview(message) || '[Tin nhắn không có nội dung]'}</p>
+                  <button
+                    type="button"
+                    className={styles.pinnedMessageJumpButton}
+                    title="Nhảy đến tin nhắn"
+                    onClick={() => {
+                      setIsPinnedPanelOpen(false);
+                      void jumpToMessage(message.id);
+                    }}
+                  >
+                    <div className={styles.pinnedMessageMeta}>
+                      <strong>{getPinnedMessageAuthorName(message)}</strong>
+                      <span>{formatPinnedAt(message.pinnedAt)}</span>
+                    </div>
+                    <p>{buildMessagePreview(message) || '[Tin nhắn không có nội dung]'}</p>
+                  </button>
                   {canManageRoomPins && (
                     <button
                       type="button"
                       className={styles.pinnedMessageUnpinButton}
                       title="Bỏ ghim"
                       disabled={mutatingMessageIds.has(message.id)}
-                      onClick={() => void handleTogglePin(message)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleTogglePin(message);
+                      }}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 17v5" />
@@ -1752,7 +2160,13 @@ export const ChatColumn = ({
             (idx === 0 || messages[idx - 1].id <= initialLastReadIdRef.current);
 
           return (
-            <div key={msg.id || idx}>
+            <div
+              key={msg.id || idx}
+              className={`${styles.messageAnchor} ${
+                highlightedMessageId === msg.id ? styles.messageJumpHighlight : ''
+              }`}
+              data-message-id={msg.id}
+            >
               {isFirstUnread && (
                 <div id="unread-divider" className={styles.unreadDivider}>
                   <span>Tin nhắn mới</span>

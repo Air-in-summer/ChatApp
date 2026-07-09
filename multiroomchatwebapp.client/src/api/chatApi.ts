@@ -1,12 +1,14 @@
 import { apiClient } from './apiClient';
 import type {
   EditMessageRequest,
+  MessageContextResponse,
   MessageDeletedDto,
   MessageEditedDto,
   MessageDto,
   MessagePinnedDto,
   MessageReactionRequest,
   MessageReactionUpdatedDto,
+  MessageSearchResponse,
   MessageUnpinnedDto,
 } from '../types/chat';
 
@@ -104,6 +106,38 @@ export const getPinnedMessages = async (
   const response = await apiClient.get<MessageDto[]>(
     `/api/v1/chat/rooms/${roomId}/pins`,
     { params: { limit } }
+  );
+  return response.data;
+};
+
+/**
+ * Lay cua so timeline quanh mot tin nhan dich trong phong.
+ */
+export const getMessageContext = async (
+  roomId: string,
+  messageId: string,
+  before = 20,
+  after = 20
+): Promise<MessageContextResponse> => {
+  const response = await apiClient.get<MessageContextResponse>(
+    `/api/v1/chat/rooms/${roomId}/messages/${messageId}/context`,
+    { params: { before, after } }
+  );
+  return response.data;
+};
+
+/**
+ * Tim kiem tin nhan text trong mot phong.
+ */
+export const searchMessages = async (
+  roomId: string,
+  query: string,
+  page = 1,
+  pageSize = 20
+): Promise<MessageSearchResponse> => {
+  const response = await apiClient.get<MessageSearchResponse>(
+    `/api/v1/chat/rooms/${roomId}/messages/search`,
+    { params: { query, page, pageSize } }
   );
   return response.data;
 };

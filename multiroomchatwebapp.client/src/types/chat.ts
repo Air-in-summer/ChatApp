@@ -199,3 +199,28 @@ export interface GetMessagesResponse {
   hasMore: boolean;
   nextCursor?: string | null;
 }
+
+export interface MessageContextResponse {
+  targetMessageId: string;
+  messages: MessageDto[];
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+  beforeCursor?: string | null;
+  afterCursor?: string | null;
+}
+
+export interface MessageSearchResult {
+  messageId: string;
+  roomId: string;
+  senderId: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface MessageSearchResponse {
+  items: MessageSearchResult[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}

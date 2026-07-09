@@ -97,6 +97,96 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
+    /// [GET] /api/v1/chat/rooms/{roomId}/messages/search - Tim kiem tin nhan text trong phong.
+    /// </summary>
+    [HttpGet("rooms/{roomId:guid}/messages/search")]
+    [ProducesResponseType(typeof(MessageSearchResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SearchMessages(
+        Guid roomId,
+        [FromQuery] string query,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.GetUserIdOrThrow();
+
+        var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
+        if (roomMeta == null) return NotFound("Room not found");
+
+        bool isMember = false;
+        if (roomMeta.Value.GroupId.HasValue && !roomMeta.Value.IsPrivate)
+        {
+            isMember = await _groupPermissionsCache.IsUserInGroupAsync(roomMeta.Value.GroupId.Value, userId);
+        }
+        else
+        {
+            isMember = await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
+        }
+
+        if (!isMember)
+        {
+            return Forbid();
+        }
+
+        var result = await _chatService.SearchMessagesAsync(
+            roomId,
+            query,
+            page,
+            pageSize,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [GET] /api/v1/chat/rooms/{roomId}/messages/{messageId}/context - Lay timeline quanh mot tin nhan dich.
+    /// </summary>
+    [HttpGet("rooms/{roomId:guid}/messages/{messageId}/context")]
+    [ProducesResponseType(typeof(MessageContextResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMessageContext(
+        Guid roomId,
+        string messageId,
+        [FromQuery] int before = 20,
+        [FromQuery] int after = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.GetUserIdOrThrow();
+
+        var roomMeta = await _roomMetadataCache.GetRoomMetadataAsync(roomId);
+        if (roomMeta == null) return NotFound("Room not found");
+
+        bool isMember = false;
+        if (roomMeta.Value.GroupId.HasValue && !roomMeta.Value.IsPrivate)
+        {
+            isMember = await _groupPermissionsCache.IsUserInGroupAsync(roomMeta.Value.GroupId.Value, userId);
+        }
+        else
+        {
+            isMember = await _roomPermissionsCache.IsUserInRoomAsync(roomId, userId);
+        }
+
+        if (!isMember)
+        {
+            return Forbid();
+        }
+
+        var result = await _chatService.GetMessageContextAsync(
+            roomId,
+            messageId,
+            before,
+            after,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [PATCH] /api/v1/chat/rooms/{roomId}/messages/{messageId} - Sua noi dung tin nhan cua chinh nguoi gui.
     /// </summary>
     [HttpPatch("rooms/{roomId:guid}/messages/{messageId}")]

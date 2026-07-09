@@ -65,7 +65,8 @@
   opacity: 1;
 }
 
-.pinnedMessagesButton {
+.pinnedMessagesButton,
+.messageSearchButton {
   min-width: 36px;
   height: 36px;
   display: inline-flex;
@@ -82,7 +83,9 @@
 }
 
 .pinnedMessagesButton:hover,
-.pinnedMessagesButtonActive {
+.pinnedMessagesButtonActive,
+.messageSearchButton:hover,
+.messageSearchButtonActive {
   border-color: var(--color-border);
   background: var(--color-surface-hover);
   color: var(--color-text);
@@ -93,9 +96,212 @@
   font-weight: 600;
 }
 
+.messageSearchPanel,
 .pinnedPanel {
   flex: 0 0 auto;
-  max-height: min(42vh, 420px);
+  max-height: min(48vh, 480px);
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+  z-index: 9;
+}
+
+.messageSearchHeader,
+.pinnedPanelHeader {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.messageSearchHeader > div,
+.pinnedPanelHeader > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.messageSearchHeader strong,
+.pinnedPanelHeader strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.messageSearchHeader span,
+.pinnedPanelHeader span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.messageSearchControls {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.messageSearchInputWrap {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.messageSearchInputWrap:focus-within {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.messageSearchInputWrap input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.messageSearchInputWrap input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.messageSearchState,
+.messageSearchError {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.messageSearchError {
+  color: var(--color-danger);
+}
+
+.messageSearchError button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+  cursor: pointer;
+}
+
+.messageSearchResultList,
+.pinnedMessageList {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+}
+
+.messageSearchResultItem {
+  width: 100%;
+  min-width: 0;
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.messageSearchResultItem:hover {
+  background: var(--color-surface-hover);
+}
+
+.messageSearchResultItem:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.messageSearchResultMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.messageSearchResultMeta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageSearchResultMeta span {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.messageSearchResultItem p {
+  margin: 5px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.messageSearchPagination {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.messageSearchPagination button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.messageSearchPagination button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.messageSearchPagination button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.pinnedPanel {
+  flex: 0 0 auto;
+  max-height: min(48vh, 480px);
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--color-border);
@@ -131,6 +337,7 @@
   font-size: 0.72rem;
 }
 
+.messageSearchCloseButton,
 .pinnedPanelCloseButton,
 .pinnedMessageUnpinButton {
   width: 32px;
@@ -148,6 +355,7 @@
   transition: var(--transition-fast);
 }
 
+.messageSearchCloseButton:hover,
 .pinnedPanelCloseButton:hover,
 .pinnedMessageUnpinButton:hover:not(:disabled) {
   background: var(--color-surface-hover);
@@ -182,20 +390,50 @@
 }
 
 .pinnedMessageList {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 12px 12px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .pinnedMessageItem {
-  position: relative;
+  flex: 0 0 auto;
   min-width: 0;
-  padding: 10px 44px 10px 12px;
+  min-height: 74px;
+  display: flex;
+  align-items: stretch;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface-muted);
+  overflow: hidden;
+}
+
+.pinnedMessageJumpButton {
+  flex: 1 1 0;
+  min-width: 0;
+  display: block;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.pinnedMessageJumpButton:hover {
+  background: var(--color-surface-hover);
+}
+
+.pinnedMessageJumpButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .pinnedMessageMeta {
@@ -225,13 +463,20 @@
   color: var(--color-text-muted);
   font-size: 0.82rem;
   line-height: 1.35;
+  display: -webkit-box;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .pinnedMessageUnpinButton {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  width: 44px;
+  height: auto;
+  flex: 0 0 44px;
+  align-self: stretch;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
 }
 
 .pinnedMessageUnpinButton:disabled {
@@ -342,6 +587,29 @@
   font-size: 0.95rem;
   opacity: 0.6;
   text-align: center;
+}
+
+.messageAnchor {
+  scroll-margin: 88px 0 120px;
+}
+
+.messageAnchor.messageJumpHighlight .messageColumn {
+  animation: messageJumpPulse 1400ms ease-out;
+  border-radius: var(--radius-lg);
+}
+
+@keyframes messageJumpPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.42);
+  }
+
+  45% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.16);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
 }
 
 .messageWrapper {
