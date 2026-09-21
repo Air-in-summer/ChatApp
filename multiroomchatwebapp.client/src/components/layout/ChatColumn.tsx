@@ -1263,7 +1263,7 @@ export const ChatColumn = ({
 
     try {
       if (activeChat.type === 'virtual') {
-        // [MAGICAL FLOW] - Giờ mới bắt đầu tạo phòng
+        //  Giờ mới bắt đầu tạo phòng
         setIsSendingFirstMessage(true);
         const targetUserId = activeChat.targetUser.id;
 
@@ -2471,7 +2471,8 @@ export const ChatColumn = ({
             ))}
           </div>
         )}
-
+      
+      {/* Event Gửi tin */}
       <form onSubmit={handleSendMessage} className={styles.inputArea}>
         <input
           ref={fileInputRef}

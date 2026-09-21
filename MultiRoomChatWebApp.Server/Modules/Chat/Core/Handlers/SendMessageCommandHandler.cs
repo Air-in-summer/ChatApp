@@ -39,6 +39,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
         SendMessageCommand request,
         CancellationToken cancellationToken)
     {
+        // Bước 1: kiểm tra yêu cầu gửi tin trước khi hệ thống chấp nhận xử lý.
+        // Ở đây xác nhận quyền gửi trong phòng, nội dung và danh sách media cơ bản.
         using var admissionScope = ChatMessageLogScope.Begin(
             _logger,
             messageId: null,
@@ -67,6 +69,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
         }
 
         var admitted = admission.Context;
+
         var identity = await _messageIdentityService.ResolveAsync(
             admitted.SenderId,
             admitted.ClientMessageId);
@@ -82,6 +85,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
             attempt: 0,
             correlationId: admitted.ClientMessageId);
 
+        // Bước 2: giữ chỗ các tệp đính kèm cho messageId này.
+        // Nếu attachment không còn hợp lệ thì dừng trước khi publish sự kiện.
         var reservation = await _mediaReservationService.ReserveAsync(
             admitted.MediaIds,
             admitted.SenderId,
@@ -104,6 +109,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
                     "Mot hoac nhieu tep dinh kem khong con hop le de gui."));
         }
 
+        // Bước 3: snapshot metadata attachment để hai worker dùng cùng dữ liệu.
+        // Nhánh phát cần dữ liệu hiển thị, nhánh lưu cần dữ liệu ghi bền vững.
         var mediaAssets = await _mediaReservationService.LoadForPersistenceAsync(
             admitted.MediaIds,
             admitted.SenderId,
@@ -130,6 +137,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
                     "Khong the xac nhan tep dinh kem cua tin nhan."));
         }
 
+        // Bước 4: đóng gói tin đã được chấp nhận thành một sự kiện dùng chung.
+        // Từ sự kiện này, nhánh phát realtime và nhánh lưu bền vững sẽ xử lý độc lập.
         var acceptedEvent = new MessageAcceptedEventV1
         {
             CorrelationId = admitted.ClientMessageId,
@@ -142,6 +151,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
             MediaIds = admitted.MediaIds.ToList(),
             Attachments = BuildAttachmentSnapshots(mediaAssets)
         };
+
+        // Chặn payload quá lớn trước khi đưa vào broker để worker không phải xử lý rác.
         var messagePayload = JsonSerializer.Serialize(acceptedEvent);
         var payloadBytes = Encoding.UTF8.GetByteCount(messagePayload);
         if (payloadBytes > MessageAcceptedEventV1.MaxPayloadBytes)
@@ -167,6 +178,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
 
         try
         {
+            // Bước 5: publish event vào broker.
+            // Sau điểm này, MessageDeliveryWorkerV2 và MessagePersistenceWorkerV2 đọc cùng stream.
             publishResult = await _messagePublisher.PublishAsync(
                 acceptedEvent,
                 cancellationToken);
@@ -207,6 +220,8 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
             publishResult.MessageId,
             publishResult.StreamId);
 
+        // Trả kết quả ngay cho caller để frontend đối chiếu tin tạm bằng clientMessageId.
+        // Việc phát tới người nhận và lưu MongoDB tiếp tục chạy ở worker nền.
         return new MessageAcceptedResult(
             admitted.ClientMessageId,
             publishResult.MessageId,
@@ -217,6 +232,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
     private static List<MessageAcceptedAttachmentV1> BuildAttachmentSnapshots(
         IReadOnlyList<MediaAsset> mediaAssets)
     {
+        // Snapshot chỉ chứa metadata cần thiết; worker không phải query lại MediaAsset ban đầu.
         if (mediaAssets.Count == 0)
         {
             return [];
@@ -247,6 +263,7 @@ public class SendMessageCommandHandler : IRequestHandler<SendMessageCommand, Mes
     {
         try
         {
+            // Best-effort cleanup: lỗi release không được che mất lỗi gốc của luồng gửi tin.
             await _mediaReservationService.ReleaseAsync(mediaIds, messageId, cancellationToken);
         }
         catch (Exception releaseException)

@@ -17,6 +17,9 @@ using StackExchange.Redis;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
+// Nhánh phát realtime của luồng gửi tin.
+// Worker này đọc event tin nhắn đã được chấp nhận từ Redis Stream,
+// tìm người nhận đang thuộc phòng, rồi đẩy tin xuống client qua SignalR.
 public sealed class MessageDeliveryWorkerV2 : BackgroundService
 {
     private const int WorkerId = 0;
@@ -51,20 +54,30 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var database = _brokerConnection.GetDatabase();
+
+        // Consumer name định danh instance worker đang đọc nhánh delivery.
+        // Nếu sau này scale nhiều instance, Redis dùng tên này để quản lý pending entry.
         var consumerName = _consumerIdentityProvider.GetConsumerName(
             ChatBrokerConsumerKind.Delivery,
             WorkerId);
+
+        // Reclaimer kéo lại các entry delivery bị kẹt, ví dụ worker cũ chết giữa chừng.
+        // Nhờ vậy tin chưa phát xong có thể được xử lý lại thay vì nằm pending mãi.
         var pendingEntryReclaimer = new ChatBrokerPendingEntryReclaimer(
             _keyProvider.MessageStream,
             _keyProvider.DeliveryGroup,
             consumerName,
             _brokerOptions.VisibilityTimeout,
             _brokerOptions.ReadBatchSize);
+
+        // Retry tracker ghi nhớ entry nào phát lỗi và khi nào được thử lại.
         var retryTracker = new ChatBrokerRetryTracker(
             database,
             _keyProvider,
             ChatBrokerConsumerKind.Delivery,
             _brokerOptions);
+
+        // Nếu một entry lỗi quá số lần cho phép, đưa vào dead-letter để không chặn luồng chính.
         var deadLetterPublisher = new ChatBrokerDeadLetterPublisher(
             database,
             _keyProvider,
@@ -81,6 +94,7 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         {
             try
             {
+                // Trước khi đọc tin mới, xử lý lại các tin delivery bị pending quá lâu.
                 await ReclaimPendingEntriesAsync(
                     database,
                     pendingEntryReclaimer,
@@ -89,6 +103,8 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
                     consumerName,
                     stoppingToken);
 
+                // Đọc các event mới từ stream chung, nhưng bằng consumer group của nhánh phát.
+                // Dấu ">" nghĩa là chỉ lấy entry mới chưa giao cho consumer nào trong group này.
                 var entries = await database.StreamReadGroupAsync(
                     _keyProvider.MessageStream,
                     _keyProvider.DeliveryGroup,
@@ -104,6 +120,7 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
 
                 foreach (var entry in entries)
                 {
+                    // Mỗi entry được xử lý tách biệt để một tin lỗi không làm hỏng cả batch.
                     await ProcessEntryIsolatedAsync(
                         database,
                         retryTracker,
@@ -420,9 +437,13 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         await Task.Yield();
         entryToken.ThrowIfCancellationRequested();
 
+        // Bước 1: lấy gói tin mà publisher đã đưa vào Redis Stream.
         var payload = entry.Values
             .FirstOrDefault(value => value.Name == "payload")
             .Value;
+
+        // Bước 2: đọc lại MessageAcceptedEventV1 từ gói tin.
+        // Nếu payload hỏng thì đây là lỗi vĩnh viễn, không nên retry mãi.
         var parseResult = TryParseAndValidateEvent(payload);
         if (!parseResult.IsValid || parseResult.AcceptedEvent is null)
         {
@@ -432,6 +453,9 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         }
 
         var acceptedEvent = parseResult.AcceptedEvent;
+
+        // Bước 3: tìm danh sách user cần nhận tin trong room này.
+        // Nhánh phát chỉ cần biết ai là người nhận để bắn SignalR.
         var recipientResolver = scope.ServiceProvider
             .GetRequiredService<IMessageDeliveryRecipientResolver>();
         var recipientResult = await recipientResolver.ResolveAsync(
@@ -448,6 +472,8 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         }
 
         var deliveryAtUtc = DateTime.UtcNow;
+
+        // Bước 4: chuẩn bị thông tin file đính kèm để client hiển thị được ngay.
         var attachmentResolver = scope.ServiceProvider
             .GetRequiredService<IMessageDeliveryAttachmentResolver>();
         var attachmentResult = await attachmentResolver.ResolveAsync(
@@ -464,6 +490,8 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         }
 
         var content = acceptedEvent.Content.Trim();
+
+        // Bước 5: chuyển event nội bộ thành DTO mà frontend hiểu được.
         var deliveryMessage = new MessageDeliveryDto
         {
             Id = acceptedEvent.MessageId,
@@ -483,6 +511,8 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
         var recipientUserIds = recipientResult.RecipientIds
             .Select(userId => userId.ToString())
             .ToList();
+
+        // Bước 6: phát tin xuống các client online của những user nhận tin.
         await _hubContext.Clients.Users(recipientUserIds)
             .ReceiveMessage(deliveryMessage);
 
@@ -495,6 +525,8 @@ public sealed class MessageDeliveryWorkerV2 : BackgroundService
             recipientResult.IsPeerDeliverySuppressed,
             scope.ServiceProvider.GetHashCode());
 
+        // Bước 7: ACK với Redis rằng nhánh delivery đã xử lý xong entry này.
+        // Nếu không ACK, entry sẽ còn pending và có thể bị worker khác xử lý lại.
         var acknowledgedCount = await database.StreamAcknowledgeAsync(
             _keyProvider.MessageStream,
             _keyProvider.DeliveryGroup,

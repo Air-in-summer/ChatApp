@@ -7,6 +7,7 @@ using MultiRoomChatWebApp.Server.Modules.Media.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Media.Services;
 
+/// <inheritdoc />
 public sealed class MediaService : IMediaService
 {
     private readonly AppDbContext _dbContext;
@@ -16,6 +17,7 @@ public sealed class MediaService : IMediaService
         _dbContext = dbContext;
     }
 
+    /// <inheritdoc />
     public async Task<MediaAssetDto> CreateAsync(
         CreateMediaAssetRequest request,
         CancellationToken cancellationToken)
@@ -53,6 +55,7 @@ public sealed class MediaService : IMediaService
         return ToDto(mediaAsset);
     }
 
+    /// <inheritdoc />
     public async Task<MediaAssetDto?> GetByIdAsync(Guid mediaId, CancellationToken cancellationToken)
     {
         var mediaAsset = await _dbContext.MediaAssets
@@ -62,6 +65,7 @@ public sealed class MediaService : IMediaService
         return mediaAsset == null ? null : ToDto(mediaAsset);
     }
 
+    /// <inheritdoc />
     public async Task<MediaAssetDto?> MarkAttachedAsync(
         Guid mediaId,
         string messageId,
@@ -100,6 +104,7 @@ public sealed class MediaService : IMediaService
         return ToDto(mediaAsset);
     }
 
+    /// <inheritdoc />
     public async Task<MediaAssetDto?> SoftDeleteAsync(Guid mediaId, CancellationToken cancellationToken)
     {
         var mediaAsset = await _dbContext.MediaAssets

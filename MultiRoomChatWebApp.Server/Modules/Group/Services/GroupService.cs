@@ -374,17 +374,20 @@ public class GroupService : IGroupService
 
         if (!memberRoles.Any()) return Enumerable.Empty<GroupMemberDto>();
 
-        // 2. Hydrate Profile song song từ Redis qua UserCacheService
-        var hydrationTasks = memberRoles.Select(async pair => 
+        // 2. Hydrate Profile tuần tự từ Redis qua UserCacheService để tránh lỗi đa luồng trên DbContext (Cold Cache)
+        var results = new List<GroupMemberDto>();
+        foreach (var pair in memberRoles)
         {
             var profile = await _userCacheService.GetUserAsync(pair.Key);
-            return profile != null ? new GroupMemberDto { Profile = profile, Role = pair.Value } : null;
-        });
-
-        var results = await Task.WhenAll(hydrationTasks);
+            if (profile != null)
+            {
+                results.Add(new GroupMemberDto { Profile = profile, Role = pair.Value });
+            }
+        }
 
         // Lọc bỏ null và sắp xếp theo vai trò (Owner -> Admin -> Member)
-        return results.Where(r => r != null)
+        return results
+
             .OrderBy(r => r!.Role)
             .Select(r => r!);
     }

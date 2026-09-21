@@ -26,6 +26,9 @@ public class GroupDeletedNotificationHandler : INotificationHandler<GroupDeleted
         _logger = logger;
     }
 
+    /// <summary>
+    /// Phát tín hiệu SignalR (GroupDeleted) báo Server đã bị xóa tới toàn bộ thành viên.
+    /// </summary>
     public async Task Handle(GroupDeletedEvent notification, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Broadcasting GroupDeleted notification for Group {GroupId} to {MemberCount} members", 

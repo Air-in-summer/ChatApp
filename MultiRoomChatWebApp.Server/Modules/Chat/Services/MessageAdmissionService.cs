@@ -11,6 +11,7 @@ using StackExchange.Redis;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
+/// <inheritdoc />
 public sealed class MessageAdmissionService : IMessageAdmissionService
 {
     private static readonly TimeSpan DirectMessageAllowPolicyTtl = TimeSpan.FromMinutes(5);
@@ -39,6 +40,7 @@ public sealed class MessageAdmissionService : IMessageAdmissionService
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public async Task<MessageAdmissionResult> AdmitAsync(
         SendMessageCommand request,
         CancellationToken cancellationToken)

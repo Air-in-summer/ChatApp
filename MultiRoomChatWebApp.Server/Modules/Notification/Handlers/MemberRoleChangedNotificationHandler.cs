@@ -7,7 +7,8 @@ using MultiRoomChatWebApp.Server.Modules.Group.Core.Events;
 namespace MultiRoomChatWebApp.Server.Modules.Notification.Handlers;
 
 /// <summary>
-/// Handler xử lý gửi thông báo khi một người dùng được thay đổi chức vụ.
+/// Lắng nghe sự kiện một thành viên bị thay đổi chức vụ (Role) trong Group 
+/// và chịu trách nhiệm gửi thông báo đẩy đến người dùng đó.
 /// </summary>
 public class MemberRoleChangedNotificationHandler : INotificationHandler<MemberRoleUpdatedEvent>
 {
@@ -22,6 +23,9 @@ public class MemberRoleChangedNotificationHandler : INotificationHandler<MemberR
         _logger = logger;
     }
 
+    /// <summary>
+    /// Phát tín hiệu SignalR (MemberRoleChanged) trực tiếp đến thiết bị của người dùng vừa bị thay đổi quyền.
+    /// </summary>
     public async Task Handle(MemberRoleUpdatedEvent notification, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Broadcasting MemberRoleChanged notification to User {UserId} in Group {GroupId}", 
@@ -29,6 +33,8 @@ public class MemberRoleChangedNotificationHandler : INotificationHandler<MemberR
 
         try
         {
+            // Gửi trực tiếp đến User mục tiêu (qua NameIdentifier)
+            // Kèm theo thông tin GroupId và Tên của Role mới (đã parse sang chuỗi)
             await _hubContext.Clients.User(notification.TargetUserId.ToString())
                 .MemberRoleChanged(notification.GroupId, notification.TargetUserId, notification.NewRole.ToString());
         }

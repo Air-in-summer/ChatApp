@@ -15,6 +15,8 @@ namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
 
 /// <summary>
 /// Quan ly opaque BFF session duoc persist phia server.
+/// Dịch vụ quản lý vòng đời của các phiên đăng nhập (AuthSession) được lưu trữ trong Database.
+/// Chịu trách nhiệm tạo, xác thực, gia hạn, thu hồi và vô hiệu hóa các session an toàn.
 /// </summary>
 public sealed class AuthSessionService : IAuthSessionService
 {

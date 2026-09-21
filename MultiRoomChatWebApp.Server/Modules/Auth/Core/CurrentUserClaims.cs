@@ -3,11 +3,17 @@ using MultiRoomChatWebApp.Server.Shared.Exceptions;
 
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Core;
 
+/// <summary>
+/// Lớp tiện ích giúp trích xuất các claims chuẩn (Id, Name,...) từ ClaimsPrincipal.
+/// </summary>
 public static class CurrentUserClaims
 {
     public const string SubjectClaim = "sub";
     public const string NameClaim = "name";
 
+    /// <summary>
+    /// Phân tích và lấy UserId từ NameIdentifier hoặc Subject claim.
+    /// </summary>
     public static bool TryGetUserId(ClaimsPrincipal? principal, out Guid userId)
     {
         userId = Guid.Empty;

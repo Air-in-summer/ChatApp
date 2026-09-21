@@ -26,6 +26,9 @@ public class MemberKickedNotificationHandler : INotificationHandler<MemberKicked
         _logger = logger;
     }
 
+    /// <summary>
+    /// Phát tín hiệu SignalR (YouWereKicked) trực tiếp tới user vừa bị trục xuất khỏi Server.
+    /// </summary>
     public async Task Handle(MemberKickedFromGroupEvent notification, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Broadcasting YouWereKicked notification to User {UserId} for Group {GroupId}", 

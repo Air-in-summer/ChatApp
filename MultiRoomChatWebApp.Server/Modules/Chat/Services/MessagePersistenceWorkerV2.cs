@@ -19,6 +19,9 @@ using StackExchange.Redis;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
+// Nhánh lưu bền vững của luồng gửi tin.
+// Worker này đọc cùng event với nhánh phát, nhưng nhiệm vụ là ghi tin vào MongoDB
+// để phục vụ tải lịch sử, phân trang và tìm kiếm sau này.
 public sealed class MessagePersistenceWorkerV2 : BackgroundService
 {
     private const int WorkerId = 0;
@@ -53,20 +56,29 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var database = _brokerConnection.GetDatabase();
+
+        // Consumer name định danh instance worker đang đọc nhánh persistence.
+        // Nếu scale nhiều instance, Redis dùng tên này để quản lý pending entry.
         var consumerName = _consumerIdentityProvider.GetConsumerName(
             ChatBrokerConsumerKind.Persistence,
             WorkerId);
+
+        // Reclaimer kéo lại các entry lưu trữ bị kẹt, ví dụ worker cũ chết khi chưa ACK.
         var pendingEntryReclaimer = new ChatBrokerPendingEntryReclaimer(
             _keyProvider.MessageStream,
             _keyProvider.PersistenceGroup,
             consumerName,
             _brokerOptions.VisibilityTimeout,
             _brokerOptions.ReadBatchSize);
+
+        // Retry tracker ghi nhớ entry nào lưu lỗi và khi nào được thử lại.
         var retryTracker = new ChatBrokerRetryTracker(
             database,
             _keyProvider,
             ChatBrokerConsumerKind.Persistence,
             _brokerOptions);
+
+        // Nếu lưu lỗi quá số lần cho phép, đưa vào dead-letter để không chặn luồng chính.
         var deadLetterPublisher = new ChatBrokerDeadLetterPublisher(
             database,
             _keyProvider,
@@ -83,6 +95,7 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
         {
             try
             {
+                // Trước khi đọc tin mới, xử lý lại các tin persistence bị pending quá lâu.
                 await ReclaimPendingEntriesAsync(
                     database,
                     pendingEntryReclaimer,
@@ -91,6 +104,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
                     consumerName,
                     stoppingToken);
 
+                // Đọc các event mới từ stream chung, nhưng bằng consumer group của nhánh lưu.
+                // Dấu ">" nghĩa là chỉ lấy entry mới chưa giao cho consumer nào trong group này.
                 var entries = await database.StreamReadGroupAsync(
                     _keyProvider.MessageStream,
                     _keyProvider.PersistenceGroup,
@@ -106,6 +121,7 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
 
                 foreach (var entry in entries)
                 {
+                    // Mỗi entry được xử lý tách biệt để một tin lỗi không làm hỏng cả batch.
                     await ProcessEntryIsolatedAsync(
                         database,
                         retryTracker,
@@ -550,6 +566,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
                 "Persistence event khong hop le.");
         }
 
+        // Bước 1: đã đọc được gói tin hợp lệ từ Redis Stream.
+        // Từ đây nhánh lưu chỉ tập trung ghi bền vững, không phát cho người nhận.
         _logger.LogInformation(
             "MessagePersistenceWorkerV2 da parse event hop le. EntryId={EntryId}; MessageId={MessageId}; RoomId={RoomId}; AttachmentCount={AttachmentCount}; Scope={ScopeId}",
             entry.Id,
@@ -558,6 +576,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
             parseResult.AcceptedEvent.Attachments.Count,
             scope.ServiceProvider.GetHashCode());
 
+        // Bước 2: ghi tin vào MongoDB nếu chưa có.
+        // Dùng upsert để retry cùng messageId không tạo thêm bản ghi trùng.
         var upsertResult = await PersistMessageIfAbsentAsync(
             scope.ServiceProvider,
             parseResult.AcceptedEvent,
@@ -570,6 +590,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
             upsertResult.Inserted,
             upsertResult.MatchedExisting);
 
+        // Bước 3: hoàn tất trạng thái các file đính kèm của tin nhắn.
+        // Sau bước này attachment không còn chỉ là file tạm đang chờ gửi.
         var mediaReservationService = scope.ServiceProvider
             .GetRequiredService<IChatMediaReservationService>();
         var completionResult = await mediaReservationService.CompleteWithResultAsync(
@@ -595,6 +617,9 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
             completionResult.IsNoOp);
 
         var persistedAtUtc = DateTime.UtcNow;
+
+        // Bước 4: báo riêng cho người gửi rằng tin đã được lưu bền vững.
+        // Frontend dùng event này để đổi trạng thái tin từ Accepted sang Sent.
         await _hubContext.Clients.User(parseResult.AcceptedEvent.SenderId.ToString())
             .MessagePersisted(
                 new MessagePersistedDto(
@@ -610,6 +635,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
             parseResult.AcceptedEvent.MessageId,
             parseResult.AcceptedEvent.SenderId);
 
+        // Bước 5: ACK với Redis rằng nhánh persistence đã xử lý xong entry này.
+        // Nếu không ACK, entry sẽ còn pending và có thể bị xử lý lại.
         var acknowledgedCount = await database.StreamAcknowledgeAsync(
             _keyProvider.MessageStream,
             _keyProvider.PersistenceGroup,
@@ -643,6 +670,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
         var storedAttachments = BuildStoredAttachments(acceptedEvent.Attachments);
         var messageType = DetermineMessageType(content, storedAttachments);
 
+        // Lưu theo messageId chính thức do server cấp.
+        // Nếu worker retry cùng entry, SetOnInsert giữ nguyên bản ghi đã có.
         var filter = Builders<Message>.Filter.Eq(message => message.Id, acceptedEvent.MessageId);
         var update = Builders<Message>.Update
             .SetOnInsert(message => message.Id, acceptedEvent.MessageId)
@@ -656,6 +685,8 @@ public sealed class MessagePersistenceWorkerV2 : BackgroundService
             .SetOnInsert(message => message.Status, MessageStatus.Sent)
             .SetOnInsert(message => message.CreatedAt, acceptedEvent.AcceptedAtUtc);
 
+        // Upsert = chưa có thì insert, có rồi thì không ghi đè nội dung cũ.
+        // Đây là lớp bảo vệ thứ hai sau marker Redis để tránh trùng tin khi retry.
         var result = await messagesCollection.UpdateOneAsync(
             filter,
             update,

@@ -7,7 +7,8 @@ using MultiRoomChatWebApp.Server.Modules.Room.Core.Events;
 namespace MultiRoomChatWebApp.Server.Modules.Notification.Handlers;
 
 /// <summary>
-/// Handler xử lý gửi thông báo SignalR khi có thành viên mới được thêm vào phòng Private.
+/// Lắng nghe sự kiện thêm thành viên mới vào một kênh bí mật (Private Room) 
+/// để chủ động gửi thông báo tải lại phòng tới những người đó.
 /// </summary>
 public class UsersAddedToRoomNotificationHandler : INotificationHandler<UsersAddedToPrivateRoomEvent>
 {
@@ -22,6 +23,9 @@ public class UsersAddedToRoomNotificationHandler : INotificationHandler<UsersAdd
         _logger = logger;
     }
 
+    /// <summary>
+    /// Phát tín hiệu SignalR ép client của những người dùng mới tự động fetch lại danh sách kênh.
+    /// </summary>
     public async Task Handle(UsersAddedToPrivateRoomEvent notification, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Broadcasting GroupRoomsUpdated notification to {Count} added users for Room {RoomId} in Group {GroupId}", 
@@ -29,10 +33,9 @@ public class UsersAddedToRoomNotificationHandler : INotificationHandler<UsersAdd
 
         try
         {
-            // [TRICK]: Ta sử dụng tín hiệu GroupRoomsUpdated(groupId) có sẵn.
-            // Khi nhận được, Client sẽ tự động refetch danh sách phòng của Group đó.
-            // Vì User vừa được add vào RoomMembers, nên API trả về sẽ chứa thêm phòng Private này.
-            
+            // Thay vì tạo ra một sự kiện báo có phòng mới riêng biệt,
+            // ta tái sử dụng tín hiệu GroupRoomsUpdated.
+            // Khi nhận được, Client sẽ tự gọi API lấy lại toàn bộ danh sách phòng Private mà nó được truy cập.
             foreach (var userId in notification.AddedUserIds)
             {
                 await _hubContext.Clients.User(userId.ToString())

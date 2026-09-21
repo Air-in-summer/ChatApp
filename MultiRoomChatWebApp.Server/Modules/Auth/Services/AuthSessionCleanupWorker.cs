@@ -4,7 +4,10 @@ using MultiRoomChatWebApp.Server.Infrastructure.Database;
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
 
 /// <summary>
-/// Don cac BFF session da het han hoac da revoke qua thoi gian luu giu ngan han.
+/// Background Service chạy ngầm chịu trách nhiệm dọn dẹp cơ sở dữ liệu.
+/// Định kỳ xóa các phiên đăng nhập (BFF sessions) đã hết hạn (Expired) 
+/// hoặc đã bị thu hồi (Revoked) vượt quá thời gian lưu giữ quy định,
+/// nhằm tối ưu hóa không gian lưu trữ và đảm bảo hiệu suất truy vấn.
 /// </summary>
 public sealed class AuthSessionCleanupWorker : BackgroundService
 {

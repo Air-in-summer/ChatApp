@@ -4,10 +4,16 @@ using MultiRoomChatWebApp.Server.Modules.Auth.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Services;
 
+/// <summary>
+/// Trích xuất thông tin người dùng hiện tại (ClaimsPrincipal) từ HttpContext đang hoạt động.
+/// </summary>
 public sealed class CurrentUserAccessor : ICurrentUserAccessor
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
 
+    /// <summary>
+    /// Khởi tạo accessor thông qua DI.
+    /// </summary>
     public CurrentUserAccessor(IHttpContextAccessor httpContextAccessor)
     {
         _httpContextAccessor = httpContextAccessor;

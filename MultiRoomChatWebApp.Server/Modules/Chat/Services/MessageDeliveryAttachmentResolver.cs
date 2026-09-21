@@ -12,6 +12,7 @@ using MultiRoomChatWebApp.Server.Modules.Media.Core.Options;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
+/// <inheritdoc />
 public sealed class MessageDeliveryAttachmentResolver : IMessageDeliveryAttachmentResolver
 {
     private readonly AppDbContext _dbContext;
@@ -28,6 +29,7 @@ public sealed class MessageDeliveryAttachmentResolver : IMessageDeliveryAttachme
         _mediaOptions = mediaOptions.Value;
     }
 
+    /// <inheritdoc />
     public async Task<MessageDeliveryAttachmentResult> ResolveAsync(
         MessageAcceptedEventV1 acceptedEvent,
         DateTime deliveryAtUtc,

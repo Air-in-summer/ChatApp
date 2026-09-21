@@ -18,10 +18,12 @@ appsettings.*.json
 *.http
 *.txt
 
-# Bỏ qua tất cả file .md NHƯNG giữ lại README.md
+# Bỏ qua tất cả file .md NHƯNG giữ lại README.md và thư mục project-docs
 *.md
 !README.md
 !readme.md
+!project-docs/**/*.md
+!project-docs/*.md
 
 # [Đề xuất bổ sung - Chuẩn .NET/React]
 # Node / React (multiroomchatwebapp.client)

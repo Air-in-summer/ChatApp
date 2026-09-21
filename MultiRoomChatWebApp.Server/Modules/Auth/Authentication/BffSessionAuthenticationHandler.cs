@@ -9,7 +9,10 @@ using MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Authentication;
 
 /// <summary>
-/// Xac thuc request bang opaque session cookie va du lieu session phia server.
+/// Trình xử lý xác thực chuyên biệt cho kiến trúc BFF (Backend-For-Frontend).
+/// Đọc mã phiên đăng nhập (session ID) từ HTTP Cookie an toàn, kiểm tra tính hợp lệ của phiên trong cơ sở dữ liệu
+/// thông qua AuthSessionService, và khởi tạo ClaimsPrincipal tương ứng để phân quyền cho request.
+/// Tích hợp cơ chế tự động gia hạn (Sliding Expiration) nếu phiên sắp hết hạn.
 /// </summary>
 public sealed class BffSessionAuthenticationHandler
     : AuthenticationHandler<AuthenticationSchemeOptions>

@@ -7,6 +7,7 @@ using MultiRoomChatWebApp.Server.Modules.User.Core.Interfaces;
 
 namespace MultiRoomChatWebApp.Server.Modules.Chat.Services;
 
+/// <inheritdoc />
 public sealed class MessageDeliveryRecipientResolver : IMessageDeliveryRecipientResolver
 {
     private readonly IRoomMetadataCache _roomMetadataCache;
@@ -26,6 +27,7 @@ public sealed class MessageDeliveryRecipientResolver : IMessageDeliveryRecipient
         _relationshipGraphService = relationshipGraphService;
     }
 
+    /// <inheritdoc />
     public async Task<MessageRecipientResolutionResult> ResolveAsync(
         Guid roomId,
         Guid senderId,

@@ -3,7 +3,8 @@ using Microsoft.AspNetCore.Http;
 namespace MultiRoomChatWebApp.Server.Modules.Auth.Core.Options;
 
 /// <summary>
-/// Cau hinh xac thuc BFF session.
+/// Các cấu hình liên quan đến bảo mật phiên đăng nhập, cookie, CORS và CSRF.
+/// Áp dụng mẫu Options Pattern để lấy giá trị từ file cấu hình (appsettings.json).
 /// </summary>
 public sealed class BffAuthOptions
 {

@@ -7,7 +7,8 @@ using MultiRoomChatWebApp.Server.Modules.Voice.Core.Events;
 namespace MultiRoomChatWebApp.Server.Modules.Notification.Handlers;
 
 /// <summary>
-/// Handler gửi SignalR notification cho lifecycle DM call.
+/// Quản lý vòng đời thông báo của các cuộc gọi đàm thoại trực tiếp (Voice Call 1-1).
+/// Tiếp nhận các domain event từ module Voice và chuyển tiếp thành tín hiệu đổ chuông, bắt máy, hoặc kết thúc.
 /// </summary>
 public class VoiceCallNotificationHandler :
     INotificationHandler<VoiceCallIncomingEvent>,
@@ -26,6 +27,9 @@ public class VoiceCallNotificationHandler :
         _logger = logger;
     }
 
+    /// <summary>
+    /// Phát tín hiệu đổ chuông cuộc gọi đến (VoiceCallIncoming) tới người nhận.
+    /// </summary>
     public async Task Handle(VoiceCallIncomingEvent notification, CancellationToken cancellationToken)
     {
         try
@@ -43,6 +47,9 @@ public class VoiceCallNotificationHandler :
         }
     }
 
+    /// <summary>
+    /// Phát tín hiệu báo đối phương đã bắt máy (VoiceCallAccepted).
+    /// </summary>
     public async Task Handle(VoiceCallAcceptedEvent notification, CancellationToken cancellationToken)
     {
         try
@@ -60,6 +67,9 @@ public class VoiceCallNotificationHandler :
         }
     }
 
+    /// <summary>
+    /// Phát tín hiệu báo đối phương đã từ chối cuộc gọi (VoiceCallDeclined).
+    /// </summary>
     public async Task Handle(VoiceCallDeclinedEvent notification, CancellationToken cancellationToken)
     {
         try
@@ -77,6 +87,9 @@ public class VoiceCallNotificationHandler :
         }
     }
 
+    /// <summary>
+    /// Phát tín hiệu kết thúc cuộc gọi (VoiceCallEnded) tới các bên.
+    /// </summary>
     public async Task Handle(VoiceCallEndedEvent notification, CancellationToken cancellationToken)
     {
         foreach (var userId in notification.TargetUserIds.Distinct())

@@ -24,10 +24,7 @@ public class RoomCreatedNotificationHandler : INotificationHandler<RoomCreatedIn
     }
 
     /// <summary>
-    /// Luồng xử lý:
-    /// 1. Nhận sự kiện RoomCreatedInGroupEvent.
-    /// 2. Duyệt qua danh sách MemberIds của Group.
-    /// 3. Sử dụng SignalR HubContext để gửi tín hiệu "GroupRoomsUpdated" tới từng User.
+    /// Phát tín hiệu SignalR nhắc cập nhật danh sách khi có phòng mới được tạo.
     /// </summary>
     public async Task Handle(RoomCreatedInGroupEvent notification, CancellationToken cancellationToken)
     {
